@@ -1,0 +1,479 @@
+@import "katex/dist/katex.min.css";
+@import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Geist:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Lora:ital,wght@0,400;0,500;0,600;1,400&family=Merriweather:ital,wght@0,300;0,400;0,700;1,300&family=Outfit:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Poppins:wght@300;400;500;600;700&family=Roboto:wght@300;400;500;700&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Universal Typography Variables & Cascade */
+:root {
+  --font-family-current: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+[data-font="inter"], [data-font="inter"] * {
+  --font-family-current: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+[data-font="jakarta"], [data-font="jakarta"] * {
+  --font-family-current: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+[data-font="geist"], [data-font="geist"] * {
+  --font-family-current: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+[data-font="jetbrains"], [data-font="jetbrains"] * {
+  --font-family-current: 'JetBrains Mono', monospace;
+}
+
+[data-font="merriweather"], [data-font="merriweather"] * {
+  --font-family-current: 'Merriweather', Georgia, serif;
+}
+
+[data-font="space"], [data-font="space"] * {
+  --font-family-current: 'Space Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+[data-font="fira-code"], [data-font="fira-code"] * {
+  --font-family-current: 'Fira Code', monospace;
+}
+
+[data-font="outfit"], [data-font="outfit"] * {
+  --font-family-current: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+[data-font="poppins"], [data-font="poppins"] * {
+  --font-family-current: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+[data-font="lora"], [data-font="lora"] * {
+  --font-family-current: 'Lora', Georgia, serif;
+}
+
+[data-font="roboto"], [data-font="roboto"] * {
+  --font-family-current: 'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+html, body, button, input, textarea, select {
+  font-family: var(--font-family-current) !important;
+}
+
+/* Default Light */
+:root, [data-theme="light"] {
+  --background: #ffffff;
+  --foreground: #0f172a;
+  --sidebar-bg: #f8fafc;
+  --sidebar-hover: #f1f5f9;
+  --sidebar-active: #e2e8f0;
+  --sidebar-border: #e2e8f0;
+  --card-bg: #ffffff;
+  --card-border: #e2e8f0;
+  --muted: #64748b;
+  --muted-bg: #f1f5f9;
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --user-bubble: #f1f5f9;
+  --input-bg: #ffffff;
+  --input-border: #cbd5e1;
+  --header-bg: rgba(255, 255, 255, 0.85);
+}
+
+/* Default Midnight Dark */
+[data-theme="dark"], .dark:not([data-theme]) {
+  --background: #0f172a;
+  --foreground: #f8fafc;
+  --sidebar-bg: #0b1120;
+  --sidebar-hover: #1e293b;
+  --sidebar-active: #334155;
+  --sidebar-border: #1e293b;
+  --card-bg: #1e293b;
+  --card-border: #334155;
+  --muted: #94a3b8;
+  --muted-bg: #1e293b;
+  --accent: #3b82f6;
+  --accent-hover: #60a5fa;
+  --user-bubble: #1e293b;
+  --input-bg: #1e293b;
+  --input-border: #334155;
+  --header-bg: rgba(15, 23, 42, 0.85);
+}
+
+/* OLED Black (AMOLED High Contrast) */
+[data-theme="oled"] {
+  --background: #000000;
+  --foreground: #f4f4f5;
+  --sidebar-bg: #050505;
+  --sidebar-hover: #171717;
+  --sidebar-active: #262626;
+  --sidebar-border: #222222;
+  --card-bg: #0c0c0c;
+  --card-border: #222222;
+  --muted: #a1a1aa;
+  --muted-bg: #141414;
+  --accent: #10b981;
+  --accent-hover: #34d399;
+  --user-bubble: #141414;
+  --input-bg: #0a0a0a;
+  --input-border: #262626;
+  --header-bg: rgba(0, 0, 0, 0.9);
+}
+
+/* Cyberpunk Neon */
+[data-theme="cyberpunk"] {
+  --background: #0b071e;
+  --foreground: #f8fafc;
+  --sidebar-bg: #070314;
+  --sidebar-hover: #1b0e3b;
+  --sidebar-active: #2f1863;
+  --sidebar-border: #281454;
+  --card-bg: #130a30;
+  --card-border: #32196a;
+  --muted: #c084fc;
+  --muted-bg: #1c0e42;
+  --accent: #ec4899;
+  --accent-hover: #f472b6;
+  --user-bubble: #1e0e47;
+  --input-bg: #130a30;
+  --input-border: #3d1f85;
+  --header-bg: rgba(11, 7, 30, 0.88);
+}
+
+/* Forest Emerald */
+[data-theme="forest"] {
+  --background: #061712;
+  --foreground: #ecfdf5;
+  --sidebar-bg: #030f0b;
+  --sidebar-hover: #0d2820;
+  --sidebar-active: #14382d;
+  --sidebar-border: #13382c;
+  --card-bg: #0a241c;
+  --card-border: #184738;
+  --muted: #6ee7b7;
+  --muted-bg: #0f3025;
+  --accent: #10b981;
+  --accent-hover: #34d399;
+  --user-bubble: #0e2e24;
+  --input-bg: #09211a;
+  --input-border: #1b4d3d;
+  --header-bg: rgba(6, 23, 18, 0.88);
+}
+
+/* Sunset Warm Amber */
+[data-theme="sunset"] {
+  --background: #181211;
+  --foreground: #fff7ed;
+  --sidebar-bg: #0f0b0a;
+  --sidebar-hover: #261c1a;
+  --sidebar-active: #382926;
+  --sidebar-border: #332320;
+  --card-bg: #211917;
+  --card-border: #3d2b27;
+  --muted: #fdba74;
+  --muted-bg: #291e1b;
+  --accent: #f97316;
+  --accent-hover: #fb923c;
+  --user-bubble: #281d1a;
+  --input-bg: #1e1614;
+  --input-border: #44302b;
+  --header-bg: rgba(24, 18, 17, 0.88);
+}
+
+/* Nord Arctic */
+[data-theme="nord"] {
+  --background: #1e222a;
+  --foreground: #eceff4;
+  --sidebar-bg: #181b21;
+  --sidebar-hover: #262b35;
+  --sidebar-active: #2e3440;
+  --sidebar-border: #2b313d;
+  --card-bg: #232832;
+  --card-border: #333a48;
+  --muted: #88c0d0;
+  --muted-bg: #282e3b;
+  --accent: #88c0d0;
+  --accent-hover: #8fbcbb;
+  --user-bubble: #282f3c;
+  --input-bg: #232832;
+  --input-border: #3b4252;
+  --header-bg: rgba(30, 34, 42, 0.88);
+}
+
+/* Claude Warm Amber Theme */
+[data-theme="claude"] {
+  --background: #1f1e1b;
+  --foreground: #f5f4ef;
+  --sidebar-bg: #181715;
+  --sidebar-hover: #262421;
+  --sidebar-active: #312e2a;
+  --sidebar-border: #2c2925;
+  --card-bg: #272522;
+  --card-border: #383530;
+  --muted: #c5b8a5;
+  --muted-bg: #2b2824;
+  --accent: #d97706;
+  --accent-hover: #b45309;
+  --user-bubble: #2d2b27;
+  --input-bg: #24221f;
+  --input-border: #3d3934;
+  --header-bg: rgba(31, 30, 27, 0.9);
+}
+
+/* Dracula Theme */
+[data-theme="dracula"] {
+  --background: #282a36;
+  --foreground: #f8f8f2;
+  --sidebar-bg: #21222c;
+  --sidebar-hover: #343746;
+  --sidebar-active: #44475a;
+  --sidebar-border: #3b3e52;
+  --card-bg: #343746;
+  --card-border: #44475a;
+  --muted: #bd93f9;
+  --muted-bg: #323544;
+  --accent: #ff79c6;
+  --accent-hover: #ff92d0;
+  --user-bubble: #3d4054;
+  --input-bg: #2f3240;
+  --input-border: #4a4e63;
+  --header-bg: rgba(40, 42, 54, 0.9);
+}
+
+/* Catppuccin Mocha Theme */
+[data-theme="catppuccin"] {
+  --background: #1e1e2e;
+  --foreground: #cdd6f4;
+  --sidebar-bg: #181825;
+  --sidebar-hover: #313244;
+  --sidebar-active: #45475a;
+  --sidebar-border: #313244;
+  --card-bg: #28293d;
+  --card-border: #3d3f58;
+  --muted: #a6adc8;
+  --muted-bg: #26273b;
+  --accent: #cba6f7;
+  --accent-hover: #b4befe;
+  --user-bubble: #313244;
+  --input-bg: #242438;
+  --input-border: #3d3f58;
+  --header-bg: rgba(30, 30, 46, 0.9);
+}
+
+/* Tokyo Night Theme */
+[data-theme="tokyo-night"] {
+  --background: #1a1b26;
+  --foreground: #a9b1d6;
+  --sidebar-bg: #16161e;
+  --sidebar-hover: #24283b;
+  --sidebar-active: #323851;
+  --sidebar-border: #232738;
+  --card-bg: #202334;
+  --card-border: #2f344d;
+  --muted: #7aa2f7;
+  --muted-bg: #1f2335;
+  --accent: #7dcfff;
+  --accent-hover: #bb9af7;
+  --user-bubble: #282e46;
+  --input-bg: #1e2130;
+  --input-border: #2c324a;
+  --header-bg: rgba(26, 27, 38, 0.9);
+}
+
+/* Rosé Pine Theme */
+[data-theme="rose-pine"] {
+  --background: #191724;
+  --foreground: #e0def4;
+  --sidebar-bg: #14121f;
+  --sidebar-hover: #26233a;
+  --sidebar-active: #312d4d;
+  --sidebar-border: #26233a;
+  --card-bg: #211f32;
+  --card-border: #363252;
+  --muted: #9ccfd8;
+  --muted-bg: #211f30;
+  --accent: #eb6f92;
+  --accent-hover: #f6c177;
+  --user-bubble: #2a273f;
+  --input-bg: #1f1d2e;
+  --input-border: #393556;
+  --header-bg: rgba(25, 23, 36, 0.9);
+}
+
+html {
+  font-size: 14px;
+}
+
+@media (min-width: 640px) {
+  html {
+    font-size: 14.5px;
+  }
+}
+
+html, body {
+  height: 100%;
+  height: 100dvh;
+  margin: 0;
+  padding: 0;
+  color: var(--foreground);
+  background: var(--background);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
+  overflow: hidden;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.25);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.5);
+}
+
+/* Touch scrolling */
+.touch-scroll {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+}
+
+/* Markdown typography styling */
+.prose-custom {
+  font-size: 0.925rem;
+  line-height: 1.65;
+}
+
+@media (min-width: 640px) {
+  .prose-custom {
+    font-size: 0.975rem;
+    line-height: 1.7;
+  }
+}
+
+.prose-custom p {
+  margin-bottom: 0.75rem;
+}
+
+.prose-custom p:last-child {
+  margin-bottom: 0;
+}
+
+.prose-custom h1,
+.prose-custom h2,
+.prose-custom h3,
+.prose-custom h4 {
+  font-weight: 600;
+  margin-top: 1.1rem;
+  margin-bottom: 0.5rem;
+  color: inherit;
+}
+
+.prose-custom h1 { font-size: 1.3rem; }
+.prose-custom h2 { font-size: 1.15rem; }
+.prose-custom h3 { font-size: 1.05rem; }
+
+.prose-custom ul,
+.prose-custom ol {
+  margin-top: 0.35rem;
+  margin-bottom: 0.75rem;
+  padding-left: 1.25rem;
+}
+
+.prose-custom ul {
+  list-style-type: disc;
+}
+
+.prose-custom ol {
+  list-style-type: decimal;
+}
+
+.prose-custom li {
+  margin-bottom: 0.2rem;
+}
+
+.prose-custom blockquote {
+  border-left: 3px solid var(--accent);
+  padding-left: 0.75rem;
+  font-style: italic;
+  margin: 0.75rem 0;
+  opacity: 0.9;
+}
+
+.prose-custom table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.85rem 0;
+  font-size: 0.85rem;
+  display: block;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.prose-custom th,
+.prose-custom td {
+  border: 1px solid var(--sidebar-border);
+  padding: 0.4rem 0.6rem;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.prose-custom th {
+  background-color: var(--sidebar-hover);
+  font-weight: 600;
+}
+
+.prose-custom code:not(pre code) {
+  background-color: var(--muted-bg);
+  padding: 0.15rem 0.35rem;
+  border-radius: 0.25rem;
+  font-size: 0.85em;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  word-break: break-word;
+}
+
+/* KaTeX equations margin and touch scroll */
+.katex-display {
+  margin: 0.6rem 0 !important;
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+  padding: 0.25rem 0;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Animation for spinning vinyl album cover */
+@keyframes spin-slow {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-spin-slow {
+  animation: spin-slow 10s linear infinite;
+}
+
+/* Hardware Acceleration & Rendering Performance Optimizations */
+.gpu-accelerated {
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  will-change: transform, opacity;
+}
+
+/* Smooth Virtualized Scrolling Optimization */
+.chat-scroll-container {
+  scroll-behavior: smooth;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+  transform: translateZ(0);
+}
