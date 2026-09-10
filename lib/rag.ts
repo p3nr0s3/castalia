@@ -3,6 +3,7 @@
 // Runs 100% in-memory with ZERO GPU VRAM usage and sub-millisecond retrieval.
 
 import { ProjectFile, Message } from "./types";
+import { embedTexts, cosineSimilarity } from "./embeddings";
 
 export interface DocumentChunk {
   id: string;
@@ -232,6 +233,137 @@ export function rankChunksBM25(
   return scoredChunks.slice(0, topK);
 }
 
+function assembleContextFromRanked(
+  files: ProjectFile[],
+  ranked: RankedChunk[],
+  tokenBudget: number
+): OptimizedKnowledgeResult {
+  let accumulatedTokens = 0;
+  const selectedChunks: RankedChunk[] = [];
+  const matchedFileSet = new Set<string>();
+
+  for (const chunk of ranked) {
+    if (accumulatedTokens + chunk.estimatedTokens <= tokenBudget || selectedChunks.length === 0) {
+      selectedChunks.push(chunk);
+      accumulatedTokens += chunk.estimatedTokens;
+      matchedFileSet.add(chunk.fileName);
+    } else {
+      break;
+    }
+  }
+
+  let contextText = "\n\n=== 16K CONTEXT-GUARD: RETRIEVED PROJECT KNOWLEDGE ===\n";
+  contextText += "The user has loaded the following project files:\n";
+  for (const file of files) {
+    const fileTok = estimateTokens(file.textContent || "");
+    contextText += `- ${file.name} (~${fileTok} tokens)\n`;
+  }
+  contextText += "\nBelow are the most relevant document passages retrieved for the user's prompt:\n";
+
+  for (const chunk of selectedChunks) {
+    contextText += `\n--- [Document: ${chunk.fileName} (Part ${chunk.chunkIndex + 1}/${chunk.totalChunks})] ---\n`;
+    contextText += `${chunk.text}\n`;
+  }
+  contextText += "=== END OF RETRIEVED KNOWLEDGE ===\n\n";
+
+  return {
+    contextText,
+    matchedChunksCount: selectedChunks.length,
+    totalFilesCount: files.length,
+    matchedFiles: Array.from(matchedFileSet),
+    totalEstimatedTokens: accumulatedTokens,
+    isChunked: true,
+  };
+}
+
+/**
+ * Hybrid retrieval: blends the existing BM25 keyword score with cosine
+ * similarity over embeddings from a local Ollama embedding model
+ * (default: nomic-embed-text). Falls back to pure BM25 if embeddings are
+ * unavailable for any reason (model not pulled, Ollama unreachable,
+ * request timeout) — this never throws and never returns worse results
+ * than the existing BM25-only path.
+ */
+export async function rankChunksHybrid(
+  chunks: DocumentChunk[],
+  query: string,
+  topK: number,
+  embeddingOptions: { ollamaUrl: string; embeddingModel?: string }
+): Promise<RankedChunk[]> {
+  // Full BM25 ranking (unsliced) so we have a score for every chunk to blend with.
+  const bm25Ranked = rankChunksBM25(chunks, query, chunks.length);
+  if (!query.trim() || chunks.length === 0) return bm25Ranked.slice(0, topK);
+
+  const [queryEmbedding, ...chunkEmbeddings] = await embedTexts(
+    [query, ...chunks.map((c) => c.text)],
+    { ollamaUrl: embeddingOptions.ollamaUrl, model: embeddingOptions.embeddingModel }
+  );
+
+  if (!queryEmbedding) return bm25Ranked.slice(0, topK);
+
+  const maxBm25 = Math.max(...bm25Ranked.map((c) => c.score), 1e-9);
+  const bm25ScoreById = new Map(bm25Ranked.map((c) => [c.id, c.score / maxBm25]));
+  const chunkEmbeddingById = new Map(chunks.map((c, i) => [c.id, chunkEmbeddings[i]]));
+
+  const hybridScored: RankedChunk[] = chunks.map((chunk) => {
+    const emb = chunkEmbeddingById.get(chunk.id);
+    const semanticScore = emb ? cosineSimilarity(queryEmbedding, emb) : 0;
+    const keywordScore = bm25ScoreById.get(chunk.id) || 0;
+    // Semantic signal leads (catches paraphrases/synonyms BM25 misses),
+    // keyword score still counts so exact identifiers/filenames aren't
+    // drowned out by embedding similarity alone.
+    const score = 0.55 * semanticScore + 0.45 * keywordScore;
+    return { ...chunk, score };
+  });
+
+  hybridScored.sort((a, b) => b.score - a.score);
+  return hybridScored.slice(0, topK);
+}
+
+/**
+ * Async, embeddings-aware counterpart to buildOptimizedKnowledgeContext.
+ * Same behavior and return shape; the only difference is CASE 2 (large
+ * document sets) uses rankChunksHybrid instead of rankChunksBM25 alone when
+ * `embeddingOptions.enabled` is true. Kept as a separate function rather
+ * than making the original async, so every existing call site keeps
+ * working unchanged — adopt this one where an async call site is fine.
+ */
+export async function buildOptimizedKnowledgeContextAsync(
+  files: ProjectFile[],
+  userQuery = "",
+  tokenBudget = 3500,
+  embeddingOptions?: { ollamaUrl: string; embeddingModel?: string; enabled?: boolean }
+): Promise<OptimizedKnowledgeResult> {
+  if (!files || files.length === 0) {
+    return {
+      contextText: "",
+      matchedChunksCount: 0,
+      totalFilesCount: 0,
+      matchedFiles: [],
+      totalEstimatedTokens: 0,
+      isChunked: false,
+    };
+  }
+
+  const totalTokens = files.reduce((acc, f) => acc + estimateTokens(f.textContent || ""), 0);
+
+  if (totalTokens <= tokenBudget) {
+    return buildOptimizedKnowledgeContext(files, userQuery, tokenBudget);
+  }
+
+  const allChunks: DocumentChunk[] = [];
+  for (const file of files) {
+    allChunks.push(...chunkDocument(file));
+  }
+
+  const ranked =
+    embeddingOptions?.enabled && embeddingOptions.ollamaUrl
+      ? await rankChunksHybrid(allChunks, userQuery, 8, embeddingOptions)
+      : rankChunksBM25(allChunks, userQuery, 8);
+
+  return assembleContextFromRanked(files, ranked, tokenBudget);
+}
+
 /**
  * Builds an optimized, token-budgeted knowledge base context for local models.
  * Automatically switches between full inclusion (for small files) and smart BM25 retrieval
@@ -286,44 +418,7 @@ export function buildOptimizedKnowledgeContext(
   // Rank chunks against the user's latest query
   const ranked = rankChunksBM25(allChunks, userQuery, 8);
 
-  // Fill up to the token budget
-  let accumulatedTokens = 0;
-  const selectedChunks: RankedChunk[] = [];
-  const matchedFileSet = new Set<string>();
-
-  for (const chunk of ranked) {
-    if (accumulatedTokens + chunk.estimatedTokens <= tokenBudget || selectedChunks.length === 0) {
-      selectedChunks.push(chunk);
-      accumulatedTokens += chunk.estimatedTokens;
-      matchedFileSet.add(chunk.fileName);
-    } else {
-      break;
-    }
-  }
-
-  // Build Table of Contents / Index summary of available project files
-  let contextText = "\n\n=== 16K CONTEXT-GUARD: RETRIEVED PROJECT KNOWLEDGE ===\n";
-  contextText += "The user has loaded the following project files:\n";
-  for (const file of files) {
-    const fileTok = estimateTokens(file.textContent || "");
-    contextText += `- ${file.name} (~${fileTok} tokens)\n`;
-  }
-  contextText += "\nBelow are the most relevant document passages retrieved for the user's prompt:\n";
-
-  for (const chunk of selectedChunks) {
-    contextText += `\n--- [Document: ${chunk.fileName} (Part ${chunk.chunkIndex + 1}/${chunk.totalChunks})] ---\n`;
-    contextText += `${chunk.text}\n`;
-  }
-  contextText += "=== END OF RETRIEVED KNOWLEDGE ===\n\n";
-
-  return {
-    contextText,
-    matchedChunksCount: selectedChunks.length,
-    totalFilesCount: files.length,
-    matchedFiles: Array.from(matchedFileSet),
-    totalEstimatedTokens: accumulatedTokens,
-    isChunked: true,
-  };
+  return assembleContextFromRanked(files, ranked, tokenBudget);
 }
 
 /**

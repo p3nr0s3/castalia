@@ -48,7 +48,7 @@ import {
 } from "@/lib/directoryData";
 import { MusicPlayerWidget, NowPlayingInfo } from "@/components/MusicPlayerWidget";
 import { CodespaceView } from "@/components/CodespaceView";
-import { buildOptimizedKnowledgeContext, trimChatHistoryForBudget } from "@/lib/rag";
+import { buildOptimizedKnowledgeContextAsync, trimChatHistoryForBudget } from "@/lib/rag";
 import {
   buildMusicPromptDirective,
   executeMusicActionFromResponse,
@@ -826,18 +826,22 @@ export default function HomePage() {
   };
 
   // Helper to construct effective system prompt including project knowledge and skills
-  const getEffectiveSystemPrompt = (
+  const getEffectiveSystemPrompt = async (
     conv: Conversation,
     userQuery = ""
-  ): { prompt: string; knowledgeNotice?: string } => {
+  ): Promise<{ prompt: string; knowledgeNotice?: string }> => {
     const proj = conv.projectId ? projects.find((p) => p.id === conv.projectId) : null;
     let basePrompt = conv.systemPrompt || proj?.systemPrompt || settings.defaultSystemPrompt;
     let knowledgeNotice = "";
 
-    // 1. Inject Project Knowledge Base (Optimized with Smart BM25 Chunking & 16K Context Guard)
+    // 1. Inject Project Knowledge Base (BM25, or hybrid BM25+embeddings when
+    // Settings > semanticRagEnabled is on) with 16K Context Guard budgeting.
     if (proj && proj.files && proj.files.length > 0) {
-      // Safe context window budgeting: limit knowledge chunks to ~3,500 tokens
-      const knowledgeResult = buildOptimizedKnowledgeContext(proj.files, userQuery, 3500);
+      const knowledgeResult = await buildOptimizedKnowledgeContextAsync(proj.files, userQuery, 3500, {
+        ollamaUrl: settings.ollamaUrl,
+        embeddingModel: settings.embeddingModel,
+        enabled: Boolean(settings.semanticRagEnabled),
+      });
       if (knowledgeResult.contextText) {
         basePrompt = `${basePrompt}${knowledgeResult.contextText}`;
         if (knowledgeResult.isChunked) {
@@ -1199,7 +1203,7 @@ export default function HomePage() {
     abortControllerRef.current = abortController;
 
     try {
-      const { prompt: baseEffectivePrompt, knowledgeNotice } = getEffectiveSystemPrompt(convWithNewMessages, trimmedInput);
+      const { prompt: baseEffectivePrompt, knowledgeNotice } = await getEffectiveSystemPrompt(convWithNewMessages, trimmedInput);
       const effectiveDiskToolsActive =
         diskToolsActive || skillsRequireDiskTools(settings.skills || DEFAULT_SKILLS, convWithNewMessages.activeSkillIds);
       let accumulatedText = connectorNotice || knowledgeNotice || "";
@@ -1599,7 +1603,7 @@ export default function HomePage() {
         prev.map((c) => (c.id === targetId ? convWithNewMessages : c))
       );
 
-      const { prompt: baseEffectivePrompt } = getEffectiveSystemPrompt(convWithNewMessages, trimmedInput);
+      const { prompt: baseEffectivePrompt } = await getEffectiveSystemPrompt(convWithNewMessages, trimmedInput);
 
       let toneDirective = "";
       if (tone === "casual") {
@@ -1720,7 +1724,7 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
 
     try {
       let accumulatedText = "";
-      const { prompt: effectiveSystemPrompt } = getEffectiveSystemPrompt(updatedConv, lastUserMessage.content);
+      const { prompt: effectiveSystemPrompt } = await getEffectiveSystemPrompt(updatedConv, lastUserMessage.content);
 
       // Enforce 16K Context Window Budget on regenerated chat
       const targetCtx = activeConversation.numCtx ?? currentProject?.numCtx ?? settings.numCtx ?? 16384;
@@ -1850,7 +1854,7 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
   };
 
   // Edit Message
-  const handleEditMessage = (messageId: string, newContent: string) => {
+  const handleEditMessage = async (messageId: string, newContent: string) => {
     if (!activeConversation) return;
     const msgIndex = activeConversation.messages.findIndex((m) => m.id === messageId);
     if (msgIndex === -1) return;
@@ -1891,7 +1895,7 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
     abortControllerRef.current = abortController;
 
     let accumulatedText = "";
-    const { prompt: effectiveSystemPrompt } = getEffectiveSystemPrompt(convWithPlaceholder, newContent);
+    const { prompt: effectiveSystemPrompt } = await getEffectiveSystemPrompt(convWithPlaceholder, newContent);
 
     // Enforce 16K Context Window Budget on edited chat
     const targetCtx = activeConversation.numCtx ?? currentProject?.numCtx ?? settings.numCtx ?? 16384;

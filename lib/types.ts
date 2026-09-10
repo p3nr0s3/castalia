@@ -405,6 +405,16 @@ export interface AppSettings {
   webSearchDefault: boolean;
   defaultModel: string;
   defaultSystemPrompt: string;
+  /**
+   * When true, project-knowledge retrieval blends BM25 keyword scoring with
+   * cosine similarity over embeddings from a local Ollama embedding model
+   * (see lib/embeddings.ts, lib/rag.ts:rankChunksHybrid). Off by default —
+   * requires an embedding model to be pulled in Ollama
+   * (e.g. `ollama pull nomic-embed-text`) and falls back to pure BM25
+   * automatically if the embedding call fails for any reason.
+   */
+  semanticRagEnabled?: boolean;
+  embeddingModel?: string;
   temperature: number;
   topP: number;
   topK: number;

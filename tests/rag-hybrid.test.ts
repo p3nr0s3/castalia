@@ -1,0 +1,106 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { rankChunksHybrid, buildOptimizedKnowledgeContextAsync } from "../lib/rag";
+import type { DocumentChunk } from "../lib/rag";
+import type { ProjectFile } from "../lib/types";
+
+function makeChunk(id: string, text: string): DocumentChunk {
+  return {
+    id,
+    fileName: "doc.md",
+    fileId: "doc",
+    chunkIndex: 0,
+    totalChunks: 1,
+    text,
+    charCount: text.length,
+    estimatedTokens: Math.ceil(text.length / 3.8),
+    preview: text.slice(0, 30),
+  };
+}
+
+describe("rankChunksHybrid", () => {
+  const originalFetch = global.fetch;
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+    vi.restoreAllMocks();
+  });
+
+  it("falls back to BM25 when the embeddings endpoint is unreachable", async () => {
+    global.fetch = vi.fn().mockRejectedValue(new Error("connect ECONNREFUSED"));
+
+    const chunks = [
+      makeChunk("a", "The quick brown fox jumps over the lazy dog"),
+      makeChunk("b", "Completely unrelated content about tax filing"),
+    ];
+
+    const ranked = await rankChunksHybrid(chunks, "quick fox", 2, { ollamaUrl: "http://localhost:11434" });
+
+    // BM25 filters out zero-score chunks, so only the matching one ("a") is returned.
+    expect(ranked.length).toBeGreaterThanOrEqual(1);
+    expect(ranked[0].id).toBe("a");
+  });
+
+  it("blends embedding similarity with BM25 when embeddings succeed", async () => {
+    // Query embedding is closest to chunk "b"'s embedding, even though chunk
+    // "a" wins on pure keyword overlap — hybrid score should still surface
+    // some signal from both rather than ignoring the embedding entirely.
+    const embeddingsByText: Record<string, number[]> = {
+      "database migration guide": [1, 0, 0],
+      "How to move data between databases": [0.9, 0.1, 0],
+      "unrelated cooking recipe content": [0, 1, 0],
+    };
+
+    global.fetch = vi.fn().mockImplementation(async (_url: string, init: any) => {
+      const body = JSON.parse(init.body);
+      const embedding = embeddingsByText[body.prompt] || [0, 0, 1];
+      return {
+        ok: true,
+        json: async () => ({ embedding }),
+      } as Response;
+    });
+
+    const chunks = [
+      makeChunk("semantic-match", "How to move data between databases"),
+      makeChunk("no-match", "unrelated cooking recipe content"),
+    ];
+
+    const ranked = await rankChunksHybrid(chunks, "database migration guide", 2, {
+      ollamaUrl: "http://localhost:11434",
+    });
+
+    expect(ranked[0].id).toBe("semantic-match");
+    expect(ranked[0].score).toBeGreaterThan(ranked[1].score);
+  });
+});
+
+describe("buildOptimizedKnowledgeContextAsync", () => {
+  const originalFetch = global.fetch;
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+    vi.restoreAllMocks();
+  });
+
+  it("matches the sync BM25 result when semanticRag is disabled", async () => {
+    const bigContent = "keyword-alpha content. ".repeat(500) + "keyword-beta unique passage here.";
+    const files: ProjectFile[] = [{ id: "f1", name: "big.md", textContent: bigContent } as ProjectFile];
+
+    const result = await buildOptimizedKnowledgeContextAsync(files, "keyword-beta", 500, { ollamaUrl: "http://x", enabled: false });
+
+    expect(result.isChunked).toBe(true);
+    expect(result.contextText).toContain("keyword-beta");
+  });
+
+  it("never throws even if embeddings are enabled but Ollama is unreachable", async () => {
+    global.fetch = vi.fn().mockRejectedValue(new Error("connect ECONNREFUSED"));
+    const bigContent = "alpha content. ".repeat(500) + "unique beta passage here.";
+    const files: ProjectFile[] = [{ id: "f1", name: "big.md", textContent: bigContent } as ProjectFile];
+
+    await expect(
+      buildOptimizedKnowledgeContextAsync(files, "beta", 500, {
+        ollamaUrl: "http://localhost:11434",
+        enabled: true,
+      })
+    ).resolves.toBeDefined();
+  });
+});

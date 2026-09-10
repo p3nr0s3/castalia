@@ -55,6 +55,8 @@ import {
 
 export const DEFAULT_SETTINGS: AppSettings = {
   ollamaUrl: "http://localhost:11434",
+  semanticRagEnabled: false,
+  embeddingModel: "nomic-embed-text",
   searxngUrl: "http://localhost:8080",
   webSearchDefault: false,
   defaultModel: "",
