@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import Database from "better-sqlite3";
+import type BetterSqlite3 from "better-sqlite3";
 import { AppSettings, Conversation, PersonaPreset, Project, AgentTask, PendingApproval } from "./types";
 import { DEFAULT_SETTINGS, PRESET_PERSONAS } from "./constants";
 
@@ -16,139 +16,21 @@ export interface ServerDatabase {
 }
 
 const DATA_DIR = path.join(process.cwd(), "data");
-const DB_FILE = path.join(DATA_DIR, "db.sqlite3");
-// Previous storage format (flat JSON file, fully rewritten on every save).
-// Migrated once into SQLite below, then renamed to *.migrated.bak so it's
-// never silently out of sync with the real (SQLite) data going forward.
-const LEGACY_JSON_FILE = path.join(DATA_DIR, "db.json");
+const SQLITE_FILE = path.join(DATA_DIR, "db.sqlite3");
+const JSON_FILE = path.join(DATA_DIR, "db.json");
 
-let dbInstance: Database.Database | null = null;
+const DEFAULT_DB: ServerDatabase = {
+  conversations: [],
+  projects: [],
+  agents: [],
+  settings: DEFAULT_SETTINGS,
+  personas: PRESET_PERSONAS,
+  pendingApprovals: [],
+  lastUpdated: Date.now(),
+  version: 1,
+};
 
-function getDb(): Database.Database {
-  if (dbInstance) return dbInstance;
-
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-  const isNewDatabase = !fs.existsSync(DB_FILE);
-
-  const database = new Database(DB_FILE);
-  // WAL = readers don't block writers and vice versa; also far more
-  // crash-resistant than "rewrite the whole JSON file" was.
-  database.pragma("journal_mode = WAL");
-
-  database.exec(`
-    CREATE TABLE IF NOT EXISTS conversations (
-      id TEXT PRIMARY KEY,
-      updatedAt INTEGER NOT NULL DEFAULT 0,
-      data TEXT NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS projects (
-      id TEXT PRIMARY KEY,
-      updatedAt INTEGER NOT NULL DEFAULT 0,
-      data TEXT NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS agents (
-      id TEXT PRIMARY KEY,
-      updatedAt INTEGER NOT NULL DEFAULT 0,
-      data TEXT NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS pending_approvals (
-      id TEXT PRIMARY KEY,
-      createdAt INTEGER NOT NULL DEFAULT 0,
-      data TEXT NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS kv (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL
-    );
-  `);
-
-  dbInstance = database;
-
-  if (isNewDatabase && fs.existsSync(LEGACY_JSON_FILE)) {
-    migrateFromLegacyJson(database);
-  }
-
-  return database;
-}
-
-function migrateFromLegacyJson(database: Database.Database) {
-  try {
-    const parsed = JSON.parse(fs.readFileSync(LEGACY_JSON_FILE, "utf-8"));
-
-    const insertRows = (table: string, keyField: "updatedAt" | "createdAt", items: any[]) => {
-      const stmt = database.prepare(`INSERT OR REPLACE INTO ${table} (id, ${keyField}, data) VALUES (?, ?, ?)`);
-      const txn = database.transaction((rows: any[]) => {
-        for (const item of rows) {
-          if (!item?.id) continue;
-          stmt.run(item.id, item[keyField] || 0, JSON.stringify(item));
-        }
-      });
-      txn(items);
-    };
-
-    insertRows("conversations", "updatedAt", parsed.conversations || []);
-    insertRows("projects", "updatedAt", parsed.projects || []);
-    insertRows("agents", "updatedAt", parsed.agents || []);
-    insertRows("pending_approvals", "createdAt", parsed.pendingApprovals || []);
-
-    const kv = database.prepare(`INSERT OR REPLACE INTO kv (key, value) VALUES (?, ?)`);
-    kv.run("settings", JSON.stringify(parsed.settings || DEFAULT_SETTINGS));
-    kv.run("personas", JSON.stringify(parsed.personas || PRESET_PERSONAS));
-    kv.run("version", JSON.stringify(parsed.version || 1));
-    kv.run("lastUpdated", JSON.stringify(parsed.lastUpdated || Date.now()));
-
-    fs.renameSync(LEGACY_JSON_FILE, `${LEGACY_JSON_FILE}.migrated.bak`);
-    console.log(
-      "[serverDb] Migrated data/db.json into data/db.sqlite3. The old file was kept as data/db.json.migrated.bak — safe to delete once you've confirmed everything looks right."
-    );
-  } catch (err) {
-    console.error(
-      "[serverDb] Failed to migrate data/db.json into SQLite — starting with an empty database. The original file was left untouched at data/db.json.",
-      err
-    );
-  }
-}
-
-function readAll<T>(table: string): T[] {
-  const rows = getDb().prepare(`SELECT data FROM ${table}`).all() as { data: string }[];
-  return rows.map((r) => JSON.parse(r.data) as T);
-}
-
-function getKv<T>(key: string, fallback: T): T {
-  const row = getDb().prepare(`SELECT value FROM kv WHERE key = ?`).get(key) as { value: string } | undefined;
-  if (!row) return fallback;
-  try {
-    return JSON.parse(row.value) as T;
-  } catch {
-    return fallback;
-  }
-}
-
-function setKv(key: string, value: unknown) {
-  getDb().prepare(`INSERT OR REPLACE INTO kv (key, value) VALUES (?, ?)`).run(key, JSON.stringify(value));
-}
-
-function replaceCollection(table: string, keyField: "updatedAt" | "createdAt", items: any[]) {
-  const database = getDb();
-  const del = database.prepare(`DELETE FROM ${table}`);
-  const insert = database.prepare(`INSERT OR REPLACE INTO ${table} (id, ${keyField}, data) VALUES (?, ?, ?)`);
-  const txn = database.transaction((rows: any[]) => {
-    del.run();
-    for (const item of rows) insert.run(item.id, item[keyField] || 0, JSON.stringify(item));
-  });
-  txn(items);
-}
-
-function upsertCollection(table: string, keyField: "updatedAt" | "createdAt", items: any[]) {
-  const database = getDb();
-  const insert = database.prepare(`INSERT OR REPLACE INTO ${table} (id, ${keyField}, data) VALUES (?, ?, ?)`);
-  const txn = database.transaction((rows: any[]) => {
-    for (const item of rows) insert.run(item.id, item[keyField] || 0, JSON.stringify(item));
-  });
-  txn(items);
-}
-
-// --- Merge helpers (unchanged logic from the old flat-file implementation) ---
+// --- Merge helpers (shared by both backends) ---
 
 function mergeConversations(serverList: Conversation[], clientList: Conversation[]): Conversation[] {
   const map = new Map<string, Conversation>();
@@ -206,23 +88,289 @@ function mergePendingApprovals(serverList: PendingApproval[], clientList: Pendin
   return Array.from(map.values()).sort((a, b) => b.createdAt - a.createdAt);
 }
 
-// --- Public API (unchanged signatures — app/api/db/route.ts needs no changes) ---
+// =====================================================================
+// Backend 1: SQLite (better-sqlite3). Preferred when the native module is
+// available. Indexed, transactional, WAL-mode — no full-file rewrite on
+// every save.
+// =====================================================================
 
-export async function readServerDb(): Promise<ServerDatabase> {
-  const conversations = readAll<Conversation>("conversations").sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
-  const projects = readAll<Project>("projects").sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
-  const agents = readAll<AgentTask>("agents").sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
-  const pendingApprovals = readAll<PendingApproval>("pending_approvals").sort((a, b) => b.createdAt - a.createdAt);
+function loadBetterSqlite3(): typeof BetterSqlite3 | null {
+  try {
+    // Loaded via require (not `import`) so a missing/broken native binding
+    // — e.g. no prebuilt binary for this Node version, and no Python/MSVC
+    // build tools to compile from source — never crashes module load. This
+    // is an optionalDependency in package.json for the same reason.
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    return require("better-sqlite3");
+  } catch {
+    return null;
+  }
+}
 
-  const settings = { ...DEFAULT_SETTINGS, ...getKv<Partial<AppSettings>>("settings", DEFAULT_SETTINGS) };
-  const personas = getKv<PersonaPreset[]>("personas", PRESET_PERSONAS);
-  const version = getKv<number>("version", 1);
-  const lastUpdated = getKv<number>("lastUpdated", Date.now());
+const SqliteCtor = loadBetterSqlite3();
+
+let sqliteInstance: BetterSqlite3.Database | null = null;
+
+function getSqliteDb(): BetterSqlite3.Database {
+  if (sqliteInstance) return sqliteInstance;
+  if (!SqliteCtor) throw new Error("better-sqlite3 is not available");
+
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+  const isNewDatabase = !fs.existsSync(SQLITE_FILE);
+
+  const database = new SqliteCtor(SQLITE_FILE);
+  database.pragma("journal_mode = WAL");
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS conversations (
+      id TEXT PRIMARY KEY, updatedAt INTEGER NOT NULL DEFAULT 0, data TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS projects (
+      id TEXT PRIMARY KEY, updatedAt INTEGER NOT NULL DEFAULT 0, data TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS agents (
+      id TEXT PRIMARY KEY, updatedAt INTEGER NOT NULL DEFAULT 0, data TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS pending_approvals (
+      id TEXT PRIMARY KEY, createdAt INTEGER NOT NULL DEFAULT 0, data TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+  `);
+
+  sqliteInstance = database;
+
+  if (isNewDatabase && fs.existsSync(JSON_FILE)) {
+    migrateJsonIntoSqlite(database);
+  }
+
+  return database;
+}
+
+function migrateJsonIntoSqlite(database: BetterSqlite3.Database) {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(JSON_FILE, "utf-8"));
+
+    const insertRows = (table: string, keyField: "updatedAt" | "createdAt", items: any[]) => {
+      const stmt = database.prepare(`INSERT OR REPLACE INTO ${table} (id, ${keyField}, data) VALUES (?, ?, ?)`);
+      const txn = database.transaction((rows: any[]) => {
+        for (const item of rows) {
+          if (!item?.id) continue;
+          stmt.run(item.id, item[keyField] || 0, JSON.stringify(item));
+        }
+      });
+      txn(items);
+    };
+
+    insertRows("conversations", "updatedAt", parsed.conversations || []);
+    insertRows("projects", "updatedAt", parsed.projects || []);
+    insertRows("agents", "updatedAt", parsed.agents || []);
+    insertRows("pending_approvals", "createdAt", parsed.pendingApprovals || []);
+
+    const kv = database.prepare(`INSERT OR REPLACE INTO kv (key, value) VALUES (?, ?)`);
+    kv.run("settings", JSON.stringify(parsed.settings || DEFAULT_SETTINGS));
+    kv.run("personas", JSON.stringify(parsed.personas || PRESET_PERSONAS));
+    kv.run("version", JSON.stringify(parsed.version || 1));
+    kv.run("lastUpdated", JSON.stringify(parsed.lastUpdated || Date.now()));
+
+    fs.renameSync(JSON_FILE, `${JSON_FILE}.migrated.bak`);
+    console.log(
+      "[serverDb] Migrated data/db.json into data/db.sqlite3. Old file kept as data/db.json.migrated.bak."
+    );
+  } catch (err) {
+    console.error("[serverDb] Failed to migrate data/db.json into SQLite — starting empty in SQLite.", err);
+  }
+}
+
+function sqliteReadAll<T>(table: string): T[] {
+  const rows = getSqliteDb().prepare(`SELECT data FROM ${table}`).all() as { data: string }[];
+  return rows.map((r) => JSON.parse(r.data) as T);
+}
+
+function sqliteGetKv<T>(key: string, fallback: T): T {
+  const row = getSqliteDb().prepare(`SELECT value FROM kv WHERE key = ?`).get(key) as { value: string } | undefined;
+  if (!row) return fallback;
+  try {
+    return JSON.parse(row.value) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+function sqliteSetKv(key: string, value: unknown) {
+  getSqliteDb().prepare(`INSERT OR REPLACE INTO kv (key, value) VALUES (?, ?)`).run(key, JSON.stringify(value));
+}
+
+function sqliteReplaceCollection(table: string, keyField: "updatedAt" | "createdAt", items: any[]) {
+  const database = getSqliteDb();
+  const del = database.prepare(`DELETE FROM ${table}`);
+  const insert = database.prepare(`INSERT OR REPLACE INTO ${table} (id, ${keyField}, data) VALUES (?, ?, ?)`);
+  const txn = database.transaction((rows: any[]) => {
+    del.run();
+    for (const item of rows) insert.run(item.id, item[keyField] || 0, JSON.stringify(item));
+  });
+  txn(items);
+}
+
+function sqliteUpsertCollection(table: string, keyField: "updatedAt" | "createdAt", items: any[]) {
+  const database = getSqliteDb();
+  const insert = database.prepare(`INSERT OR REPLACE INTO ${table} (id, ${keyField}, data) VALUES (?, ?, ?)`);
+  const txn = database.transaction((rows: any[]) => {
+    for (const item of rows) insert.run(item.id, item[keyField] || 0, JSON.stringify(item));
+  });
+  txn(items);
+}
+
+async function readServerDbSqlite(): Promise<ServerDatabase> {
+  const conversations = sqliteReadAll<Conversation>("conversations").sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  const projects = sqliteReadAll<Project>("projects").sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  const agents = sqliteReadAll<AgentTask>("agents").sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  const pendingApprovals = sqliteReadAll<PendingApproval>("pending_approvals").sort((a, b) => b.createdAt - a.createdAt);
+
+  const settings = { ...DEFAULT_SETTINGS, ...sqliteGetKv<Partial<AppSettings>>("settings", DEFAULT_SETTINGS) };
+  const personas = sqliteGetKv<PersonaPreset[]>("personas", PRESET_PERSONAS);
+  const version = sqliteGetKv<number>("version", 1);
+  const lastUpdated = sqliteGetKv<number>("lastUpdated", Date.now());
 
   return { conversations, projects, agents, settings, personas, pendingApprovals, lastUpdated, version };
 }
 
-export async function writeServerDb(data: {
+async function writeServerDbSqlite(data: WriteServerDbInput): Promise<ServerDatabase> {
+  const current = await readServerDbSqlite();
+
+  if (data.conversations !== undefined) {
+    const merged = data.overwrite ? data.conversations : mergeConversations(current.conversations, data.conversations);
+    (data.overwrite ? sqliteReplaceCollection : sqliteUpsertCollection)("conversations", "updatedAt", merged);
+  }
+  if (data.projects !== undefined) {
+    const merged = data.overwrite ? data.projects : mergeProjects(current.projects, data.projects);
+    (data.overwrite ? sqliteReplaceCollection : sqliteUpsertCollection)("projects", "updatedAt", merged);
+  }
+  if (data.agents !== undefined) {
+    const merged = data.overwrite ? data.agents : mergeAgents(current.agents, data.agents);
+    (data.overwrite ? sqliteReplaceCollection : sqliteUpsertCollection)("agents", "updatedAt", merged);
+  }
+  if (data.pendingApprovals !== undefined) {
+    const merged = data.overwrite ? data.pendingApprovals : mergePendingApprovals(current.pendingApprovals, data.pendingApprovals);
+    (data.overwrite ? sqliteReplaceCollection : sqliteUpsertCollection)("pending_approvals", "createdAt", merged);
+  }
+
+  if (data.settings) sqliteSetKv("settings", { ...current.settings, ...data.settings });
+  if (data.personas) sqliteSetKv("personas", data.personas);
+  sqliteSetKv("version", (current.version || 1) + 1);
+  sqliteSetKv("lastUpdated", Date.now());
+
+  return readServerDbSqlite();
+}
+
+// =====================================================================
+// Backend 2: flat JSON file. Used automatically when better-sqlite3's
+// native module isn't available (no prebuilt binary for this Node
+// version, and no Python/MSVC build tools to compile from source). This
+// is the original storage implementation — kept so the app always works
+// even on a machine that can't build native modules.
+// =====================================================================
+
+let jsonCache: ServerDatabase | null = null;
+let jsonIsSaving = false;
+let jsonPendingSave = false;
+
+async function persistJsonToDisk(db: ServerDatabase) {
+  if (jsonIsSaving) {
+    jsonPendingSave = true;
+    return;
+  }
+  jsonIsSaving = true;
+  try {
+    await fs.promises.mkdir(DATA_DIR, { recursive: true });
+    await fs.promises.writeFile(JSON_FILE, JSON.stringify(db, null, 2), "utf-8");
+  } catch (err) {
+    console.error("[serverDb] Failed to persist data/db.json:", err);
+  } finally {
+    jsonIsSaving = false;
+    if (jsonPendingSave) {
+      jsonPendingSave = false;
+      if (jsonCache) persistJsonToDisk(jsonCache);
+    }
+  }
+}
+
+async function readServerDbJson(): Promise<ServerDatabase> {
+  if (jsonCache) return jsonCache;
+
+  try {
+    await fs.promises.mkdir(DATA_DIR, { recursive: true });
+    const content = await fs.promises.readFile(JSON_FILE, "utf-8");
+    const parsed = JSON.parse(content);
+    jsonCache = {
+      conversations: parsed.conversations || [],
+      projects: parsed.projects || [],
+      agents: parsed.agents || [],
+      settings: parsed.settings ? { ...DEFAULT_SETTINGS, ...parsed.settings } : DEFAULT_SETTINGS,
+      personas: parsed.personas || PRESET_PERSONAS,
+      pendingApprovals: parsed.pendingApprovals || [],
+      lastUpdated: parsed.lastUpdated || Date.now(),
+      version: parsed.version || 1,
+    };
+    return jsonCache;
+  } catch {
+    jsonCache = { ...DEFAULT_DB, lastUpdated: Date.now() };
+    persistJsonToDisk(jsonCache);
+    return jsonCache;
+  }
+}
+
+async function writeServerDbJson(data: WriteServerDbInput): Promise<ServerDatabase> {
+  const current = await readServerDbJson();
+
+  const mergedConversations =
+    data.conversations !== undefined
+      ? data.overwrite
+        ? data.conversations
+        : mergeConversations(current.conversations, data.conversations)
+      : current.conversations;
+
+  const mergedProjects =
+    data.projects !== undefined
+      ? data.overwrite
+        ? data.projects
+        : mergeProjects(current.projects, data.projects)
+      : current.projects;
+
+  const mergedAgents =
+    data.agents !== undefined
+      ? data.overwrite
+        ? data.agents
+        : mergeAgents(current.agents, data.agents)
+      : current.agents;
+
+  const mergedPendingApprovals =
+    data.pendingApprovals !== undefined
+      ? data.overwrite
+        ? data.pendingApprovals
+        : mergePendingApprovals(current.pendingApprovals, data.pendingApprovals)
+      : current.pendingApprovals;
+
+  jsonCache = {
+    conversations: mergedConversations,
+    projects: mergedProjects,
+    agents: mergedAgents,
+    settings: data.settings ? { ...current.settings, ...data.settings } : current.settings,
+    personas: data.personas || current.personas,
+    pendingApprovals: mergedPendingApprovals,
+    lastUpdated: Date.now(),
+    version: (current.version || 1) + 1,
+  };
+
+  persistJsonToDisk(jsonCache);
+  return jsonCache;
+}
+
+// =====================================================================
+// Public API — picks a backend once, then dispatches every call to it.
+// Signatures are unchanged from before, so app/api/db/route.ts needs no
+// changes regardless of which backend is active.
+// =====================================================================
+
+interface WriteServerDbInput {
   conversations?: Conversation[];
   projects?: Project[];
   agents?: AgentTask[];
@@ -230,42 +378,28 @@ export async function writeServerDb(data: {
   personas?: PersonaPreset[];
   pendingApprovals?: PendingApproval[];
   overwrite?: boolean;
-}): Promise<ServerDatabase> {
-  const current = await readServerDb();
+}
 
-  if (data.conversations !== undefined) {
-    const merged = data.overwrite
-      ? data.conversations
-      : mergeConversations(current.conversations, data.conversations);
-    if (data.overwrite) replaceCollection("conversations", "updatedAt", merged);
-    else upsertCollection("conversations", "updatedAt", merged);
+let hasWarnedFallback = false;
+function usingSqlite(): boolean {
+  const available = SqliteCtor !== null;
+  if (!available && !hasWarnedFallback) {
+    hasWarnedFallback = true;
+    console.warn(
+      "[serverDb] better-sqlite3 native module unavailable (no prebuilt binary for this Node version, and/or no Python + " +
+        "C++ build tools to compile it) — falling back to data/db.json. Everything still works; you just don't get " +
+        "SQLite's crash-safety and indexing. To enable it: install Python 3 and a C++ toolchain " +
+        "(Windows: 'Desktop development with C++' in Visual Studio Installer; or use a Node LTS version, which is " +
+        "more likely to have a prebuilt binary already), then reinstall with `npm install`."
+    );
   }
+  return available;
+}
 
-  if (data.projects !== undefined) {
-    const merged = data.overwrite ? data.projects : mergeProjects(current.projects, data.projects);
-    if (data.overwrite) replaceCollection("projects", "updatedAt", merged);
-    else upsertCollection("projects", "updatedAt", merged);
-  }
+export async function readServerDb(): Promise<ServerDatabase> {
+  return usingSqlite() ? readServerDbSqlite() : readServerDbJson();
+}
 
-  if (data.agents !== undefined) {
-    const merged = data.overwrite ? data.agents : mergeAgents(current.agents, data.agents);
-    if (data.overwrite) replaceCollection("agents", "updatedAt", merged);
-    else upsertCollection("agents", "updatedAt", merged);
-  }
-
-  if (data.pendingApprovals !== undefined) {
-    const merged = data.overwrite
-      ? data.pendingApprovals
-      : mergePendingApprovals(current.pendingApprovals, data.pendingApprovals);
-    if (data.overwrite) replaceCollection("pending_approvals", "createdAt", merged);
-    else upsertCollection("pending_approvals", "createdAt", merged);
-  }
-
-  if (data.settings) setKv("settings", { ...current.settings, ...data.settings });
-  if (data.personas) setKv("personas", data.personas);
-
-  setKv("version", (current.version || 1) + 1);
-  setKv("lastUpdated", Date.now());
-
-  return readServerDb();
+export async function writeServerDb(data: WriteServerDbInput): Promise<ServerDatabase> {
+  return usingSqlite() ? writeServerDbSqlite(data) : writeServerDbJson(data);
 }
