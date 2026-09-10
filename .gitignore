@@ -39,3 +39,5 @@ Thumbs.db
 # Personal chat/project data — contains real conversations and system prompts,
 # should never be committed. Untracked as of this commit; file stays on disk.
 /data/db.json
+/data/db.json.migrated.bak
+/data/*.sqlite3-*

@@ -17,6 +17,7 @@
   "dependencies": {
     "@types/katex": "^0.16.7",
     "@types/react-syntax-highlighter": "^15.5.13",
+    "better-sqlite3": "^13.0.3",
     "clsx": "^2.1.1",
     "katex": "^0.16.11",
     "lucide-react": "^0.468.0",
@@ -32,6 +33,7 @@
   },
   "devDependencies": {
     "@tailwindcss/typography": "^0.5.20",
+    "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^20.17.6",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
