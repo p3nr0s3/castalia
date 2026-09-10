@@ -23,7 +23,7 @@ import { checkOllamaHealth, fetchOllamaModels, streamChatCompletion } from "@/li
 import { buildToolDirectivePrompt, parseToolDirective } from "@/lib/tools";
 import { executeToolCall } from "@/lib/toolEngine";
 import { executeAgent, calculateNextRun, resumeAgentAfterApproval } from "@/lib/agentEngine";
-import { composeSkillsPrompt, DEFAULT_SKILLS } from "@/lib/skills";
+import { composeSkillsPrompt, skillsRequireDiskTools, DEFAULT_SKILLS } from "@/lib/skills";
 import { Sidebar } from "@/components/Sidebar";
 import { ChatArea } from "@/components/ChatArea";
 import { ProjectsGallery } from "@/components/ProjectsGallery";
@@ -1200,6 +1200,8 @@ export default function HomePage() {
 
     try {
       const { prompt: baseEffectivePrompt, knowledgeNotice } = getEffectiveSystemPrompt(convWithNewMessages, trimmedInput);
+      const effectiveDiskToolsActive =
+        diskToolsActive || skillsRequireDiskTools(settings.skills || DEFAULT_SKILLS, convWithNewMessages.activeSkillIds);
       let accumulatedText = connectorNotice || knowledgeNotice || "";
       let effectiveSystemPrompt = baseEffectivePrompt;
       if (searchContextText) {
@@ -1208,7 +1210,7 @@ export default function HomePage() {
       if (connectorContextText) {
         effectiveSystemPrompt = `${effectiveSystemPrompt}${connectorContextText}`;
       }
-      if (diskToolsActive) {
+      if (effectiveDiskToolsActive) {
         effectiveSystemPrompt = `${effectiveSystemPrompt}\n\n${buildToolDirectivePrompt()}`;
       }
 
@@ -1311,7 +1313,7 @@ export default function HomePage() {
           // atau limit iterasi tercapai. Toggle ini hanya kontrol UX, bukan boundary
           // keamanan — proteksi sebenarnya ada di endpoint.
           let toolExecutions: ToolCallExecution[] = [];
-          if (diskToolsActive) {
+          if (effectiveDiskToolsActive) {
             let loopText = finalFullText;
             let toolHistory: Message[] = [
               ...budgetedMessages,

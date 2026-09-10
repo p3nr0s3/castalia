@@ -1,15 +1,33 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Message } from "@/lib/types";
 import { redactSensitiveContent } from "@/lib/redaction";
+import { getCorsHeaders } from "@/lib/corsHeaders";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const CORS_HEADERS = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Requested-With",
+const CORS_HEADERS = getCorsHeaders();
+
+// Server-side env var per provider takes precedence over a client-supplied
+// key. This means a key set in .env.local never has to leave the server —
+// it's not sent to the browser, not stored in localStorage, and not
+// present in the request body this route receives. Client-supplied keys
+// (typed into Settings -> Cloud AI Providers) still work as a fallback,
+// for people who prefer per-browser keys over a shared server-side one.
+const PROVIDER_ENV_VARS: Record<string, string> = {
+  anthropic: "ANTHROPIC_API_KEY",
+  gemini: "GEMINI_API_KEY",
+  openai: "OPENAI_API_KEY",
+  groq: "GROQ_API_KEY",
+  deepseek: "DEEPSEEK_API_KEY",
+  openrouter: "OPENROUTER_API_KEY",
 };
+
+function resolveApiKey(provider: string, clientSuppliedKey?: string): string | undefined {
+  const envVarName = PROVIDER_ENV_VARS[provider];
+  const serverKey = envVarName ? process.env[envVarName] : undefined;
+  return serverKey || clientSuppliedKey || undefined;
+}
 
 export async function OPTIONS() {
   return new NextResponse(null, {
@@ -54,9 +72,11 @@ export async function POST(req: NextRequest) {
       systemPrompt,
       temperature = 0.7,
       topP = 0.9,
-      apiKey,
+      apiKey: clientSuppliedKey,
       customBaseUrl,
     } = body;
+
+    const apiKey = resolveApiKey(provider, clientSuppliedKey);
 
     if (!provider || !model) {
       return NextResponse.json(
@@ -68,7 +88,7 @@ export async function POST(req: NextRequest) {
     if (!apiKey && provider !== "ollama") {
       return NextResponse.json(
         {
-          error: `API key for ${provider.toUpperCase()} is required. Please add your API key in Settings -> Cloud AI Providers.`,
+          error: `API key for ${provider.toUpperCase()} is required. Set ${PROVIDER_ENV_VARS[provider] || "the provider's API key"} in .env.local, or add your API key in Settings -> Cloud AI Providers.`,
         },
         { status: 400, headers: CORS_HEADERS }
       );
@@ -228,7 +248,7 @@ export async function POST(req: NextRequest) {
       const claudeRes = await fetch(url, {
         method: "POST",
         headers: {
-          "x-api-key": apiKey,
+          "x-api-key": apiKey ?? "",
           "anthropic-version": "2023-06-01",
           "content-type": "application/json",
         },

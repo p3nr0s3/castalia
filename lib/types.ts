@@ -284,6 +284,14 @@ export interface Skill {
   author?: string;
   downloads?: string;
   sourceUrl?: string;
+  /**
+   * When true, activating this skill also turns on the disk tools
+   * (list_directory/read_file/write_file/search_files/delete_file) for
+   * that conversation — so a skill that claims to write code, analyze
+   * files, etc. actually has the capability, instead of just a system
+   * prompt asking the model to act like it does.
+   */
+  enablesDiskTools?: boolean;
 }
 
 export type ConnectorCategory = "popular" | "productivity" | "dev" | "other";

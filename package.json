@@ -3,11 +3,16 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev -H 0.0.0.0 -p 3000",
+    "predev": "node scripts/warnOpenAccess.mjs",
+    "dev": "next dev -H 127.0.0.1 -p 3000",
+    "dev:lan": "next dev -H 0.0.0.0 -p 3000",
     "build": "next build",
-    "start": "next start -H 0.0.0.0 -p 3000",
+    "prestart": "node scripts/warnOpenAccess.mjs",
+    "start": "next start -H 127.0.0.1 -p 3000",
+    "start:lan": "next start -H 0.0.0.0 -p 3000",
     "tunnel": "node scripts/tunnel.mjs",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test": "vitest run"
   },
   "dependencies": {
     "@types/katex": "^0.16.7",
@@ -15,7 +20,7 @@
     "clsx": "^2.1.1",
     "katex": "^0.16.11",
     "lucide-react": "^0.468.0",
-    "next": "14.2.24",
+    "next": "^14.2.35",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-markdown": "^9.0.1",
@@ -35,6 +40,7 @@
     "postcss": "^8.4.49",
     "qrcode-terminal": "^0.12.0",
     "tailwindcss": "^3.4.15",
-    "typescript": "^5.6.3"
+    "typescript": "^5.6.3",
+    "vitest": "^1.6.1"
   }
 }

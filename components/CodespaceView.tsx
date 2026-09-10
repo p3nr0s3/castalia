@@ -619,7 +619,7 @@ export const CodespaceView: React.FC<CodespaceViewProps> = ({
                   title="Codespace Preview"
                   srcDoc={activeSnippet.content}
                   className="w-full h-full border-none"
-                  sandbox="allow-scripts allow-modals allow-same-origin"
+                  sandbox="allow-scripts allow-modals"
                 />
               ) : (
                 <div className="p-6 text-center text-xs text-slate-600">

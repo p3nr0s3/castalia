@@ -4,11 +4,9 @@ import { tryAcquireGenerationSlot, releaseGenerationSlot } from "@/lib/ollamaRat
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const CORS_HEADERS = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Requested-With",
-};
+import { getCorsHeaders } from "@/lib/corsHeaders";
+
+const CORS_HEADERS = getCorsHeaders();
 
 export async function OPTIONS() {
   return new NextResponse(null, {

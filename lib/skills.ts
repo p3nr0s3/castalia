@@ -25,6 +25,7 @@ export const DEFAULT_SKILLS: Skill[] = [
 - Follow SOLID principles, clean abstractions, and include necessary error handling.
 - Provide code snippets in proper fenced code blocks with language identifiers.
 - Briefly explain trade-offs and edge cases without unnecessary fluff.`,
+    enablesDiskTools: true,
   },
   {
     id: "data-analyst",
@@ -37,6 +38,7 @@ export const DEFAULT_SKILLS: Skill[] = [
 - When given data, CSV, or metrics, format key summaries into clean Markdown tables.
 - Calculate totals, averages, and identify anomalies or key trends.
 - Offer actionable business and engineering conclusions based on the data.`,
+    enablesDiskTools: true,
   },
   {
     id: "tech-writer",
@@ -49,6 +51,7 @@ export const DEFAULT_SKILLS: Skill[] = [
 - Write crystal-clear, structured technical documentation, tutorials, and guides.
 - Use clear hierarchy (H1, H2, H3), alerts (NOTE, TIP, WARNING), and step-by-step numbered instructions.
 - Ensure all technical terms are accurate and easy for developers to follow.`,
+    enablesDiskTools: true,
   },
   {
     id: "security-auditor",
@@ -61,6 +64,7 @@ export const DEFAULT_SKILLS: Skill[] = [
 - Analyze code and architectures for security vulnerabilities (XSS, SQL Injection, CSRF, insecure auth, secret leaks).
 - Categorize findings by severity (Critical, High, Medium, Low).
 - Provide immediate, secure code remediation snippets for any identified risk.`,
+    enablesDiskTools: true,
   },
   {
     id: "polyglot-translator",
@@ -114,4 +118,16 @@ export function composeSkillsPrompt(allSkills: Skill[], activeSkillIds?: string[
 
   prompt += "=== END OF SKILLS ===\n\n";
   return prompt;
+}
+
+/**
+ * True if any currently-active skill declares `enablesDiskTools`. Uses the
+ * same active-skill selection logic as composeSkillsPrompt so the two never
+ * disagree about which skills are "on" for this conversation.
+ */
+export function skillsRequireDiskTools(allSkills: Skill[], activeSkillIds?: string[]): boolean {
+  const activeSkills = allSkills.filter((s) =>
+    activeSkillIds && activeSkillIds.length > 0 ? activeSkillIds.includes(s.id) : s.enabled
+  );
+  return activeSkills.some((s) => s.enablesDiskTools);
 }

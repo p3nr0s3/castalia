@@ -482,6 +482,7 @@ export async function resumeAgentAfterApproval(
       ollamaUrl: options.ollamaUrl,
       apiKeys: options.apiKeys,
       onProgress: options.onProgress,
+      systemPrompt: pausedContext.effectiveSystemPrompt,
     });
 
     if (loopResult.paused) {

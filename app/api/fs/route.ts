@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import fs from "fs/promises";
 import path from "path";
 import os from "os";
+import { resolveWithinBase } from "@/lib/pathSandbox";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,20 +29,7 @@ function isTextFile(filePath: string): boolean {
 const HOME_DIR = path.resolve(os.homedir());
 
 function resolveWithinHome(inputPath: string): string {
-  const resolved = path.resolve(inputPath);
-  const normalizedHome = path.normalize(HOME_DIR);
-  const normalizedResolved = path.normalize(resolved);
-
-  const isHomeItself = normalizedResolved === normalizedHome;
-  const isInsideHome = normalizedResolved.startsWith(normalizedHome + path.sep);
-
-  if (!isHomeItself && !isInsideHome) {
-    throw new Error(
-      `Access denied: path '${inputPath}' resolves outside the home directory (${normalizedHome}).`
-    );
-  }
-
-  return resolved;
+  return resolveWithinBase(HOME_DIR, inputPath);
 }
 
 // GET: List directory contents

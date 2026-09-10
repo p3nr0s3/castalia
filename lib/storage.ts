@@ -42,6 +42,7 @@ export const storage = {
     agents?: AgentTask[];
     settings?: AppSettings;
     personas?: PersonaPreset[];
+    pendingApprovals?: PendingApproval[];
   }): Promise<boolean> {
     try {
       const res = await apiFetch("/api/db", {
@@ -62,6 +63,7 @@ export const storage = {
     agents?: AgentTask[];
     settings?: AppSettings;
     personas?: PersonaPreset[];
+    pendingApprovals?: PendingApproval[];
   }) {
     if (syncTimeout) clearTimeout(syncTimeout);
     syncTimeout = setTimeout(() => {

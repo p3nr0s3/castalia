@@ -1,31 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import path from "path";
+import os from "os";
 import { runDiskTool } from "@/lib/diskToolOps";
+import { resolveWithinBase } from "@/lib/pathSandbox";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// This route is for manual chat's disk tools — sandboxed to the project
-// directory. Agents use /api/tools/execute-agent instead, which is
-// sandboxed to the home directory and adds an approval gate for
-// write_file/delete_file.
-const BASE_DIR = path.resolve(process.cwd());
+// This route is for manual chat's disk tools. Originally sandboxed to the
+// project directory; widened to the user's home directory on request so
+// manual chat can browse/read/write outside the project folder, matching
+// the scope /api/fs and /api/tools/execute-agent already use.
+const BASE_DIR = path.resolve(os.homedir());
 
 function resolveSafePath(inputPath?: string): string {
-  if (!inputPath || inputPath.trim() === "" || inputPath === ".") {
-    return BASE_DIR;
-  }
-
-  let resolvedPath = path.resolve(BASE_DIR, inputPath);
-
-  const normalizedBase = path.normalize(BASE_DIR);
-  const normalizedResolved = path.normalize(resolvedPath);
-
-  if (!normalizedResolved.startsWith(normalizedBase)) {
-    throw new Error(`Path traversal detected: The resolved path '${inputPath}' (normalized: ${normalizedResolved}) falls outside the safe base directory (${normalizedBase}).`);
-  }
-
-  return resolvedPath;
+  return resolveWithinBase(BASE_DIR, inputPath);
 }
 
 export async function POST(req: NextRequest) {
@@ -41,9 +30,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(resultBody, { status });
   } catch (err: any) {
     console.error("[API Tools Execute] Error:", err);
-    return NextResponse.json({
-      success: false,
-      error: err.message || "Failed to execute filesystem tool.",
-    });
+    const isAccessDenied = typeof err?.message === "string" && err.message.startsWith("Access denied");
+    return NextResponse.json(
+      { success: false, error: err.message || "Failed to execute filesystem tool." },
+      { status: isAccessDenied ? 403 : 200 }
+    );
   }
 }
