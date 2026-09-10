@@ -50,6 +50,8 @@ interface ChatInputProps {
   setAttachments: React.Dispatch<React.SetStateAction<Attachment[]>>;
   webSearchActive: boolean;
   setWebSearchActive: (val: boolean) => void;
+  diskToolsActive: boolean;
+  setDiskToolsActive: (val: boolean) => void;
   onSend: () => void;
   onStop: () => void;
   isStreaming: boolean;
@@ -79,6 +81,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   setAttachments,
   webSearchActive,
   setWebSearchActive,
+  diskToolsActive,
+  setDiskToolsActive,
   onSend,
   onStop,
   isStreaming,
@@ -620,6 +624,28 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               <Globe className={`w-3.5 h-3.5 ${webSearchActive ? "animate-spin-slow text-white" : ""}`} />
               <span className="hidden sm:inline text-[11px]">
                 {webSearchActive ? "Search ON" : "Search"}
+              </span>
+            </button>
+
+            {/* Disk Tools Toggle Button */}
+            <button
+              type="button"
+              onClick={() => setDiskToolsActive(!diskToolsActive)}
+              disabled={disabled || isStreaming}
+              className={`flex items-center gap-1 px-2 py-1 sm:px-2.5 sm:py-1.5 rounded-xl text-xs font-medium transition-all cursor-pointer flex-shrink-0 ${
+                diskToolsActive
+                  ? "bg-emerald-600 text-white font-semibold shadow-xs shadow-emerald-500/30"
+                  : "text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--sidebar-hover)]"
+              }`}
+              title={
+                diskToolsActive
+                  ? "Disk Tools Active — AI bisa baca/tulis file di dalam project ini"
+                  : "Aktifkan Disk Tools (AI bisa baca/tulis file project)"
+              }
+            >
+              <Wrench className={`w-3.5 h-3.5 ${diskToolsActive ? "text-white" : ""}`} />
+              <span className="hidden sm:inline text-[11px]">
+                {diskToolsActive ? "Disk ON" : "Disk Tools"}
               </span>
             </button>
 

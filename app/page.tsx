@@ -13,10 +13,13 @@ import {
   Skill,
   ProjectFile,
   ThinkingMode,
+  ToolCallExecution,
 } from "@/lib/types";
 import { storage } from "@/lib/storage";
 import { DEFAULT_SETTINGS, PRESET_PERSONAS } from "@/lib/constants";
 import { checkOllamaHealth, fetchOllamaModels, streamChatCompletion } from "@/lib/ollama";
+import { buildToolDirectivePrompt, parseToolDirective } from "@/lib/tools";
+import { executeToolCall } from "@/lib/toolEngine";
 import { executeAgent, calculateNextRun } from "@/lib/agentEngine";
 import { composeSkillsPrompt, DEFAULT_SKILLS } from "@/lib/skills";
 import { Sidebar } from "@/components/Sidebar";
@@ -68,6 +71,7 @@ export default function HomePage() {
   const [input, setInput] = useState<string>("");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [webSearchActive, setWebSearchActive] = useState<boolean>(false);
+  const [diskToolsActive, setDiskToolsActive] = useState<boolean>(false);
   const [isStreaming, setIsStreaming] = useState<boolean>(false);
   const [liveStats, setLiveStats] = useState<{ tokenCount: number; liveTps: number } | undefined>(undefined);
   const [thinkingMode, setThinkingMode] = useState<ThinkingMode>("default");
@@ -1106,6 +1110,9 @@ export default function HomePage() {
       if (connectorContextText) {
         effectiveSystemPrompt = `${effectiveSystemPrompt}${connectorContextText}`;
       }
+      if (diskToolsActive) {
+        effectiveSystemPrompt = `${effectiveSystemPrompt}\n\n${buildToolDirectivePrompt()}`;
+      }
 
       // Enforce 16K Context Window Budget: trim chat history so (system + knowledge + history + predict) never overflows
       const targetCtx = targetConv.numCtx ?? proj?.numCtx ?? settings.numCtx ?? 16384;
@@ -1199,12 +1206,117 @@ export default function HomePage() {
             finalFullText += "\n\n> 🎶 *Web UI Music Player: Aksi musik berhasil dieksekusi.*";
           }
 
+          // Disk Tools: jalankan directive [TOOL_CALL:...] kalau toggle aktif.
+          // Non-native (ReAct fallback) loop: model tulis directive -> kita eksekusi via
+          // /api/tools/execute (sudah dijail ke BASE_DIR project) -> hasil disuapkan balik
+          // ke model sebagai pesan baru -> ulangi sampai model tidak minta tool lagi
+          // atau limit iterasi tercapai. Toggle ini hanya kontrol UX, bukan boundary
+          // keamanan — proteksi sebenarnya ada di endpoint.
+          let toolExecutions: ToolCallExecution[] = [];
+          if (diskToolsActive) {
+            let loopText = finalFullText;
+            let toolHistory: Message[] = [
+              ...budgetedMessages,
+              { id: assistantMessageId, role: "assistant", content: loopText, timestamp: Date.now() },
+            ];
+            const maxIterations = 3;
+
+            for (let iteration = 0; iteration < maxIterations; iteration++) {
+              const directive = parseToolDirective(loopText);
+              if (!directive) break;
+
+              const execId = `tool_${assistantMessageId}_${iteration}`;
+              toolExecutions = [
+                ...toolExecutions,
+                { id: execId, toolName: directive.toolName, args: directive.args, status: "running", timestamp: Date.now() },
+              ];
+              // Bersihkan baris directive dari teks yang ditampilkan ke user.
+              loopText = loopText.replace(/\[TOOL_CALL:[a-z_]+:\{[\s\S]*?\}\]/, "").trim();
+              setConversations((prev) =>
+                prev.map((c) =>
+                  c.id !== targetId
+                    ? c
+                    : {
+                        ...c,
+                        messages: c.messages.map((m) =>
+                          m.id === assistantMessageId ? { ...m, content: loopText, toolExecutions } : m
+                        ),
+                      }
+                )
+              );
+
+              let toolResultText: string;
+              try {
+                const result = await executeToolCall(directive.toolName, directive.args, abortController.signal);
+                toolExecutions = toolExecutions.map((t) =>
+                  t.id === execId ? { ...t, status: "success", result: result.raw } : t
+                );
+                toolResultText = JSON.stringify(result.raw).slice(0, 4000);
+              } catch (toolErr: any) {
+                toolExecutions = toolExecutions.map((t) =>
+                  t.id === execId ? { ...t, status: "error", error: toolErr.message || String(toolErr) } : t
+                );
+                toolResultText = `ERROR: ${toolErr.message || toolErr}`;
+              }
+
+              toolHistory = [
+                ...toolHistory,
+                {
+                  id: `${execId}_result`,
+                  role: "user",
+                  content: `[TOOL_RESULT untuk ${directive.toolName}]:\n${toolResultText}\n\nLanjutkan jawabanmu ke user berdasarkan hasil ini. Jangan panggil tool yang sama dengan argumen sama persis lagi kalau sudah berhasil.`,
+                  timestamp: Date.now(),
+                },
+              ];
+
+              let continuation = "";
+              await streamChatCompletion({
+                hostUrl: settings.ollamaUrl,
+                model: selectedModel,
+                messages: toolHistory,
+                systemPrompt: effectiveSystemPrompt,
+                temperature: targetConv.temperature ?? settings.temperature,
+                topP: targetConv.topP ?? settings.topP,
+                apiKeys: settings.apiKeys,
+                signal: abortController.signal,
+                onToken: (chunk) => {
+                  continuation += chunk;
+                  setConversations((prev) =>
+                    prev.map((c) =>
+                      c.id !== targetId
+                        ? c
+                        : {
+                            ...c,
+                            messages: c.messages.map((m) =>
+                              m.id === assistantMessageId
+                                ? { ...m, content: `${loopText}\n\n${continuation}`.trim(), toolExecutions }
+                                : m
+                            ),
+                          }
+                    )
+                  );
+                },
+                onFinish: (full2) => {
+                  continuation = full2 || continuation;
+                },
+                onError: () => {
+                  /* biarkan continuation kosong, loop tetap lanjut/berhenti wajar */
+                },
+              });
+
+              loopText = `${loopText}\n\n${continuation}`.trim();
+              toolHistory = [...toolHistory, { id: `${execId}_continuation`, role: "assistant", content: continuation, timestamp: Date.now() }];
+            }
+
+            finalFullText = loopText;
+          }
+
           setConversations((prev) => {
             const finished = prev.map((c) => {
               if (c.id !== targetId) return c;
               const msgs = c.messages.map((m) =>
                 m.id === assistantMessageId
-                  ? { ...m, content: finalFullText, reasoning: finalReasoning, metrics, sources: searchSources.length > 0 ? searchSources : undefined }
+                  ? { ...m, content: finalFullText, reasoning: finalReasoning, metrics, sources: searchSources.length > 0 ? searchSources : undefined, toolExecutions: toolExecutions.length > 0 ? toolExecutions : undefined }
                   : m
               );
               return { ...c, messages: msgs, updatedAt: Date.now() };
@@ -1905,6 +2017,8 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
           setAttachments={setAttachments}
           webSearchActive={webSearchActive}
           setWebSearchActive={setWebSearchActive}
+          diskToolsActive={diskToolsActive}
+          setDiskToolsActive={setDiskToolsActive}
           onSendMessage={handleSendMessage}
           onStopStreaming={handleStopStreaming}
           isStreaming={isStreaming}

@@ -61,6 +61,8 @@ interface ChatAreaProps {
   setAttachments: React.Dispatch<React.SetStateAction<Attachment[]>>;
   webSearchActive: boolean;
   setWebSearchActive: (val: boolean) => void;
+  diskToolsActive: boolean;
+  setDiskToolsActive: (val: boolean) => void;
   onSendMessage: () => void;
   onStopStreaming: () => void;
   isStreaming: boolean;
@@ -118,6 +120,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   setAttachments,
   webSearchActive,
   setWebSearchActive,
+  diskToolsActive,
+  setDiskToolsActive,
   onSendMessage,
   onStopStreaming,
   isStreaming,
@@ -646,6 +650,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
         setAttachments={setAttachments}
         webSearchActive={webSearchActive}
         setWebSearchActive={setWebSearchActive}
+        diskToolsActive={diskToolsActive}
+        setDiskToolsActive={setDiskToolsActive}
         onSend={onSendMessage}
         onStop={onStopStreaming}
         isStreaming={isStreaming}

@@ -1,84 +1,401 @@
 // lib/types.ts
+//
+// Direkonstruksi ulang Sept 2026 setelah file ini kehilangan seluruh tipe inti
+// (Message/Conversation/AppSettings dst hilang, hanya menyisakan tipe tool).
+// Bentuk tiap interface diturunkan dari cara field-nya benar-benar dipakai di
+// app/page.tsx, lib/*.ts, dan components/*.tsx per Sept 2026 — bukan tebakan.
 
-/**
- * @file Shared type definitions used across the application (tool definitions, results, etc.).
- * This file ensures type consistency between the client-side logic and the model's expected output.
- */
+import { ToolName } from "./tools";
 
-// --- TOOL DEFINITION TYPES (Copied from tools.ts for consistency if needed) ---
-export type ToolName = 'list_directory' | 'read_file' | 'write_file' | 'search_files';
+// ============================================================================
+// MODEL / PROVIDER
+// ============================================================================
 
-export interface ToolSchema {
-    description: string;
-    parameters: {
-        [key: string]: {
-            type: 'string' | 'number' | 'boolean' | 'object';
-            description: string;
-            required: boolean;
-        };
-    };
+export type ModelProvider =
+  | "ollama"
+  | "gemini"
+  | "openai"
+  | "anthropic"
+  | "groq"
+  | "deepseek"
+  | "openrouter"
+  | "custom";
+
+export interface OllamaModelDetails {
+  format?: string;
+  family?: string;
+  families?: string[];
+  parameter_size?: string;
+  quantization_level?: string;
 }
 
-// --- TOOL CALL ARGUMENT TYPES ---
-
-/**
- * Defines the expected arguments structure for tool calls.
- * The model will pass toolName and args based on the function schemas.
- */
-export interface ToolCallArgs {
-    // Generic container for arguments passed to the tool
-    [key: string]: any; 
+export interface OllamaModel {
+  name: string;
+  model?: string;
+  modified_at?: string;
+  size?: number;
+  digest?: string;
+  details?: OllamaModelDetails;
 }
 
-
-// --- TOOL EXECUTION RESULT TYPES (Crucial for toolEngine and API communication) ---
-
-/**
- * Represents the successful execution result of a tool.
- */
-export interface ToolCallResult {
-    success: boolean;
-    /** The raw data returned by the tool (e.g., file content, directory array). */
-    toolCallResult: any; 
-    /** A human-readable summary or message of the successful action. */
-    executionMessage: string;
-    /** The name of the tool that was executed. */
-    toolName: string;
+export interface ModelOption {
+  id: string;
+  name: string;
+  provider: ModelProvider;
+  description?: string;
+  badge?: string;
 }
 
-/**
- * Defines the structure for an error that occurs during tool execution.
- */
-export class ToolExecutionError extends Error {
-    public readonly details: string;
-
-    constructor(message: string, details: string) {
-        super(message);
-        this.name = 'ToolExecutionError';
-        this.details = details;
-        Object.setPrototypeOf(this, ToolExecutionError.prototype);
-    }
+export interface ApiKeysConfig {
+  geminiApiKey?: string;
+  openaiApiKey?: string;
+  anthropicApiKey?: string;
+  groqApiKey?: string;
+  deepseekApiKey?: string;
+  openrouterApiKey?: string;
+  customBaseUrl?: string;
+  customApiKey?: string;
+  customModelName?: string;
 }
 
-// --- MODEL INTERACTION TYPES (Used in ChatInput/ChatMessage) ---
-
-/**
- * Represents a structured message containing a request to use a tool.
- */
-export interface ToolCallMessage {
-    type: 'tool_call';
-    toolName: ToolName;
-    args: ToolCallArgs;
+export interface ModelPullProgress {
+  status: string;
+  digest?: string;
+  total?: number;
+  completed?: number;
+  percent?: number;
 }
 
-/**
- * Represents a final message that needs to be generated after tool output.
- */
-export interface FinalResponse {
-    type: 'tool_output';
-    toolName: ToolName;
-    result: any; // The successful output from the tool engine
-    message: string; // The final, user-facing response text
+export interface GenerationMetrics {
+  evalCount?: number;
+  evalDuration?: number;
+  evalTps?: number;
+  promptEvalCount?: number;
+  promptEvalDuration?: number;
+  promptEvalTps?: number;
+  totalDuration?: number;
+  totalSeconds?: number;
 }
-// End of lib/types.ts
 
+// ============================================================================
+// CHAT / MESSAGE
+// ============================================================================
+
+export type MessageRole = "user" | "assistant" | "system";
+
+export interface Attachment {
+  id: string;
+  name: string;
+  type: "image" | "document";
+  mimeType?: string;
+  size: number;
+  /** Base64 data URL, dipakai untuk attachment bertipe image. */
+  dataUrl?: string;
+  /** Base64 mentah tanpa prefix data URL, dipakai saat mengirim ke provider cloud (mis. Gemini/OpenAI vision). */
+  base64?: string;
+  /** Isi teks yang sudah diekstrak, dipakai untuk attachment bertipe document. */
+  textContent?: string;
+}
+
+export interface SearchSource {
+  title: string;
+  url: string;
+  snippet: string;
+}
+
+/** Satu eksekusi disk tool yang ditempel ke sebuah pesan assistant untuk ditampilkan di UI. */
+export interface ToolCallExecution {
+  id: string;
+  toolName: ToolName;
+  args: Record<string, any>;
+  status: "running" | "success" | "error";
+  result?: any;
+  error?: string;
+  timestamp: number;
+}
+
+export interface Message {
+  id: string;
+  role: MessageRole;
+  content: string;
+  timestamp: number;
+  model?: string;
+  attachments?: Attachment[];
+  sources?: SearchSource[];
+  metrics?: GenerationMetrics;
+  reasoning?: string;
+  isError?: boolean;
+  toolExecutions?: ToolCallExecution[];
+}
+
+// ============================================================================
+// CONVERSATION / PROJECT
+// ============================================================================
+
+export type ThinkingMode = "default" | "think" | "nothink";
+
+export interface ProjectFile {
+  id: string;
+  name: string;
+  size: number;
+  type: "image" | "document";
+  mimeType?: string;
+  textContent?: string;
+  uploadedAt: number;
+}
+
+export interface Project {
+  id: string;
+  name: string;
+  description?: string;
+  color?: string;
+  systemPrompt?: string;
+  defaultModel?: string;
+  temperature?: number;
+  topP?: number;
+  topK?: number;
+  numCtx?: number;
+  numPredict?: number;
+  repeatPenalty?: number;
+  presencePenalty?: number;
+  frequencyPenalty?: number;
+  thinkingMode?: ThinkingMode;
+  seed?: number;
+  stopSequences?: string[];
+  files: ProjectFile[];
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface Conversation {
+  id: string;
+  title: string;
+  projectId?: string | null;
+  agentId?: string;
+  isAgentGenerated?: boolean;
+  createdAt: number;
+  updatedAt: number;
+  model: string;
+  systemPrompt?: string;
+  temperature?: number;
+  topP?: number;
+  topK?: number;
+  numCtx?: number;
+  numPredict?: number;
+  repeatPenalty?: number;
+  presencePenalty?: number;
+  frequencyPenalty?: number;
+  thinkingMode?: ThinkingMode;
+  seed?: number;
+  stopSequences?: string[];
+  /** true kalau disk tools aktif untuk sesi chat ini. */
+  diskToolsActive?: boolean;
+  pinned?: boolean;
+  unread?: boolean;
+  activeSkillIds?: string[];
+  messages: Message[];
+}
+
+// ============================================================================
+// AGENTS
+// ============================================================================
+
+export type AgentScheduleType = "interval" | "daily" | "manual";
+export type AgentStatus = "idle" | "running" | "completed" | "error" | "failed";
+
+export interface AgentLog {
+  id: string;
+  agentId: string;
+  runAt: number;
+  status: "success" | "error" | "failed";
+  summary: string;
+  conversationId?: string;
+  tokensGenerated?: number;
+  durationSeconds?: number;
+  error?: string;
+}
+
+export interface AgentTask {
+  id: string;
+  name: string;
+  description?: string;
+  prompt: string;
+  systemPrompt?: string;
+  model: string;
+  temperature?: number;
+  topP?: number;
+  webSearch?: boolean;
+  scheduleType: AgentScheduleType;
+  intervalMinutes?: number;
+  dailyTime?: string;
+  targetProjectId?: string;
+  enabled: boolean;
+  status: AgentStatus;
+  lastRun?: number;
+  nextRun?: number;
+  runCount: number;
+  logs: AgentLog[];
+  createdAt: number;
+  updatedAt: number;
+}
+
+// ============================================================================
+// SKILLS / CONNECTORS / PLUGINS / MEMORY
+// ============================================================================
+
+export interface Skill {
+  id: string;
+  name: string;
+  description: string;
+  icon?: string;
+  systemPrompt: string;
+  tags: string[];
+  enabled: boolean;
+  isCustom?: boolean;
+  /** Perintah slash yang memicu skill ini, mis. "/code". */
+  slashCommand?: string;
+  category?: string;
+  author?: string;
+  downloads?: string;
+  sourceUrl?: string;
+}
+
+export type ConnectorCategory = "popular" | "productivity" | "dev" | "other";
+export type ConnectorAuthType = "webhook" | "apiKey" | "oauth" | "none";
+
+export interface ConnectorItem {
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+  icon?: string;
+  badge?: string;
+  installed: boolean;
+  authType?: ConnectorAuthType;
+  webhookUrl?: string;
+  apiKey?: string;
+  repo?: string;
+  endpoint?: string;
+  isLiveConnected?: boolean;
+  statusMessage?: string;
+}
+
+export interface PluginItem {
+  id: string;
+  name: string;
+  description: string;
+  author: string;
+  downloads: string;
+  installed: boolean;
+  category: string;
+  skillsIncluded: string[];
+  systemPrompt?: string;
+}
+
+export type MemoryItemCategory = "preference" | "profile" | "project" | "topic" | "other";
+
+export interface MemoryItem {
+  id: string;
+  category: MemoryItemCategory;
+  title: string;
+  content: string;
+  updatedAt: number;
+  enabled: boolean;
+}
+
+export interface MemoryConfig {
+  generateFromChats: boolean;
+  includeSensitive: boolean;
+  items: MemoryItem[];
+}
+
+// ============================================================================
+// ARTIFACTS
+// ============================================================================
+
+export interface ArtifactItem {
+  id: string;
+  title: string;
+  type: "code" | "html";
+  language: string;
+  content: string;
+  createdAt: number;
+  messageId: string;
+}
+
+// ============================================================================
+// SETTINGS / PERSONAS / THEME
+// ============================================================================
+
+export type ThemeType =
+  | "light"
+  | "dark"
+  | "system"
+  | "claude"
+  | "oled"
+  | "dracula"
+  | "catppuccin"
+  | "tokyo-night"
+  | "rose-pine"
+  | "cyberpunk"
+  | "forest"
+  | "sunset"
+  | "nord";
+
+export type FontFamilyType =
+  | "inter"
+  | "jakarta"
+  | "geist"
+  | "jetbrains"
+  | "merriweather"
+  | "space"
+  | "outfit"
+  | "poppins"
+  | "roboto"
+  | "fira-code"
+  | "lora";
+
+export interface PersonaPreset {
+  id: string;
+  name: string;
+  description: string;
+  icon: string;
+  systemPrompt: string;
+  temperature?: number;
+  topP?: number;
+}
+
+export interface AppSettings {
+  ollamaUrl: string;
+  searxngUrl: string;
+  webSearchDefault: boolean;
+  defaultModel: string;
+  defaultSystemPrompt: string;
+  temperature: number;
+  topP: number;
+  topK: number;
+  repeatPenalty: number;
+  numCtx: number;
+  numPredict: number;
+  thinkingMode: ThinkingMode;
+  theme: ThemeType;
+  fontFamily: FontFamilyType;
+  sendOnEnter: boolean;
+  streamResponse: boolean;
+  apiKeys: ApiKeysConfig;
+  skills: Skill[];
+  connectors: ConnectorItem[];
+  plugins: PluginItem[];
+  memory: MemoryConfig;
+  musicDirectory: string;
+}
+
+// ============================================================================
+// TOOL CALLING (disk tools: read_file, write_file, list_directory, search_files)
+// ============================================================================
+// Catatan: bentuk hasil eksekusi tool (ToolCallResult, ToolExecutionError) sudah
+// didefinisikan di lib/toolEngine.ts supaya menempel langsung ke kontrak nyata
+// app/api/tools/execute/route.ts. Tipe di sini hanya re-export ToolName supaya
+// pemanggil yang cuma butuh nama tool tidak perlu import dari lib/tools.ts.
+
+export type { ToolName } from "./tools";

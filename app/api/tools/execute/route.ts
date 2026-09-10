@@ -72,7 +72,7 @@ export async function POST(req: NextRequest) {
         modifiedAt?: number;
       }> = [];
 
-      async function scanDir(dir: string, depth = 0) {
+      const scanDir = async (dir: string, depth = 0): Promise<void> => {
         if (results.length >= maxItems || depth > 3) return;
         const entries = await fs.readdir(dir, { withFileTypes: true });
 
@@ -106,7 +106,7 @@ export async function POST(req: NextRequest) {
             // Ignore unreadable or locked files
           }
         }
-      }
+      };
 
       await scanDir(targetDir);
 
@@ -212,7 +212,7 @@ export async function POST(req: NextRequest) {
         snippet?: string;
       }> = [];
 
-      async function searchDir(dir: string, depth = 0) {
+      const searchDir = async (dir: string, depth = 0): Promise<void> => {
         if (matches.length >= maxResults || depth > 5) return;
         let entries;
         try {
@@ -270,7 +270,7 @@ export async function POST(req: NextRequest) {
             }
           }
         }
-      }
+      };
 
       await searchDir(targetDir);
 

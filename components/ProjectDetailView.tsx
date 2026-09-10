@@ -123,7 +123,8 @@ export const ProjectDetailView: React.FC<ProjectDetailViewProps> = ({
           name: file.name,
           size: file.size,
           textContent: text,
-          type: file.type || "text/plain",
+          type: file.type?.startsWith("image/") ? "image" : "document",
+          mimeType: file.type || "text/plain",
           uploadedAt: Date.now(),
         });
       } catch (err) {

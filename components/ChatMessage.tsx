@@ -27,6 +27,10 @@ import {
   GitFork,
   Volume2,
   Square,
+  Wrench,
+  CheckCircle2,
+  XCircle,
+  Loader2,
 } from "lucide-react";
 import dynamic from "next/dynamic";
 import { Message } from "@/lib/types";
@@ -184,6 +188,7 @@ const ChatMessageComponent: React.FC<ChatMessageProps> = ({
   const docAttachments = message.attachments?.filter((a) => a.type === "document") || [];
   const metrics = message.metrics;
   const sources = message.sources || [];
+  const toolExecutions = message.toolExecutions || [];
   const providerBadge = getModelProviderBadge(message.model);
 
   if (isUser) {
@@ -416,6 +421,51 @@ const ChatMessageComponent: React.FC<ChatMessageProps> = ({
                   <span className="text-[10px] text-[var(--muted)] font-mono">({formatBytes(doc.size)})</span>
                 </div>
               ))}
+            </div>
+          )}
+
+          {/* Disk Tools: Tool Call Execution Cards */}
+          {!isUser && toolExecutions.length > 0 && (
+            <div className="mt-2 mb-2 space-y-1.5">
+              {toolExecutions.map((exec) => {
+                const isRunning = exec.status === "running";
+                const isError = exec.status === "error";
+                const pathArg = exec.args?.path || exec.args?.directoryPath || "";
+                return (
+                  <details
+                    key={exec.id}
+                    className={`rounded-xl border text-xs overflow-hidden ${
+                      isError
+                        ? "border-rose-500/30 bg-rose-500/5"
+                        : isRunning
+                        ? "border-amber-500/30 bg-amber-500/5"
+                        : "border-emerald-500/25 bg-emerald-500/5"
+                    }`}
+                  >
+                    <summary className="flex items-center gap-2 px-3 py-2 cursor-pointer select-none list-none">
+                      {isRunning ? (
+                        <Loader2 className="w-3.5 h-3.5 text-amber-400 animate-spin flex-shrink-0" />
+                      ) : isError ? (
+                        <XCircle className="w-3.5 h-3.5 text-rose-400 flex-shrink-0" />
+                      ) : (
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
+                      )}
+                      <Wrench className="w-3.5 h-3.5 text-[var(--muted)] flex-shrink-0" />
+                      <span className="font-mono font-semibold text-[var(--foreground)]">{exec.toolName}</span>
+                      {pathArg && (
+                        <span className="text-[var(--muted)] truncate font-mono">{pathArg}</span>
+                      )}
+                    </summary>
+                    <div className="px-3 pb-2.5 pt-0.5 border-t border-[var(--sidebar-border)]/40 text-[11px] text-[var(--muted)] font-mono whitespace-pre-wrap break-words max-h-48 overflow-y-auto">
+                      {isError
+                        ? exec.error
+                        : isRunning
+                        ? "Menjalankan tool..."
+                        : JSON.stringify(exec.result, null, 2).slice(0, 2000)}
+                    </div>
+                  </details>
+                );
+              })}
             </div>
           )}
 
@@ -809,5 +859,12 @@ export const ChatMessage = React.memo(ChatMessageComponent, (prevProps, nextProp
   if (prevProps.liveStats?.liveTps !== nextProps.liveStats?.liveTps) return false;
   if (prevProps.message.isError !== nextProps.message.isError) return false;
   if (prevProps.message.attachments?.length !== nextProps.message.attachments?.length) return false;
+  if (prevProps.message.toolExecutions?.length !== nextProps.message.toolExecutions?.length) return false;
+  if (
+    prevProps.message.toolExecutions?.some(
+      (t, i) => t.status !== nextProps.message.toolExecutions?.[i]?.status
+    )
+  )
+    return false;
   return true;
 });

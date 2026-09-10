@@ -1,101 +1,86 @@
 // lib/toolEngine.ts
+//
+// Client tipis untuk memanggil app/api/tools/execute/route.ts.
+// PENTING: bentuk field sukses berbeda per tool (route.ts tidak punya bungkus generik
+// "data"/"result"), jadi normalisasi dilakukan di sini supaya pemanggil (toolEngine loop
+// di page.tsx) cukup pakai satu bentuk ToolCallResult yang konsisten.
 
-/**
- * @file Centralized engine for executing tool calls.
- * This class abstracts the network interaction with the backend API route (app/api/tools/execute).
- * It ensures that tool calls are handled securely and provides a unified interface for the chat application.
- */
+import { ToolName } from "./tools";
 
-import { ToolCallResult, ToolCallArgs } from './types'; // Assume types are defined here
-import { ToolExecutionError } from './types'; // Assume error types are defined here
+const TOOL_EXECUTION_API = "/api/tools/execute";
 
-const TOOL_EXECUTION_API = '/api/tools/execute';
+export interface ToolCallResult {
+  success: true;
+  toolName: ToolName;
+  /** Data mentah dari route (items/content/bytesWritten/matches, tergantung tool). */
+  raw: any;
+  /** Ringkasan singkat untuk ditampilkan di kartu UI / disuapkan balik ke model. */
+  summary: string;
+}
 
-/**
- * Executes a single tool call via the secure backend API endpoint.
- * @param toolName - The name of the tool to execute.
- * @param args - The arguments for the tool, parsed from the model's tool call.
- * @returns A promise resolving to the ToolCallResult object.
- * @throws ToolExecutionError if the API call fails or returns an error.
- */
-export async function executeToolCall(toolName: string, args: Record<string, any>): Promise<ToolCallResult> {
-    console.log(\[ToolEngine] Attempting to execute tool: \\);
+export class ToolExecutionError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ToolExecutionError";
+  }
+}
 
-    try {
-        // 1. Construct the payload matching the structure expected by app/api/tools/execute/route.ts
-        const payload = {
-            toolName: toolName,
-            args: args
-        };
-
-        // 2. Call the API route
-        const response = await fetch(TOOL_EXECUTION_API, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(payload)
-        });
-
-        // 3. Handle non-200 responses (e.g., 400, 500 from the backend)
-        if (!response.ok) {
-            const errorBody = await response.json();
-            throw new ToolExecutionError(\API call failed with status \: \\);
-        }
-
-        // 4. Parse and return the structured result
-        const jsonResponse = await response.json();
-
-        if (!jsonResponse.success) {
-            throw new ToolExecutionError(jsonResponse.error || 'Tool execution failed due to unknown server error.');
-        }
-
-        // Return the successful result payload
-        return {
-            success: true,
-            toolCallResult: jsonResponse.data, // The actual content/data returned by the tool
-            executionMessage: jsonResponse.result, // The message to relay to the user
-            toolName: toolName,
-            // Add any necessary metadata
-        };
-
-    } catch (error) {
-        // Catch network errors, serialization errors, or thrown ToolExecutionError
-        if (error instanceof ToolExecutionError) {
-            console.error(\[ToolEngine] Tool Error: \\);
-            throw error; // Re-throw the specific tool error
-        }
-        console.error(\[ToolEngine] Fatal Error during execution: \\);
-        throw new ToolExecutionError(\A critical error occurred while attempting to run tool '\': \\);
-    }
+function summarize(toolName: ToolName, raw: any): string {
+  switch (toolName) {
+    case "list_directory":
+      return `${raw.totalItems} item ditemukan di ${raw.path}`;
+    case "read_file":
+      return `Berhasil membaca ${raw.size} bytes dari ${raw.path}${raw.isTruncated ? " (terpotong)" : ""}`;
+    case "write_file":
+      return raw.message || `File ditulis: ${raw.path}`;
+    case "search_files":
+      return `${raw.totalMatches} hasil untuk "${raw.query}" di ${raw.searchedPath}`;
+    default:
+      return "Tool berhasil dijalankan.";
+  }
 }
 
 /**
- * Helper function to gracefully handle and display tool failure to the user.
- * @param error - The ToolExecutionError object.
- * @returns A markdown-formatted error message for the chat output.
+ * Eksekusi satu tool call lewat backend. Melempar ToolExecutionError kalau
+ * request gagal (network) atau backend membalas success:false.
  */
-export function formatToolError(error: ToolExecutionError): string {
-    console.error(\[ToolEngine] Formatting error for user: \\);
-    return (
-        \\n\n?? **Tool Execution Error:**\n\n\ + 
-        \Failed to complete the requested operation. Please check the input arguments and paths. Details: \ + 
-        \\\\n\ + error.message + \\\\n\ + 
-        *Internal Note: The underlying system reports an issue, stopping the process.*\
-    );
+export async function executeToolCall(
+  toolName: ToolName,
+  args: Record<string, any>,
+  signal?: AbortSignal
+): Promise<ToolCallResult> {
+  let response: Response;
+  try {
+    response = await fetch(TOOL_EXECUTION_API, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tool: toolName, args }),
+      signal,
+    });
+  } catch (networkErr: any) {
+    throw new ToolExecutionError(`Gagal menghubungi tool execution API: ${networkErr.message || networkErr}`);
+  }
+
+  let json: any;
+  try {
+    json = await response.json();
+  } catch {
+    throw new ToolExecutionError(`Respons tidak valid dari server (status ${response.status}).`);
+  }
+
+  if (!response.ok || !json.success) {
+    throw new ToolExecutionError(json.error || `Tool '${toolName}' gagal dijalankan (status ${response.status}).`);
+  }
+
+  return {
+    success: true,
+    toolName,
+    raw: json,
+    summary: summarize(toolName, json),
+  };
 }
 
-/**
- * @example
- * // Assume tool call data is received from the model
- * const toolName = 'read_file';
- * const args = { path: './data/config.txt' };
- * try {
- *     const result = await executeToolCall(toolName, args);
- *     // Process success result
- * } catch (e) {
- *     // Handle error
- * }
- */
-// End of lib/toolEngine.ts
-
+/** Format error untuk disuapkan balik ke model sebagai hasil tool, atau ditampilkan di UI. */
+export function formatToolError(toolName: ToolName, error: ToolExecutionError): string {
+  return `Tool '${toolName}' gagal: ${error.message}`;
+}
