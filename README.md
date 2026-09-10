@@ -1,7 +1,7 @@
 # 🦙 Ollama Studio: Autonomous AI Workspace & Agent Hub
 
 <p align="center">
-  <img src="public/icon.svg" width="80" height="80" alt="Ollama Studio Logo" />
+  <img src="https://ollama.com/public/ollama.png" width="80" height="80" alt="Ollama Studio Logo" />
 </p>
 
 <p align="center">
