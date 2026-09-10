@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import { apiFetch } from "../lib/apiClient";
 import {
   Code2,
   Play,
@@ -282,7 +283,7 @@ export const CodespaceView: React.FC<CodespaceViewProps> = ({
       let fullResponse = "";
 
       if (isCloudModel) {
-        const res = await fetch("/api/cloud/chat", {
+        const res = await apiFetch("/api/cloud/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -305,7 +306,7 @@ export const CodespaceView: React.FC<CodespaceViewProps> = ({
           }
         }
       } else {
-        const res = await fetch("/api/ollama/api/chat", {
+        const res = await apiFetch("/api/ollama/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({

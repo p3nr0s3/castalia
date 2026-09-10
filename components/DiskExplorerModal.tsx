@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import { apiFetch } from "../lib/apiClient";
 import {
   X,
   Folder,
@@ -101,7 +102,7 @@ export const DiskExplorerModal: React.FC<DiskExplorerModalProps> = ({
   const handleAttachToChat = async (item: DiskItem) => {
     setReadingFile(true);
     try {
-      const res = await fetch("/api/fs", {
+      const res = await apiFetch("/api/fs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "read", filePath: item.path }),
@@ -135,7 +136,7 @@ export const DiskExplorerModal: React.FC<DiskExplorerModalProps> = ({
     if (!onAddFileToProject) return;
     setReadingFile(true);
     try {
-      const res = await fetch("/api/fs", {
+      const res = await apiFetch("/api/fs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "read", filePath: item.path }),
@@ -169,7 +170,7 @@ export const DiskExplorerModal: React.FC<DiskExplorerModalProps> = ({
     if (!onAskAboutFile) return;
     setReadingFile(true);
     try {
-      const res = await fetch("/api/fs", {
+      const res = await apiFetch("/api/fs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "read", filePath: item.path }),

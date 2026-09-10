@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import { apiFetch } from "../lib/apiClient";
 import {
   X,
   ScrollText,
@@ -100,7 +101,7 @@ export const DirectoryModal: React.FC<DirectoryModalProps> = ({
 
   const checkBlenderStartup = async () => {
     try {
-      const res = await fetch("/api/connectors", {
+      const res = await apiFetch("/api/connectors", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "blender_check_startup" }),
@@ -117,7 +118,7 @@ export const DirectoryModal: React.FC<DirectoryModalProps> = ({
     setIsManagingStartup(true);
     setStartupNotice(null);
     try {
-      const res = await fetch("/api/connectors", {
+      const res = await apiFetch("/api/connectors", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "blender_install_startup" }),
@@ -141,7 +142,7 @@ export const DirectoryModal: React.FC<DirectoryModalProps> = ({
     setIsManagingStartup(true);
     setStartupNotice(null);
     try {
-      const res = await fetch("/api/connectors", {
+      const res = await apiFetch("/api/connectors", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "blender_uninstall_startup" }),
@@ -204,7 +205,7 @@ export const DirectoryModal: React.FC<DirectoryModalProps> = ({
     setTestResult(null);
 
     try {
-      const res = await fetch("/api/connectors", {
+      const res = await apiFetch("/api/connectors", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

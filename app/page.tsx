@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
+import { apiFetch } from "../lib/apiClient";
 import {
   AppSettings,
   Conversation,
@@ -210,7 +211,7 @@ export default function HomePage() {
         const localAgents = storage.getAgents();
         const localSettings = storage.getSettings();
 
-        const res = await fetch("/api/db", {
+        const res = await apiFetch("/api/db", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -263,7 +264,7 @@ export default function HomePage() {
       }
 
       // Fast version check (<1ms in-memory query)
-      const res = await fetch(`/api/db?v=${currentDbVersionRef.current}`, { cache: "no-store" });
+      const res = await apiFetch(`/api/db?v=${currentDbVersionRef.current}`, { cache: "no-store" });
       if (!res.ok) return;
       const data = await res.json();
 
@@ -444,7 +445,7 @@ export default function HomePage() {
     const updated = agents.filter((a) => a.id !== agentId);
     setAgents(updated);
     storage.saveAgents(updated, false);
-    await fetch("/api/db", {
+    await apiFetch("/api/db", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ agents: updated, overwrite: true }),
@@ -500,7 +501,7 @@ export default function HomePage() {
     const filtered = conversations.filter((c) => c.id !== id);
     setConversations(filtered);
     storage.saveConversations(filtered, false);
-    await fetch("/api/db", {
+    await apiFetch("/api/db", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ conversations: filtered, overwrite: true }),
@@ -517,7 +518,7 @@ export default function HomePage() {
     const updated = projects.filter((p) => p.id !== projectId);
     setProjects(updated);
     storage.saveProjects(updated, false);
-    await fetch("/api/db", {
+    await apiFetch("/api/db", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ projects: updated, overwrite: true }),
@@ -868,7 +869,7 @@ export default function HomePage() {
     // Perform real-time web search if enabled
     if (webSearchActive && trimmedInput) {
       try {
-        const searchRes = await fetch("/api/search", {
+        const searchRes = await apiFetch("/api/search", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -916,7 +917,7 @@ export default function HomePage() {
       }
 
       try {
-        const ghRes = await fetch("/api/connectors", {
+        const ghRes = await apiFetch("/api/connectors", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -954,7 +955,7 @@ export default function HomePage() {
       const slackConn = (settings.connectors || DEFAULT_CONNECTORS).find((c) => c.id === "slack");
       if (slackConn && slackConn.webhookUrl) {
         try {
-          await fetch("/api/connectors", {
+          await apiFetch("/api/connectors", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -976,7 +977,7 @@ export default function HomePage() {
       const discordConn = (settings.connectors || DEFAULT_CONNECTORS).find((c) => c.id === "discord");
       if (discordConn && discordConn.webhookUrl) {
         try {
-          await fetch("/api/connectors", {
+          await apiFetch("/api/connectors", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -1175,7 +1176,7 @@ export default function HomePage() {
 
             if (pyCode && (pyCode.includes("bpy") || pyCode.includes("import"))) {
               try {
-                const bRes = await fetch("/api/connectors", {
+                const bRes = await apiFetch("/api/connectors", {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
                   body: JSON.stringify({
@@ -1682,7 +1683,7 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
 
             if (pyCode && (pyCode.includes("bpy") || pyCode.includes("import"))) {
               try {
-                const bRes = await fetch("/api/connectors", {
+                const bRes = await apiFetch("/api/connectors", {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
                   body: JSON.stringify({

@@ -1,4 +1,5 @@
 import { Message, OllamaModel, GenerationMetrics, ModelProvider, ApiKeysConfig, ModelPullProgress } from "./types";
+import { apiFetch } from "./apiClient";
 import { CLOUD_MODEL_PRESETS } from "./constants";
 
 export interface ChatStreamOptions {
@@ -63,7 +64,7 @@ export function getApiKeyForProvider(provider: ModelProvider, apiKeys?: ApiKeysC
 
 export async function checkOllamaHealth(hostUrl = "http://localhost:11434"): Promise<boolean> {
   try {
-    const res = await fetch(`/api/ollama/api/version?host=${encodeURIComponent(hostUrl)}`, {
+    const res = await apiFetch(`/api/ollama/api/version?host=${encodeURIComponent(hostUrl)}`, {
       method: "GET",
       headers: { "Content-Type": "application/json" },
       cache: "no-store",
@@ -76,7 +77,7 @@ export async function checkOllamaHealth(hostUrl = "http://localhost:11434"): Pro
 
 export async function fetchOllamaModels(hostUrl = "http://localhost:11434"): Promise<OllamaModel[]> {
   try {
-    const res = await fetch(`/api/ollama/api/tags?host=${encodeURIComponent(hostUrl)}`, {
+    const res = await apiFetch(`/api/ollama/api/tags?host=${encodeURIComponent(hostUrl)}`, {
       method: "GET",
       headers: { "Content-Type": "application/json" },
       cache: "no-store",
@@ -129,7 +130,7 @@ export async function streamChatCompletion({
       const apiKey = getApiKeyForProvider(resolvedProvider, apiKeys);
       const customBaseUrl = apiKeys?.customBaseUrl;
 
-      const res = await fetch("/api/cloud/chat", {
+      const res = await apiFetch("/api/cloud/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -295,7 +296,7 @@ export async function streamChatCompletion({
       options: optionsPayload,
     };
 
-    const res = await fetch(`/api/ollama/api/chat?host=${encodeURIComponent(hostUrl)}`, {
+    const res = await apiFetch(`/api/ollama/api/chat?host=${encodeURIComponent(hostUrl)}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -425,7 +426,7 @@ export async function pullOllamaModel(
   onProgress?: (progress: ModelPullProgress) => void,
   signal?: AbortSignal
 ): Promise<void> {
-  const res = await fetch(`/api/ollama/api/pull?host=${encodeURIComponent(hostUrl)}`, {
+  const res = await apiFetch(`/api/ollama/api/pull?host=${encodeURIComponent(hostUrl)}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ name: modelName.trim(), stream: true }),
@@ -485,7 +486,7 @@ export async function deleteOllamaModel(
   modelName: string,
   hostUrl = "http://localhost:11434"
 ): Promise<boolean> {
-  const res = await fetch(`/api/ollama/api/delete?host=${encodeURIComponent(hostUrl)}`, {
+  const res = await apiFetch(`/api/ollama/api/delete?host=${encodeURIComponent(hostUrl)}`, {
     method: "DELETE",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ name: modelName.trim() }),

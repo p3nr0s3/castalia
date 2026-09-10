@@ -80,6 +80,7 @@ export const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
   const isListeningRef = useRef(false);
   const statusRef = useRef<VoiceCallStatus>("idle");
   const accumulatedSpeechRef = useRef("");
+  const inactivityTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Keep statusRef synchronized
   useEffect(() => {
@@ -128,6 +129,10 @@ export const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
       clearTimeout(silenceTimerRef.current);
       silenceTimerRef.current = null;
     }
+    if (inactivityTimerRef.current) {
+      clearTimeout(inactivityTimerRef.current);
+      inactivityTimerRef.current = null;
+    }
     if (recognitionRef.current) {
       try {
         recognitionRef.current.onstart = null;
@@ -172,12 +177,12 @@ export const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
           stopSpeaking();
           accumulatedSpeechRef.current = "";
           setInterimText("");
-          setStatus("idle");
+          setStatus(isMuted ? "idle" : "listening");
         },
         onError: () => {
           stopSpeaking();
           accumulatedSpeechRef.current = "";
-          setStatus("idle");
+          setStatus(isMuted ? "idle" : "listening");
         },
       });
     } catch (err: any) {
@@ -194,11 +199,11 @@ export const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
         onEnd: () => {
           stopSpeaking();
           accumulatedSpeechRef.current = "";
-          setStatus("idle");
+          setStatus(isMuted ? "idle" : "listening");
         },
       });
     }
-  }, [allVoices, onSendMessage, selectedTone, stopListening, voiceConfig]);
+  }, [allVoices, isMuted, onSendMessage, selectedTone, stopListening, voiceConfig]);
 
   // Start speech recognition helper
   const startListening = useCallback(() => {
@@ -224,6 +229,14 @@ export const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
 
       recognition.onstart = () => {
         isListeningRef.current = true;
+        if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current);
+        inactivityTimerRef.current = setTimeout(() => {
+          if (statusRef.current === "listening") {
+            setIsMuted(true);
+            stopListening();
+            setStatus("idle");
+          }
+        }, 45000);
       };
 
       recognition.onresult = (event: any) => {
@@ -244,6 +257,17 @@ export const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
             interimPart += item[0].transcript;
           }
         }
+
+        // Any recognition activity (even interim) counts as "not idle" — reset the long inactivity timer
+        if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current);
+        inactivityTimerRef.current = setTimeout(() => {
+          // Nobody has said anything at all for a long while — auto-mute to stop burning mic/CPU
+          if (statusRef.current === "listening") {
+            setIsMuted(true);
+            stopListening();
+            setStatus("idle");
+          }
+        }, 45000);
 
         const totalSpoken = (finalPart + interimPart).trim();
         if (totalSpoken) {
@@ -291,10 +315,6 @@ export const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
     }
   }, [handleUserFinishedSpeaking, isMuted, stopListening]);
 
-  // Pointer press duration ref for Hold-to-Talk vs Click Toggle
-  const holdTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const isHoldingRef = useRef<boolean>(false);
-
   // Lifecycle when modal opens / closes or status transitions
   useEffect(() => {
     if (isOpen) {
@@ -302,13 +322,13 @@ export const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
       setUserTranscript("");
       setInterimText("");
       setAiResponse("");
-      setStatus("idle"); // Start in idle standby (no auto-open mic)
+      setStatus(isMuted ? "idle" : "listening"); // Auto-open mic on modal open (hands-free mode)
     } else {
       stopSpeaking();
       stopListening();
       setStatus("idle");
     }
-  }, [isOpen, stopListening]);
+  }, [isOpen, isMuted, stopListening]);
 
   // Manage listening state based on status & mute
   useEffect(() => {
@@ -330,71 +350,34 @@ export const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
     setStatus("idle");
   };
 
-  // Hold-to-Talk (PTT Press)
-  const handlePointerDown = () => {
-    isHoldingRef.current = false;
-    // If held for > 280ms, activate hold-to-talk mode
-    holdTimerRef.current = setTimeout(() => {
-      isHoldingRef.current = true;
+  // Mute Toggle (hands-free mode: mic is automatic, this button pauses/resumes it)
+  const handleToggleMute = () => {
+    if (isMuted) {
+      // Resume: unmute and re-open mic (unless AI is currently speaking or thinking)
+      setIsMuted(false);
       if (statusRef.current === "idle") {
         accumulatedSpeechRef.current = "";
         setInterimText("");
         setStatus("listening");
       }
-    }, 280);
-  };
-
-  // Hold-to-Talk (PTT Release)
-  const handlePointerUp = () => {
-    if (holdTimerRef.current) {
-      clearTimeout(holdTimerRef.current);
-      holdTimerRef.current = null;
-    }
-
-    if (isHoldingRef.current) {
-      // User held the button down and released it! (PTT Release)
+    } else {
+      // Pause: mute and stop listening immediately, send nothing pending
+      setIsMuted(true);
       if (statusRef.current === "listening") {
-        const spoken = (accumulatedSpeechRef.current || interimText).trim();
-        if (spoken) {
-          handleUserFinishedSpeaking(spoken);
-        } else {
-          stopListening();
-          setStatus("idle");
-        }
-      }
-    }
-  };
-
-  // Click Handler for Toggle mode (Tap to Start / Tap to Send)
-  const handleClickMic = () => {
-    // If this click was part of a hold-to-talk release, ignore it
-    if (isHoldingRef.current) {
-      isHoldingRef.current = false;
-      return;
-    }
-
-    if (status === "speaking") {
-      stopSpeaking();
-      setStatus("idle");
-      return;
-    }
-
-    if (status === "listening") {
-      // Toggle OFF: Send speech immediately if any recorded, or return to idle
-      const spoken = (accumulatedSpeechRef.current || interimText).trim();
-      if (spoken) {
-        handleUserFinishedSpeaking(spoken);
-      } else {
         stopListening();
         setStatus("idle");
       }
-    } else if (status === "idle") {
-      // Toggle ON: Start listening!
-      stopSpeaking();
-      accumulatedSpeechRef.current = "";
-      setInterimText("");
-      setStatus("listening");
     }
+  };
+
+  // Manual interrupt while AI is speaking (tap button to cut it off and resume listening)
+  const handleClickMic = () => {
+    if (status === "speaking") {
+      stopSpeaking();
+      setStatus(isMuted ? "idle" : "listening");
+      return;
+    }
+    handleToggleMute();
   };
 
   // Close Call
@@ -830,33 +813,40 @@ export const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
           </div>
         </div>
 
-        {/* Bottom Call Controls (PTT / Toggle Mic & End Call) */}
+        {/* Bottom Call Controls (Hands-Free Mic & End Call) */}
         <div className="w-full flex items-center justify-center gap-4 sm:gap-6 pt-4 z-10">
-          {/* Main PTT / Toggle Mic Button */}
+          {/* Main Mic Button: auto listening/speaking; tap to interrupt AI or mute/unmute */}
           <button
             onClick={handleClickMic}
-            onPointerDown={handlePointerDown}
-            onPointerUp={handlePointerUp}
             disabled={status === "thinking"}
             className={`px-6 sm:px-8 py-3.5 sm:py-4 rounded-full font-semibold flex items-center gap-2.5 transition-all active:scale-95 cursor-pointer select-none ${
-              status === "listening"
+              isMuted
+                ? "bg-white/10 hover:bg-white/20 border border-white/20 text-neutral-400"
+                : status === "listening"
                 ? "bg-cyan-500 hover:bg-cyan-400 text-neutral-950 font-bold shadow-xl shadow-cyan-500/50 scale-105 animate-pulse"
                 : status === "speaking"
                 ? "bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300"
                 : "bg-white/10 hover:bg-white/20 border border-white/20 text-white shadow-lg"
             }`}
             title={
-              status === "listening"
-                ? "Lepas / Tekan untuk selesai berbicara & kirim"
+              isMuted
+                ? "Tekan untuk lanjutkan mic (unmute)"
+                : status === "listening"
+                ? "Mendengarkan... tekan untuk mute"
                 : status === "speaking"
                 ? "Tekan untuk menyela AI"
-                : "Tekan untuk mulai bicara"
+                : "Tekan untuk mute"
             }
           >
-            {status === "listening" ? (
+            {isMuted ? (
+              <>
+                <Mic className="w-5 h-5 sm:w-6 sm:h-6 text-neutral-500" />
+                <span className="text-xs sm:text-sm tracking-wide">Mic Dimatikan</span>
+              </>
+            ) : status === "listening" ? (
               <>
                 <Mic className="w-5 h-5 sm:w-6 sm:h-6 text-neutral-950" />
-                <span className="text-xs sm:text-sm tracking-wide">Lepas / Selesai</span>
+                <span className="text-xs sm:text-sm tracking-wide">Mendengarkan...</span>
               </>
             ) : status === "speaking" ? (
               <>
@@ -866,7 +856,7 @@ export const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
             ) : (
               <>
                 <Mic className="w-5 h-5 sm:w-6 sm:h-6 text-cyan-400" />
-                <span className="text-xs sm:text-sm tracking-wide">Bicara (PTT)</span>
+                <span className="text-xs sm:text-sm tracking-wide">Mic Aktif</span>
               </>
             )}
           </button>

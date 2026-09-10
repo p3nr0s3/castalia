@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import { apiFetch } from "../lib/apiClient";
 import {
   X,
   Palette,
@@ -1109,7 +1110,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         setIsScanningMusic(true);
                         setMusicScanResult(null);
                         try {
-                          const res = await fetch(`/api/audio?dir=${encodeURIComponent(formData.musicDirectory.trim())}`);
+                          const res = await apiFetch(`/api/audio?dir=${encodeURIComponent(formData.musicDirectory.trim())}`);
                           const data = await res.json();
                           if (data.files && Array.isArray(data.files)) {
                             setMusicScanResult(`✓ Found ${data.files.length} songs (.mp3, .flac, .wav, .m4a) in directory!`);

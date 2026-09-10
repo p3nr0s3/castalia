@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import { apiFetch } from "../lib/apiClient";
 import { Check, Copy, Play, Eye, Code, RotateCcw, Terminal, X, Box, Loader2, AlertCircle } from "lucide-react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/cjs/styles/prism";
@@ -56,7 +57,7 @@ export const CodeBlock: React.FC<CodeBlockProps> = ({ language = "text", value }
     setInjectStatus(null);
     setInjectMessage("");
     try {
-      const res = await fetch("/api/connectors", {
+      const res = await apiFetch("/api/connectors", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

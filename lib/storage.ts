@@ -1,4 +1,5 @@
 import { AppSettings, Conversation, PersonaPreset, Project, AgentTask } from "./types";
+import { apiFetch } from "./apiClient";
 import { DEFAULT_SETTINGS, PRESET_PERSONAS } from "./constants";
 import { DEFAULT_CONNECTORS } from "./directoryData";
 
@@ -25,7 +26,7 @@ export const storage = {
     lastUpdated: number;
   } | null> {
     try {
-      const res = await fetch("/api/db", { cache: "no-store" });
+      const res = await apiFetch("/api/db", { cache: "no-store" });
       if (!res.ok) return null;
       return await res.json();
     } catch (e) {
@@ -42,7 +43,7 @@ export const storage = {
     personas?: PersonaPreset[];
   }): Promise<boolean> {
     try {
-      const res = await fetch("/api/db", {
+      const res = await apiFetch("/api/db", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),

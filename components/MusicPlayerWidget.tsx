@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
+import { apiFetch } from "../lib/apiClient";
 import {
   Play,
   Pause,
@@ -185,7 +186,7 @@ export const MusicPlayerWidget: React.FC<MusicPlayerWidgetProps> = ({
   useEffect(() => {
     if (musicDirectory?.trim()) {
       setLocalDirPath(musicDirectory.trim());
-      fetch(`/api/audio?dir=${encodeURIComponent(musicDirectory.trim())}`)
+      apiFetch(`/api/audio?dir=${encodeURIComponent(musicDirectory.trim())}`)
         .then((res) => res.json())
         .then((data) => {
           if (data.files && Array.isArray(data.files) && data.files.length > 0) {
@@ -530,7 +531,7 @@ export const MusicPlayerWidget: React.FC<MusicPlayerWidgetProps> = ({
 
     setIsScanningDir(true);
     try {
-      const res = await fetch(`/api/audio?dir=${encodeURIComponent(localDirPath.trim())}`);
+      const res = await apiFetch(`/api/audio?dir=${encodeURIComponent(localDirPath.trim())}`);
       const data = await res.json();
 
       if (data.files && Array.isArray(data.files)) {

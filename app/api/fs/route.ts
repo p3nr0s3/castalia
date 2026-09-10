@@ -22,13 +22,35 @@ function isTextFile(filePath: string): boolean {
   return TEXT_EXTENSIONS.has(ext);
 }
 
+// Security: every path this route touches must stay inside the user's home directory.
+// This is a file explorer by design (browsing outside the project dir is intended),
+// but it must never reach outside $HOME — no /etc, no other users' homes, no root fs.
+const HOME_DIR = path.resolve(os.homedir());
+
+function resolveWithinHome(inputPath: string): string {
+  const resolved = path.resolve(inputPath);
+  const normalizedHome = path.normalize(HOME_DIR);
+  const normalizedResolved = path.normalize(resolved);
+
+  const isHomeItself = normalizedResolved === normalizedHome;
+  const isInsideHome = normalizedResolved.startsWith(normalizedHome + path.sep);
+
+  if (!isHomeItself && !isInsideHome) {
+    throw new Error(
+      `Access denied: path '${inputPath}' resolves outside the home directory (${normalizedHome}).`
+    );
+  }
+
+  return resolved;
+}
+
 // GET: List directory contents
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const targetPath = searchParams.get("path") || os.homedir();
 
-    const normalizedPath = path.resolve(targetPath);
+    const normalizedPath = resolveWithinHome(targetPath);
     const stats = await fs.stat(normalizedPath);
 
     if (!stats.isDirectory()) {
@@ -79,7 +101,11 @@ export async function GET(req: NextRequest) {
       items,
     });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message || "Failed to list directory" }, { status: 500 });
+    const isAccessDenied = typeof err?.message === "string" && err.message.startsWith("Access denied");
+    return NextResponse.json(
+      { error: err.message || "Failed to list directory" },
+      { status: isAccessDenied ? 403 : 500 }
+    );
   }
 }
 
@@ -91,7 +117,7 @@ export async function POST(req: NextRequest) {
 
     // Action 1: Read specific file from disk
     if (action === "read" || filePath) {
-      const targetFile = path.resolve(filePath);
+      const targetFile = resolveWithinHome(filePath);
       const stat = await fs.stat(targetFile);
 
       if (stat.isDirectory()) {
@@ -118,7 +144,7 @@ export async function POST(req: NextRequest) {
 
     // Action 2: Search within directory
     if (action === "search" && directoryPath && query) {
-      const dir = path.resolve(directoryPath);
+      const dir = resolveWithinHome(directoryPath);
       const entries = await fs.readdir(dir, { withFileTypes: true });
       const matchedFiles = [];
 
@@ -148,6 +174,10 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ error: "Invalid action." }, { status: 400 });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message || "Filesystem operation failed" }, { status: 500 });
+    const isAccessDenied = typeof err?.message === "string" && err.message.startsWith("Access denied");
+    return NextResponse.json(
+      { error: err.message || "Filesystem operation failed" },
+      { status: isAccessDenied ? 403 : 500 }
+    );
   }
 }

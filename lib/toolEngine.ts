@@ -6,6 +6,7 @@
 // di page.tsx) cukup pakai satu bentuk ToolCallResult yang konsisten.
 
 import { ToolName } from "./tools";
+import { apiFetch } from "./apiClient";
 
 const TOOL_EXECUTION_API = "/api/tools/execute";
 
@@ -51,7 +52,7 @@ export async function executeToolCall(
 ): Promise<ToolCallResult> {
   let response: Response;
   try {
-    response = await fetch(TOOL_EXECUTION_API, {
+    response = await apiFetch(TOOL_EXECUTION_API, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ tool: toolName, args }),

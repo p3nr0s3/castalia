@@ -1,4 +1,5 @@
 import { AgentTask, AgentLog, Conversation, Message, Project, ApiKeysConfig } from "./types";
+import { apiFetch } from "./apiClient";
 import { streamChatCompletion } from "./ollama";
 
 export const AGENT_PRESET_TEMPLATES = [
@@ -88,7 +89,7 @@ export async function executeAgent(
   // 1. Web Search if enabled
   if (agent.webSearch) {
     try {
-      const res = await fetch("/api/search", {
+      const res = await apiFetch("/api/search", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
