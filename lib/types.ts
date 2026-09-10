@@ -201,7 +201,7 @@ export interface Conversation {
 // ============================================================================
 
 export type AgentScheduleType = "interval" | "daily" | "manual";
-export type AgentStatus = "idle" | "running" | "completed" | "error" | "failed";
+export type AgentStatus = "idle" | "running" | "completed" | "error" | "failed" | "awaiting_approval";
 
 export interface AgentLog {
   id: string;
@@ -225,6 +225,8 @@ export interface AgentTask {
   temperature?: number;
   topP?: number;
   webSearch?: boolean;
+  /** Kalau true, agent boleh pakai disk tools (read otomatis, write/delete via approval). Default false. */
+  diskToolsActive?: boolean;
   scheduleType: AgentScheduleType;
   intervalMinutes?: number;
   dailyTime?: string;
@@ -237,6 +239,30 @@ export interface AgentTask {
   logs: AgentLog[];
   createdAt: number;
   updatedAt: number;
+}
+
+// ============================================================================
+// AGENT TOOL APPROVAL QUEUE
+// ============================================================================
+// Read-only disk tools (list_directory, read_file, search_files) dieksekusi
+// otomatis oleh agent. Tool yang mengubah state (write_file, delete_file)
+// selalu masuk ke sini dulu dan menunggu keputusan manual user sebelum
+// benar-benar dijalankan — generation agent di-pause sampai keputusan dibuat.
+
+export type ApprovalStatus = "pending" | "approved" | "rejected";
+
+export interface PendingApproval {
+  id: string;
+  agentId: string;
+  agentName: string;
+  toolName: ToolName;
+  args: Record<string, any>;
+  status: ApprovalStatus;
+  createdAt: number;
+  resolvedAt?: number;
+  /** Hasil eksekusi setelah di-approve, atau alasan penolakan. Diisi setelah resolve. */
+  result?: any;
+  error?: string;
 }
 
 // ============================================================================

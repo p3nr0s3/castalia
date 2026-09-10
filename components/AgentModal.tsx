@@ -13,6 +13,7 @@ import {
   Play,
   Calendar,
   Zap,
+  HardDrive,
 } from "lucide-react";
 import { AgentTask, AgentScheduleType, OllamaModel, Project } from "@/lib/types";
 import { AGENT_PRESET_TEMPLATES, calculateNextRun } from "@/lib/agentEngine";
@@ -47,6 +48,7 @@ export const AgentModal: React.FC<AgentModalProps> = ({
   const [model, setModel] = useState(agent?.model || models[0]?.name || "");
   const [temperature, setTemperature] = useState(agent?.temperature ?? 0.7);
   const [webSearch, setWebSearch] = useState(agent?.webSearch ?? true);
+  const [diskToolsActive, setDiskToolsActive] = useState(agent?.diskToolsActive ?? false);
   const [scheduleType, setScheduleType] = useState<AgentScheduleType>(
     agent?.scheduleType || "daily"
   );
@@ -86,6 +88,7 @@ export const AgentModal: React.FC<AgentModalProps> = ({
       model: model || (models[0]?.name ?? ""),
       temperature,
       webSearch,
+      diskToolsActive,
       scheduleType,
       intervalMinutes: scheduleType === "interval" ? intervalMinutes : undefined,
       dailyTime: scheduleType === "daily" ? dailyTime : undefined,
@@ -361,6 +364,36 @@ export const AgentModal: React.FC<AgentModalProps> = ({
               <div
                 className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform ${
                   webSearch ? "translate-x-5" : "translate-x-0"
+                }`}
+              />
+            </button>
+          </div>
+
+          {/* Disk Tools Toggle (agent-wide disk access, mutating actions require approval) */}
+          <div className="flex items-center justify-between p-3 rounded-xl bg-[var(--sidebar-bg)] border border-[var(--card-border)]">
+            <div className="flex items-center gap-2">
+              <HardDrive className="w-4 h-4 text-amber-400" />
+              <div>
+                <span className="text-xs font-semibold text-[var(--foreground)] block">
+                  Disk Tools (akses seluruh home directory)
+                </span>
+                <span className="text-[11px] text-[var(--muted)]">
+                  Agent bisa baca/list/cari file di mana saja. Menulis atau menghapus file selalu
+                  menunggu persetujuan manual kamu sebelum benar-benar dijalankan.
+                </span>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setDiskToolsActive(!diskToolsActive)}
+              className={`w-11 h-6 flex items-center rounded-full p-1 transition-colors cursor-pointer flex-shrink-0 ${
+                diskToolsActive ? "bg-amber-600" : "bg-slate-700"
+              }`}
+            >
+              <div
+                className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform ${
+                  diskToolsActive ? "translate-x-5" : "translate-x-0"
                 }`}
               />
             </button>

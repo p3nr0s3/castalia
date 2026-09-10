@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { tryAcquireGenerationSlot, releaseGenerationSlot } from "@/lib/ollamaRateLimit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -77,6 +78,31 @@ export async function POST(
   const host = getOllamaHost(req);
   const targetUrl = `${host}/${path}`;
 
+  // Only the actual generation endpoints need the concurrency/burst guard —
+  // lightweight calls (pull progress checks, embeddings, etc.) pass through.
+  const isGenerationEndpoint = path === "api/generate" || path === "api/chat";
+
+  let slotAcquired = false;
+  if (isGenerationEndpoint) {
+    const limit = tryAcquireGenerationSlot();
+    if (!limit.allowed) {
+      return NextResponse.json(
+        {
+          error: limit.reason,
+          retryAfterMs: limit.retryAfterMs,
+        },
+        {
+          status: 429,
+          headers: {
+            ...CORS_HEADERS,
+            ...(limit.retryAfterMs ? { "Retry-After": String(Math.ceil(limit.retryAfterMs / 1000)) } : {}),
+          },
+        }
+      );
+    }
+    slotAcquired = true;
+  }
+
   try {
     const body = await req.json();
 
@@ -98,7 +124,29 @@ export async function POST(
 
     // Handle Streaming Response for Mobile, Tunnels & Web
     if (response.body) {
-      return new NextResponse(response.body, {
+      // The generation slot must stay held until the stream actually finishes
+      // (this is the whole point — it's a concurrency guard, not a request-count
+      // guard). Release happens exactly once, in this background reader, and
+      // slotAcquired is flipped to false so the outer finally block below does
+      // not release it a second time.
+      const [streamForClient, streamForRelease] = response.body.tee();
+      slotAcquired = false; // ownership of the release transfers to the reader below
+
+      (async () => {
+        const reader = streamForRelease.getReader();
+        try {
+          while (true) {
+            const { done } = await reader.read();
+            if (done) break;
+          }
+        } catch {
+          // Ignore — client aborts or upstream errors still fall through to release.
+        } finally {
+          releaseGenerationSlot();
+        }
+      })();
+
+      return new NextResponse(streamForClient, {
         status: response.status,
         headers: {
           ...CORS_HEADERS,
@@ -122,6 +170,13 @@ export async function POST(
       },
       { status: 502, headers: CORS_HEADERS }
     );
+  } finally {
+    // Covers every non-streaming exit path (error before streaming started,
+    // non-ok response, non-streaming success). The streaming path releases
+    // its own slot above once the tee'd reader actually finishes.
+    if (slotAcquired) {
+      releaseGenerationSlot();
+    }
   }
 }
 

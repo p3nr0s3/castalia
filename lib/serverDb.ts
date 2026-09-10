@@ -1,6 +1,6 @@
 import fs from "fs/promises";
 import path from "path";
-import { AppSettings, Conversation, PersonaPreset, Project, AgentTask } from "./types";
+import { AppSettings, Conversation, PersonaPreset, Project, AgentTask, PendingApproval } from "./types";
 import { DEFAULT_SETTINGS, PRESET_PERSONAS } from "./constants";
 
 export interface ServerDatabase {
@@ -9,6 +9,7 @@ export interface ServerDatabase {
   agents: AgentTask[];
   settings: AppSettings;
   personas: PersonaPreset[];
+  pendingApprovals: PendingApproval[];
   lastUpdated: number;
   version: number;
 }
@@ -22,6 +23,7 @@ const DEFAULT_DB: ServerDatabase = {
   agents: [],
   settings: DEFAULT_SETTINGS,
   personas: PRESET_PERSONAS,
+  pendingApprovals: [],
   lastUpdated: Date.now(),
   version: 1,
 };
@@ -86,6 +88,19 @@ function mergeAgents(serverList: AgentTask[], clientList: AgentTask[]): AgentTas
   return Array.from(map.values()).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
 }
 
+function mergePendingApprovals(serverList: PendingApproval[], clientList: PendingApproval[]): PendingApproval[] {
+  const map = new Map<string, PendingApproval>();
+  for (const a of serverList) map.set(a.id, a);
+  for (const a of clientList) {
+    const existing = map.get(a.id);
+    // resolvedAt is only set once a decision is made — a resolved record always wins over a pending one.
+    if (!existing || (a.resolvedAt || a.createdAt) >= (existing.resolvedAt || existing.createdAt)) {
+      map.set(a.id, a);
+    }
+  }
+  return Array.from(map.values()).sort((a, b) => b.createdAt - a.createdAt);
+}
+
 async function persistToDisk(db: ServerDatabase) {
   if (isSaving) {
     pendingSave = true;
@@ -121,6 +136,7 @@ export async function readServerDb(): Promise<ServerDatabase> {
       agents: parsed.agents || [],
       settings: parsed.settings ? { ...DEFAULT_SETTINGS, ...parsed.settings } : DEFAULT_SETTINGS,
       personas: parsed.personas || PRESET_PERSONAS,
+      pendingApprovals: parsed.pendingApprovals || [],
       lastUpdated: parsed.lastUpdated || Date.now(),
       version: parsed.version || 1,
     };
@@ -138,6 +154,7 @@ export async function writeServerDb(data: {
   agents?: AgentTask[];
   settings?: AppSettings;
   personas?: PersonaPreset[];
+  pendingApprovals?: PendingApproval[];
   overwrite?: boolean;
 }): Promise<ServerDatabase> {
   const current = await readServerDb();
@@ -163,12 +180,20 @@ export async function writeServerDb(data: {
       : mergeAgents(current.agents, data.agents);
   }
 
+  let mergedPendingApprovals = current.pendingApprovals;
+  if (data.pendingApprovals !== undefined) {
+    mergedPendingApprovals = data.overwrite
+      ? data.pendingApprovals
+      : mergePendingApprovals(current.pendingApprovals, data.pendingApprovals);
+  }
+
   cachedDb = {
     conversations: mergedConversations,
     projects: mergedProjects,
     agents: mergedAgents,
     settings: data.settings ? { ...current.settings, ...data.settings } : current.settings,
     personas: data.personas || current.personas,
+    pendingApprovals: mergedPendingApprovals,
     lastUpdated: Date.now(),
     version: (current.version || 1) + 1,
   };

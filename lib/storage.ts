@@ -1,4 +1,4 @@
-import { AppSettings, Conversation, PersonaPreset, Project, AgentTask } from "./types";
+import { AppSettings, Conversation, PersonaPreset, Project, AgentTask, PendingApproval } from "./types";
 import { apiFetch } from "./apiClient";
 import { DEFAULT_SETTINGS, PRESET_PERSONAS } from "./constants";
 import { DEFAULT_CONNECTORS } from "./directoryData";
@@ -10,6 +10,7 @@ const STORAGE_KEYS = {
   PERSONAS: "ollama_chat_custom_personas",
   PROJECTS: "ollama_chat_projects",
   AGENTS: "ollama_chat_agents",
+  PENDING_APPROVALS: "ollama_chat_pending_approvals",
   LAST_SYNC: "ollama_chat_last_sync",
 };
 
@@ -149,6 +150,29 @@ export const storage = {
       }
     } catch (e) {
       console.error("Failed to save agents:", e);
+    }
+  },
+
+  getPendingApprovals(): PendingApproval[] {
+    if (typeof window === "undefined") return [];
+    try {
+      const data = localStorage.getItem(STORAGE_KEYS.PENDING_APPROVALS);
+      return data ? JSON.parse(data) : [];
+    } catch (e) {
+      console.error("Failed to load pending approvals:", e);
+      return [];
+    }
+  },
+
+  savePendingApprovals(approvals: PendingApproval[], syncServer = true): void {
+    if (typeof window === "undefined") return;
+    try {
+      localStorage.setItem(STORAGE_KEYS.PENDING_APPROVALS, JSON.stringify(approvals));
+      if (syncServer) {
+        this.debouncedSyncToServer({ pendingApprovals: approvals });
+      }
+    } catch (e) {
+      console.error("Failed to save pending approvals:", e);
     }
   },
 

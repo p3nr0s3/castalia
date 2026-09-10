@@ -11,6 +11,7 @@ import {
   Attachment,
   Project,
   AgentTask,
+  PendingApproval,
   Skill,
   ProjectFile,
   ThinkingMode,
@@ -21,7 +22,7 @@ import { DEFAULT_SETTINGS, PRESET_PERSONAS } from "@/lib/constants";
 import { checkOllamaHealth, fetchOllamaModels, streamChatCompletion } from "@/lib/ollama";
 import { buildToolDirectivePrompt, parseToolDirective } from "@/lib/tools";
 import { executeToolCall } from "@/lib/toolEngine";
-import { executeAgent, calculateNextRun } from "@/lib/agentEngine";
+import { executeAgent, calculateNextRun, resumeAgentAfterApproval } from "@/lib/agentEngine";
 import { composeSkillsPrompt, DEFAULT_SKILLS } from "@/lib/skills";
 import { Sidebar } from "@/components/Sidebar";
 import { ChatArea } from "@/components/ChatArea";
@@ -32,6 +33,7 @@ import { ParametersDrawer } from "@/components/ParametersDrawer";
 import { ProjectModal } from "@/components/ProjectModal";
 import { AgentModal } from "@/components/AgentModal";
 import { AgentLogsModal } from "@/components/AgentLogsModal";
+import { ApprovalQueueModal } from "@/components/ApprovalQueueModal";
 import { DiskExplorerModal } from "@/components/DiskExplorerModal";
 import { SkillsModal } from "@/components/SkillsModal";
 import { ArtifactsModal } from "@/components/ArtifactsModal";
@@ -98,7 +100,17 @@ export default function HomePage() {
   const [isAgentModalOpen, setIsAgentModalOpen] = useState<boolean>(false);
   const [editingAgent, setEditingAgent] = useState<AgentTask | null>(null);
   const [isAgentLogsModalOpen, setIsAgentLogsModalOpen] = useState<boolean>(false);
+  const [isApprovalModalOpen, setIsApprovalModalOpen] = useState<boolean>(false);
+  const [resolvingApprovalIds, setResolvingApprovalIds] = useState<string[]>([]);
   const [selectedAgentForLogs, setSelectedAgentForLogs] = useState<AgentTask | null>(null);
+  const [pendingApprovals, setPendingApprovals] = useState<PendingApproval[]>([]);
+  // Paused agent context (message history, effective system prompt) needed to resume
+  // after an approval decision. Kept in memory only — too large/volatile to persist,
+  // and only meaningful while this tab session is alive (matches the agreed constraint
+  // that agents/approvals require the app to stay open).
+  const pausedContextsRef = useRef<
+    Record<string, { history: Message[]; effectiveSystemPrompt: string; userMsg: Message; searchSources: any[] }>
+  >({});
   const [isDiskExplorerOpen, setIsDiskExplorerOpen] = useState<boolean>(false);
   const [isSkillsModalOpen, setIsSkillsModalOpen] = useState<boolean>(false);
   const [isDirectoryModalOpen, setIsDirectoryModalOpen] = useState<boolean>(false);
@@ -327,6 +339,13 @@ export default function HomePage() {
     setAgents(storage.getAgents());
     setActiveId(storage.getActiveConversationId());
 
+    // Pending approvals survive a reload as records (so the badge stays visible),
+    // but their pausedContext (message history) lives only in memory and is lost
+    // on reload — mark any restored approval as stale so the UI can tell the user
+    // "context lost" instead of silently failing to resume when they approve it.
+    const restoredApprovals = storage.getPendingApprovals();
+    setPendingApprovals(restoredApprovals);
+
     // 2. Initial Full Merge with Central Server DB
     syncWithServer(true);
 
@@ -383,12 +402,14 @@ export default function HomePage() {
     setRunningAgentIds((prev) => [...prev, agentId]);
 
     try {
-      const { updatedAgent, createdConversation } = await executeAgent(targetAgent, {
+      const result = await executeAgent(targetAgent, {
         ollamaUrl: settings.ollamaUrl,
         searxngUrl: settings.searxngUrl,
         projects,
         apiKeys: settings.apiKeys,
       });
+
+      const { updatedAgent, createdConversation, pendingApproval, pausedContext } = result;
 
       const nextAgents = agents.map((a) => (a.id === agentId ? updatedAgent : a));
       updateAgents(nextAgents);
@@ -403,8 +424,84 @@ export default function HomePage() {
         setActiveId(createdConversation.id);
         storage.saveActiveConversationId(createdConversation.id);
       }
+
+      if (pendingApproval && pausedContext) {
+        pausedContextsRef.current[pendingApproval.id] = pausedContext;
+        const nextApprovals = [pendingApproval, ...pendingApprovals];
+        setPendingApprovals(nextApprovals);
+        storage.savePendingApprovals(nextApprovals);
+      }
     } finally {
       setRunningAgentIds((prev) => prev.filter((id) => id !== agentId));
+    }
+  };
+
+  // Resolve a pending agent tool approval (approve runs the tool and resumes
+  // generation; reject tells the model the tool was refused and resumes too).
+  const handleApprovalDecision = async (approvalId: string, decision: "approved" | "rejected") => {
+    const approval = pendingApprovals.find((a) => a.id === approvalId);
+    if (!approval || approval.status !== "pending") return;
+
+    const pausedContext = pausedContextsRef.current[approvalId];
+
+    // Mark resolved immediately so the badge/list updates without waiting on the model.
+    const resolvedApproval: PendingApproval = { ...approval, status: decision, resolvedAt: Date.now() };
+    const markResolved = (approvals: PendingApproval[]) =>
+      approvals.map((a) => (a.id === approvalId ? resolvedApproval : a));
+    setPendingApprovals((prev) => {
+      const next = markResolved(prev);
+      storage.savePendingApprovals(next);
+      return next;
+    });
+
+    if (!pausedContext) {
+      // Tab was reloaded since this agent paused — the message history needed to
+      // resume generation only ever lived in memory and is gone. Nothing more to
+      // do than record the decision; the agent run itself cannot be continued.
+      console.warn(`Cannot resume agent run for approval ${approvalId}: pausedContext lost (tab reload).`);
+      return;
+    }
+
+    const targetAgent = agents.find((a) => a.id === approval.agentId);
+    if (!targetAgent) return;
+
+    setRunningAgentIds((prev) => [...prev, approval.agentId]);
+    setResolvingApprovalIds((prev) => [...prev, approvalId]);
+    try {
+      const result = await resumeAgentAfterApproval(targetAgent, resolvedApproval, decision, pausedContext, {
+        ollamaUrl: settings.ollamaUrl,
+        apiKeys: settings.apiKeys,
+      });
+
+      const { updatedAgent, createdConversation, pendingApproval: nextPending, pausedContext: nextPausedContext } = result;
+
+      const nextAgents = agents.map((a) => (a.id === approval.agentId ? updatedAgent : a));
+      updateAgents(nextAgents);
+
+      if (selectedAgentForLogs?.id === approval.agentId) {
+        setSelectedAgentForLogs(updatedAgent);
+      }
+
+      if (createdConversation) {
+        const nextConvs = [createdConversation, ...conversations];
+        updateConversations(nextConvs);
+        setActiveId(createdConversation.id);
+        storage.saveActiveConversationId(createdConversation.id);
+      }
+
+      delete pausedContextsRef.current[approvalId];
+
+      if (nextPending && nextPausedContext) {
+        pausedContextsRef.current[nextPending.id] = nextPausedContext;
+        setPendingApprovals((prev) => {
+          const next = [nextPending, ...prev];
+          storage.savePendingApprovals(next);
+          return next;
+        });
+      }
+    } finally {
+      setRunningAgentIds((prev) => prev.filter((id) => id !== approval.agentId));
+      setResolvingApprovalIds((prev) => prev.filter((id) => id !== approvalId));
     }
   };
 
@@ -1923,6 +2020,8 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
         onRunAgentNow={handleRunAgentNow}
         runningAgentIds={runningAgentIds}
         onOpenDiskExplorer={() => setIsDiskExplorerOpen(true)}
+        onOpenApprovals={() => setIsApprovalModalOpen(true)}
+        pendingApprovalCount={pendingApprovals.filter((a) => a.status === "pending").length}
         onOpenArtifacts={() => setIsArtifactsModalOpen(true)}
         onOpenCodespace={() => setMainView("codespace")}
         onOpenWorkspace={() => {
@@ -2140,6 +2239,14 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
           setIsAgentModalOpen(true);
         }}
         isRunning={selectedAgentForLogs ? runningAgentIds.includes(selectedAgentForLogs.id) : false}
+      />
+
+      <ApprovalQueueModal
+        isOpen={isApprovalModalOpen}
+        onClose={() => setIsApprovalModalOpen(false)}
+        approvals={pendingApprovals}
+        onDecision={handleApprovalDecision}
+        resolvingIds={resolvingApprovalIds}
       />
 
       {/* Local Disk Explorer Modal */}

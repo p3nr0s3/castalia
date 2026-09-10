@@ -34,6 +34,8 @@ function summarize(toolName: ToolName, raw: any): string {
       return `Berhasil membaca ${raw.size} bytes dari ${raw.path}${raw.isTruncated ? " (terpotong)" : ""}`;
     case "write_file":
       return raw.message || `File ditulis: ${raw.path}`;
+    case "delete_file":
+      return raw.message || `File dihapus: ${raw.path}`;
     case "search_files":
       return `${raw.totalMatches} hasil untuk "${raw.query}" di ${raw.searchedPath}`;
     default:
@@ -84,4 +86,54 @@ export async function executeToolCall(
 /** Format error untuk disuapkan balik ke model sebagai hasil tool, atau ditampilkan di UI. */
 export function formatToolError(toolName: ToolName, error: ToolExecutionError): string {
   return `Tool '${toolName}' gagal: ${error.message}`;
+}
+
+// ============================================================================
+// AGENT VARIANT — disk-wide (home dir), approval-gated for write_file/delete_file
+// ============================================================================
+
+const AGENT_TOOL_EXECUTION_API = "/api/tools/execute-agent";
+
+/**
+ * Eksekusi tool untuk agent otonom. Untuk read_file/list_directory/search_files
+ * jalan langsung. Untuk write_file/delete_file, approvalToken WAJIB diisi
+ * dengan id dari PendingApproval yang statusnya sudah "approved" — dipanggil
+ * hanya dari lib/agentEngine.ts setelah user meng-approve, tidak pernah
+ * langsung dari loop directive-parsing.
+ */
+export async function executeAgentToolCall(
+  toolName: ToolName,
+  args: Record<string, any>,
+  approvalToken?: string,
+  signal?: AbortSignal
+): Promise<ToolCallResult> {
+  let response: Response;
+  try {
+    response = await apiFetch(AGENT_TOOL_EXECUTION_API, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tool: toolName, args, approvalToken }),
+      signal,
+    });
+  } catch (networkErr: any) {
+    throw new ToolExecutionError(`Gagal menghubungi tool execution API (agent): ${networkErr.message || networkErr}`);
+  }
+
+  let json: any;
+  try {
+    json = await response.json();
+  } catch {
+    throw new ToolExecutionError(`Respons tidak valid dari server (status ${response.status}).`);
+  }
+
+  if (!response.ok || !json.success) {
+    throw new ToolExecutionError(json.error || `Tool '${toolName}' gagal dijalankan (status ${response.status}).`);
+  }
+
+  return {
+    success: true,
+    toolName,
+    raw: json,
+    summary: summarize(toolName, json),
+  };
 }

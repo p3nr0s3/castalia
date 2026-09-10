@@ -5,7 +5,11 @@
 // dipakai baik untuk native tool-calling payload maupun untuk membangun
 // directive fallback (ReAct) buat model yang tidak dukung native tools.
 
-export type ToolName = "list_directory" | "read_file" | "write_file" | "search_files";
+export type ToolName = "list_directory" | "read_file" | "write_file" | "search_files" | "delete_file";
+
+/** Tool read-only dieksekusi otomatis; tool yang mengubah state (write/delete) wajib approval manual untuk agent. */
+export const READ_ONLY_TOOLS: ToolName[] = ["list_directory", "read_file", "search_files"];
+export const MUTATING_TOOLS: ToolName[] = ["write_file", "delete_file"];
 
 export interface ToolParamSchema {
   type: "string" | "number" | "boolean";
@@ -53,6 +57,13 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       query: { type: "string", description: "Kata kunci pencarian.", required: true },
       path: { type: "string", description: "Folder awal pencarian (default root project).", required: false },
       maxResults: { type: "number", description: "Batas jumlah hasil (maks 100).", required: false },
+    },
+  },
+  {
+    name: "delete_file",
+    description: "Hapus sebuah file. Aksi ini permanen dan untuk agent selalu butuh persetujuan manual sebelum dieksekusi.",
+    parameters: {
+      path: { type: "string", description: "Path file yang akan dihapus.", required: true },
     },
   },
 ];
@@ -117,4 +128,31 @@ export function parseToolDirective(text: string): { toolName: ToolName; args: Re
   } catch {
     return null;
   }
+}
+
+/**
+ * Directive prompt khusus untuk agent otonom: tool beroperasi di seluruh
+ * home directory (bukan hanya project ini), dan write_file/delete_file
+ * selalu menunggu persetujuan manual sebelum benar-benar dieksekusi.
+ */
+export function buildAgentToolDirectivePrompt(): string {
+  const toolList = TOOL_DEFINITIONS.map((t) => {
+    const argsDesc = Object.entries(t.parameters)
+      .map(([key, p]) => `${key}${p.required ? "" : "?"}: ${p.description}`)
+      .join(", ");
+    return `- ${t.name}(${argsDesc})\n  ${t.description}`;
+  }).join("\n");
+
+  return `Kamu adalah agent otonom dengan akses Disk Tools ke SELURUH direktori home user (bukan hanya folder project ini):
+${toolList}
+
+Untuk memanggil tool, tulis PERSIS satu baris dengan format ini dan JANGAN tulis apa pun setelahnya:
+[TOOL_CALL:nama_tool:{"arg1":"value1"}]
+
+Contoh: [TOOL_CALL:read_file:{"path":"Documents/notes.txt"}]
+
+PENTING: ${MUTATING_TOOLS.join(" dan ")} tidak langsung dieksekusi — permintaan itu akan masuk antrian
+persetujuan manual milik user dan generatemu akan PAUSE sampai user approve atau reject. Kalau ditolak,
+kamu akan diberi tahu dan harus melanjutkan tanpa hasil itu. Jangan mengarang hasil tool sendiri.
+Kalau tidak perlu memanggil tool, jawab seperti biasa tanpa format di atas.`;
 }

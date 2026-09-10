@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Message } from "@/lib/types";
+import { redactSensitiveContent } from "@/lib/redaction";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -73,7 +74,15 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const formattedMessages = formatMessagesText(messages || []);
+    const formattedMessages = formatMessagesText(messages || []).map((m) => ({
+      ...m,
+      content: redactSensitiveContent(m.content).text,
+    }));
+
+    const redactedSystemPrompt =
+      systemPrompt && systemPrompt.trim()
+        ? redactSensitiveContent(systemPrompt).text
+        : systemPrompt;
 
     // -------------------------------------------------------------
     // 1. GOOGLE GEMINI API (Stream SSE)
@@ -95,9 +104,9 @@ export async function POST(req: NextRequest) {
         },
       };
 
-      if (systemPrompt && systemPrompt.trim()) {
+      if (redactedSystemPrompt && redactedSystemPrompt.trim()) {
         geminiPayload.systemInstruction = {
-          parts: [{ text: systemPrompt.trim() }],
+          parts: [{ text: redactedSystemPrompt.trim() }],
         };
       }
 
@@ -212,8 +221,8 @@ export async function POST(req: NextRequest) {
         stream: true,
       };
 
-      if (systemPrompt && systemPrompt.trim()) {
-        claudePayload.system = systemPrompt.trim();
+      if (redactedSystemPrompt && redactedSystemPrompt.trim()) {
+        claudePayload.system = redactedSystemPrompt.trim();
       }
 
       const claudeRes = await fetch(url, {
@@ -329,8 +338,8 @@ export async function POST(req: NextRequest) {
     }
 
     const messagesPayload: any[] = [];
-    if (systemPrompt && systemPrompt.trim()) {
-      messagesPayload.push({ role: "system", content: systemPrompt.trim() });
+    if (redactedSystemPrompt && redactedSystemPrompt.trim()) {
+      messagesPayload.push({ role: "system", content: redactedSystemPrompt.trim() });
     }
     messagesPayload.push(...formattedMessages);
 

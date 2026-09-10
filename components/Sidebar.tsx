@@ -30,6 +30,7 @@ import {
   Blocks,
   Plug,
   RotateCcw,
+  ShieldAlert,
 } from "lucide-react";
 import { Conversation, Project, AgentTask } from "@/lib/types";
 import { storage } from "@/lib/storage";
@@ -68,6 +69,8 @@ interface SidebarProps {
   onOpenDiskExplorer?: () => void;
   onOpenDirectory?: (tab?: "skills" | "connectors" | "plugins") => void;
   onOpenMemory?: () => void;
+  onOpenApprovals?: () => void;
+  pendingApprovalCount?: number;
 }
 
 type SortOption = "recent" | "created" | "title";
@@ -106,6 +109,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onRunAgentNow,
   runningAgentIds = [],
   onOpenDiskExplorer,
+  onOpenApprovals,
+  pendingApprovalCount = 0,
 }) => {
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearchOpen, setIsSearchOpen] = useState(false);
@@ -385,6 +390,33 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <RotateCcw className="w-4 h-4 text-[var(--muted)] group-hover:text-[var(--foreground)] transition-colors" />
                 <span>Memory</span>
               </button>
+
+              {/* Agent Approval Queue — badge stays visible until each item is decided */}
+              {onOpenApprovals && (
+                <button
+                  onClick={() => {
+                    onOpenApprovals();
+                    if (typeof window !== "undefined" && window.innerWidth < 768) setIsOpen(false);
+                  }}
+                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs transition-colors cursor-pointer group ${
+                    pendingApprovalCount > 0
+                      ? "text-amber-300 hover:bg-amber-500/10"
+                      : "text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--sidebar-hover)]"
+                  }`}
+                >
+                  <ShieldAlert
+                    className={`w-4 h-4 transition-colors ${
+                      pendingApprovalCount > 0 ? "text-amber-400" : "text-[var(--muted)] group-hover:text-[var(--foreground)]"
+                    }`}
+                  />
+                  <span className="flex-1 text-left">Persetujuan Agent</span>
+                  {pendingApprovalCount > 0 && (
+                    <span className="px-1.5 py-0.5 rounded-full bg-amber-500 text-neutral-950 text-[10px] font-bold leading-none">
+                      {pendingApprovalCount}
+                    </span>
+                  )}
+                </button>
+              )}
             </div>
           </div>
         </div>
