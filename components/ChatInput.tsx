@@ -27,6 +27,8 @@ import {
   MessageSquare,
   MessageCircle,
   Box,
+  Headphones,
+  PhoneCall,
 } from "lucide-react";
 import { Attachment, ThinkingMode, OllamaModel, ApiKeysConfig, Skill } from "@/lib/types";
 import { formatBytes } from "@/lib/ollama";
@@ -66,6 +68,7 @@ interface ChatInputProps {
   onOpenArtifacts?: () => void;
   onOpenDiskExplorer?: () => void;
   onClearChat?: () => void;
+  onOpenVoiceCall?: () => void;
   skills?: Skill[];
 }
 
@@ -94,6 +97,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   onOpenArtifacts,
   onOpenDiskExplorer,
   onClearChat,
+  onOpenVoiceCall,
   skills = [],
 }) => {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -104,6 +108,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   const [isListening, setIsListening] = useState(false);
   const recognitionRef = useRef<any>(null);
   const inputRef = useRef(input);
+  const baseTextRef = useRef("");
 
   useEffect(() => {
     inputRef.current = input;
@@ -258,6 +263,15 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         setInput("/blender ");
       },
     },
+    {
+      command: "/music",
+      label: "Recall Music Player",
+      desc: "Play ambient soundscapes (lofi, rain, space), pause, next, or recall player UI",
+      icon: Headphones,
+      action: () => {
+        setInput("/music play lofi");
+      },
+    },
     ...skills
       .filter((s) => s.enabled && s.slashCommand)
       .map((s) => ({
@@ -298,13 +312,22 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         recognition.lang = "id-ID"; // Supports Indonesian and English automatically
 
         recognition.onresult = (event: any) => {
-          let currentTranscript = "";
-          for (let i = event.resultIndex; i < event.results.length; i++) {
-            currentTranscript += event.results[i][0].transcript;
+          let finalTranscript = "";
+          let interimTranscript = "";
+
+          for (let i = 0; i < event.results.length; i++) {
+            const item = event.results[i];
+            if (item.isFinal) {
+              finalTranscript += item[0].transcript + " ";
+            } else {
+              interimTranscript += item[0].transcript;
+            }
           }
-          if (currentTranscript) {
-            const existing = inputRef.current;
-            setInput(existing ? `${existing} ${currentTranscript}` : currentTranscript);
+
+          const spoken = (finalTranscript + interimTranscript).trim();
+          const base = baseTextRef.current;
+          if (spoken) {
+            setInput(base ? `${base} ${spoken}` : spoken);
           }
         };
 
@@ -333,6 +356,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       setIsListening(false);
     } else {
       try {
+        baseTextRef.current = input.trim();
         recognitionRef.current.start();
         setIsListening(true);
       } catch (err) {
@@ -566,6 +590,20 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               {isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
               <ChevronDown className="w-3 h-3 opacity-60 -ml-0.5" />
             </button>
+
+            {/* Live Interactive Chat (Indonesian Female Voice Mode) */}
+            {onOpenVoiceCall && (
+              <button
+                type="button"
+                onClick={onOpenVoiceCall}
+                disabled={disabled || isStreaming}
+                className="flex items-center gap-1 px-2 py-1 sm:px-2.5 sm:py-1.5 rounded-xl text-xs font-medium text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 shadow-2xs transition-all cursor-pointer flex-shrink-0"
+                title="Interactive Chat (Percakapan Suara Real-Time)"
+              >
+                <Headphones className="w-3.5 h-3.5 text-emerald-400" />
+                <span className="hidden sm:inline text-[11px] font-semibold">Interactive Chat</span>
+              </button>
+            )}
 
             {/* Web Search Toggle Button */}
             <button

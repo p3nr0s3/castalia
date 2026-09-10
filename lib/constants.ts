@@ -63,7 +63,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   topP: 0.9,
   topK: 40,
   repeatPenalty: 1.1,
-  numCtx: 4096,
+  numCtx: 16384,
   numPredict: 2048,
   thinkingMode: "default",
   theme: "dark",
@@ -87,6 +87,58 @@ export const DEFAULT_SETTINGS: AppSettings = {
   memory: DEFAULT_MEMORY_CONFIG,
   musicDirectory: "",
 };
+
+export interface ContextPreset {
+  value: number;
+  label: string;
+  name: string;
+  desc: string;
+  badge: string;
+  vramEst: string;
+}
+
+export const CONTEXT_SIZE_PRESETS: ContextPreset[] = [
+  {
+    value: 4096,
+    label: "4K",
+    name: "4,096 tokens",
+    desc: "Cepat & Ringan — Cocok untuk PC dengan VRAM terbatas (4GB - 6GB)",
+    badge: "Lightweight",
+    vramEst: "~1 GB VRAM",
+  },
+  {
+    value: 8192,
+    label: "8K",
+    name: "8,192 tokens",
+    desc: "Seimbang — Standar percakapan panjang & diskusi multi-turn harian",
+    badge: "Balanced",
+    vramEst: "~2 GB VRAM",
+  },
+  {
+    value: 16384,
+    label: "16K",
+    name: "16,384 tokens",
+    desc: "Rekomendasi Utama — Sangat optimal untuk RAG, Knowledge Base, & Coding",
+    badge: "Recommended",
+    vramEst: "~3.5 GB VRAM",
+  },
+  {
+    value: 32768,
+    label: "32K",
+    name: "32,768 tokens",
+    desc: "Proyek Luas — Menganalisis dokumen panjang, PDF tebal, & multi-file coding",
+    badge: "Extended",
+    vramEst: "~6 GB VRAM",
+  },
+  {
+    value: 65536,
+    label: "64K",
+    name: "65,536 tokens",
+    desc: "Kapasitas Raksasa — Full Codebase repo, transkrip panjang, buku utuh",
+    badge: "Massive",
+    vramEst: "~10+ GB VRAM",
+  },
+];
 
 export const CLOUD_MODEL_PRESETS: ModelOption[] = [
   // Google Gemini Models
@@ -192,6 +244,15 @@ export const CLOUD_MODEL_PRESETS: ModelOption[] = [
 ];
 
 export const PRESET_PERSONAS: PersonaPreset[] = [
+  {
+    id: "teman-santai",
+    name: "Teman Santai (Casual ID)",
+    description: "Gaya ngobrol santai, luwes, dan akrab berbahasa Indonesia seperti sahabat dekat",
+    icon: "Smile",
+    systemPrompt: "Kamu adalah teman ngobrol yang asik, santai, dan cerdas dalam Bahasa Indonesia. Bicaralah kasual, luwes, dan bersahabat ('aku - kamu'), gunakan partikel percakapan santai sehari-hari (nih, deh, dong, kan, yuk, aja, santai aja), dan hindari gaya bahasa kaku, birokratis, atau formal. Jawab dengan to the point, komunikatif, dan solutif.",
+    temperature: 0.75,
+    topP: 0.9,
+  },
   {
     id: "helpful-assistant",
     name: "General Assistant",

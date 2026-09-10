@@ -339,6 +339,13 @@ export async function streamChatCompletion({
 
         try {
           const parsed = JSON.parse(trimmed);
+
+          const reasoningChunk = parsed.message?.thinking || parsed.message?.reasoning;
+          if (reasoningChunk) {
+            fullReasoning += reasoningChunk;
+            if (onReasoning) onReasoning(reasoningChunk);
+          }
+
           if (parsed.message?.content) {
             const token = parsed.message.content;
             fullResponse += token;
@@ -384,13 +391,13 @@ export async function streamChatCompletion({
     }
 
     if (onFinish) {
-      onFinish(fullResponse, finalMetrics);
+      onFinish(fullResponse, finalMetrics, fullReasoning || undefined);
     }
 
     return fullResponse;
   } catch (err: any) {
     if (err.name === "AbortError") {
-      if (onFinish) onFinish(fullResponse);
+      if (onFinish) onFinish(fullResponse, undefined, fullReasoning || undefined);
       return fullResponse;
     }
 

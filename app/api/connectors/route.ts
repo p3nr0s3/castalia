@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import fs from "fs";
+import path from "path";
 
 export async function POST(req: NextRequest) {
   try {
@@ -109,17 +111,22 @@ export async function POST(req: NextRequest) {
       }
 
       if (service === "blender" || service === "blender-mcp") {
-        const targetUrl = (endpoint || "http://127.0.0.1:9876").trim();
+        const targetUrl = (endpoint || "http://127.0.0.1:9876").trim().replace(/\/$/, "");
         try {
           const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 2000);
-          const res = await fetch(targetUrl, { signal: controller.signal }).catch(() => null);
+          const timeoutId = setTimeout(() => controller.abort(), 4000);
+          const res = await fetch(targetUrl, {
+            headers: { Accept: "application/json" },
+            signal: controller.signal,
+          }).catch(() => null);
           clearTimeout(timeoutId);
 
-          if (res) {
+          if (res && res.ok) {
+            const data = await res.json().catch(() => ({}));
+            const ver = data.version ? ` (v${data.version})` : "";
             return NextResponse.json({
               success: true,
-              message: `Connected to Blender MCP Bridge at ${targetUrl}! Live 3D Python execution ready.`,
+              message: `Connected to Blender MCP Bridge${ver} at ${targetUrl}! Live 3D Python execution ready.`,
             });
           }
         } catch {
@@ -128,7 +135,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json(
           {
             success: false,
-            error: `Could not reach Blender at ${targetUrl}. Start Blender and run the MCP Bridge script in the Scripting workspace.`,
+            error: `Could not reach Blender at ${targetUrl}. Make sure Blender is running and the Python bridge script is active in the Scripting tab.`,
           },
           { status: 400 }
         );
@@ -314,15 +321,25 @@ export async function POST(req: NextRequest) {
       try {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 4000);
-        const res = await fetch(`${targetUrl}/execute`, {
+        let res = await fetch(`${targetUrl}/execute`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ code: scriptCode }),
           signal: controller.signal,
-        });
+        }).catch(() => null);
+
+        // Fallback to base endpoint if /execute fails
+        if (!res || !res.ok) {
+          res = await fetch(targetUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ code: scriptCode }),
+            signal: controller.signal,
+          }).catch(() => null);
+        }
         clearTimeout(timeoutId);
 
-        if (res.ok) {
+        if (res && res.ok) {
           const data = await res.json().catch(() => ({}));
           return NextResponse.json({
             success: true,
@@ -341,6 +358,216 @@ export async function POST(req: NextRequest) {
         message: "Blender bridge is offline. You can copy the generated Python script below and run it in Blender's Scripting workspace!",
         code: scriptCode,
       });
+    }
+
+    // =========================================================================
+    // 6. BLENDER STARTUP AUTOMATION (AUTO-START ON LAUNCH)
+    // =========================================================================
+    if (
+      action === "blender_check_startup" ||
+      action === "blender_install_startup" ||
+      action === "blender_uninstall_startup"
+    ) {
+      const getBlenderBasePaths = (): string[] => {
+        const paths: string[] = [];
+        const appData = process.env.APPDATA;
+        if (appData) {
+          const p = path.join(appData, "Blender Foundation", "Blender");
+          if (fs.existsSync(p)) paths.push(p);
+        }
+        const home = process.env.HOME || process.env.USERPROFILE;
+        if (home) {
+          const linuxP = path.join(home, ".config", "blender");
+          if (fs.existsSync(linuxP)) paths.push(linuxP);
+          const macP = path.join(home, "Library", "Application Support", "Blender");
+          if (fs.existsSync(macP)) paths.push(macP);
+        }
+        return paths;
+      };
+
+      const bases = getBlenderBasePaths();
+      const versions: { version: string; startupDir: string; filePath: string; installed: boolean }[] = [];
+
+      for (const base of bases) {
+        try {
+          const items = fs.readdirSync(base, { withFileTypes: true });
+          for (const item of items) {
+            if (item.isDirectory() && (/^\d+(\.\d+)?$/.test(item.name) || !isNaN(parseFloat(item.name)))) {
+              const startupDir = path.join(base, item.name, "scripts", "startup");
+              const filePath = path.join(startupDir, "blender_mcp_bridge.py");
+              const installed = fs.existsSync(filePath);
+              versions.push({ version: item.name, startupDir, filePath, installed });
+            }
+          }
+        } catch (e) {}
+      }
+
+      // Default fallback if no version directories exist yet
+      if (versions.length === 0 && process.env.APPDATA) {
+        const fallbackBase = path.join(process.env.APPDATA, "Blender Foundation", "Blender", "5.2");
+        const startupDir = path.join(fallbackBase, "scripts", "startup");
+        const filePath = path.join(startupDir, "blender_mcp_bridge.py");
+        versions.push({ version: "5.2", startupDir, filePath, installed: fs.existsSync(filePath) });
+      }
+
+      if (action === "blender_check_startup") {
+        const isInstalled = versions.some((v) => v.installed);
+        return NextResponse.json({
+          success: true,
+          installed: isInstalled,
+          versions,
+        });
+      }
+
+      if (action === "blender_install_startup") {
+        const bridgeScript = `"""
+Ollama AI Workspace - Blender 3D MCP Bridge
+Auto-start bridge listener on port 9876.
+Enables AI models (Gemma 4, etc.) to inject 3D meshes, materials, lights, and animations live.
+"""
+
+bl_info = {
+    "name": "Ollama AI Workspace 3D Bridge",
+    "author": "Antigravity & Ollama Chat Web",
+    "version": (1, 0, 0),
+    "blender": (4, 0, 0),
+    "location": "Background Service (Port 9876)",
+    "description": "Background HTTP listener on port 9876 for direct AI 3D injection",
+    "category": "Development",
+}
+
+import bpy
+import threading
+import json
+from http.server import HTTPServer, BaseHTTPRequestHandler
+
+# Stop previous server if active to prevent address collision
+if 'mcp_server' in bpy.app.driver_namespace:
+    try:
+        bpy.app.driver_namespace['mcp_server'].shutdown()
+        bpy.app.driver_namespace['mcp_server'].server_close()
+        print("[AI Bridge] Previous server stopped.")
+    except Exception:
+        pass
+
+class MCPHandler(BaseHTTPRequestHandler):
+    def address_string(self):
+        return str(self.client_address[0])
+
+    def log_message(self, format, *args):
+        pass
+
+    def _cors(self):
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+
+    def do_OPTIONS(self):
+        self.send_response(200)
+        self._cors()
+        self.end_headers()
+
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/json')
+        self._cors()
+        self.end_headers()
+        ver = bpy.app.version_string
+        resp = {
+            'status': 'ready',
+            'blender': True,
+            'version': ver,
+            'objects_count': len(bpy.data.objects),
+            'last_error': bpy.app.driver_namespace.get('mcp_last_error')
+        }
+        self.wfile.write(json.dumps(resp).encode('utf-8'))
+
+    def do_POST(self):
+        try:
+            length = int(self.headers.get('Content-Length', 0))
+            body = self.rfile.read(length).decode('utf-8')
+            data = json.loads(body) if body else {}
+            code = data.get('code', '')
+
+            def run_bpy():
+                try:
+                    exec(code, {'bpy': bpy})
+                    bpy.app.driver_namespace['mcp_last_error'] = None
+                    print('[AI Bridge] Code executed successfully! Objects:', len(bpy.data.objects))
+                except Exception as ex:
+                    import traceback
+                    traceback.print_exc()
+                    bpy.app.driver_namespace['mcp_last_error'] = f"{type(ex).__name__}: {str(ex)}"
+                    print('[AI Bridge] Execution error:', ex)
+
+            if code:
+                bpy.app.timers.register(run_bpy)
+
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self._cors()
+            self.end_headers()
+            self.wfile.write(b'{"success": true}')
+        except Exception as e:
+            self.send_response(500)
+            self.send_header('Content-Type', 'application/json')
+            self._cors()
+            self.end_headers()
+            self.wfile.write(json.dumps({'error': str(e)}).encode('utf-8'))
+
+class ReusableServer(HTTPServer):
+    allow_reuse_address = True
+
+def start_server():
+    try:
+        server = ReusableServer(('127.0.0.1', 9876), MCPHandler)
+        bpy.app.driver_namespace['mcp_server'] = server
+        t = threading.Thread(target=server.serve_forever, daemon=True)
+        t.start()
+        print(f">>> [Ollama AI Workspace] Blender MCP Bridge LIVE on port 9876 (Blender {bpy.app.version_string}) <<<")
+    except Exception as e:
+        print('[AI Bridge] Startup error:', e)
+
+start_server()
+`;
+        const installed: string[] = [];
+        for (const v of versions) {
+          try {
+            fs.mkdirSync(v.startupDir, { recursive: true });
+            fs.writeFileSync(v.filePath, bridgeScript, "utf-8");
+            installed.push(v.filePath);
+            v.installed = true;
+          } catch (err: any) {
+            console.error("Failed to write startup script:", err);
+          }
+        }
+
+        return NextResponse.json({
+          success: installed.length > 0,
+          message: `Bridge auto-start installed for Blender (${versions.map((v) => v.version).join(", ")})!`,
+          installedPaths: installed,
+          versions,
+        });
+      }
+
+      if (action === "blender_uninstall_startup") {
+        let removedCount = 0;
+        for (const v of versions) {
+          try {
+            if (fs.existsSync(v.filePath)) {
+              fs.unlinkSync(v.filePath);
+              removedCount++;
+              v.installed = false;
+            }
+          } catch (err) {}
+        }
+
+        return NextResponse.json({
+          success: true,
+          message: `Removed bridge auto-start script from ${removedCount} location(s).`,
+          versions,
+        });
+      }
     }
 
     return NextResponse.json({ success: false, error: `Unknown action '${action}'` }, { status: 400 });

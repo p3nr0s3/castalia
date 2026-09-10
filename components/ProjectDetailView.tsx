@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
   ArrowRight,
   Plus,
@@ -56,10 +56,16 @@ export const ProjectDetailView: React.FC<ProjectDetailViewProps> = ({
 }) => {
   const [promptInput, setPromptInput] = useState("");
   const [isEditingInstructions, setIsEditingInstructions] = useState(false);
-  const [instructionsText, setInstructionsText] = useState(project.systemPrompt || "");
+  const [instructionsText, setInstructionsText] = useState(project?.systemPrompt || "");
   const [fileSearchQuery, setFileSearchQuery] = useState("");
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    if (project) {
+      setInstructionsText(project.systemPrompt || "");
+    }
+  }, [project?.id, project?.systemPrompt]);
 
   // Filter conversations for this project
   const projectChats = conversations
@@ -143,6 +149,25 @@ export const ProjectDetailView: React.FC<ProjectDetailViewProps> = ({
       updatedAt: Date.now(),
     });
   };
+
+  if (!project) {
+    return (
+      <div className="flex-1 h-full flex flex-col items-center justify-center p-8 bg-[var(--background)] text-[var(--foreground)]">
+        <div className="text-center space-y-4 max-w-sm">
+          <Folder className="w-12 h-12 text-[var(--muted)] mx-auto opacity-40" />
+          <h2 className="text-base font-semibold">Project not found</h2>
+          <p className="text-xs text-[var(--muted)]">The requested project could not be found or has been moved.</p>
+          <button
+            type="button"
+            onClick={onBackToGallery}
+            className="px-4 py-2 rounded-xl bg-[var(--foreground)] text-[var(--background)] text-xs font-semibold hover:opacity-90 cursor-pointer transition-opacity"
+          >
+            Back to Projects Gallery
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   const filteredFiles = (project.files || []).filter((f) =>
     f.name.toLowerCase().includes(fileSearchQuery.toLowerCase())
@@ -274,7 +299,7 @@ export const ProjectDetailView: React.FC<ProjectDetailViewProps> = ({
                       <span className="text-sm text-[var(--foreground)] font-medium truncate">
                         {chat.title}
                       </span>
-                      <span className="text-xs text-[var(--muted)] font-sans flex-shrink-0">
+                      <span suppressHydrationWarning className="text-xs text-[var(--muted)] font-sans flex-shrink-0">
                         {formatDate(chat.updatedAt || chat.createdAt)}
                       </span>
                     </div>

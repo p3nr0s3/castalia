@@ -31,6 +31,7 @@ import {
 import dynamic from "next/dynamic";
 import { Message } from "@/lib/types";
 import { formatBytes } from "@/lib/ollama";
+import { speakIndonesianFemale, stopSpeaking } from "@/lib/voiceEngine";
 
 const CodeBlock = dynamic(() => import("./CodeBlock").then((mod) => mod.CodeBlock), {
   ssr: false,
@@ -133,7 +134,7 @@ const ChatMessageComponent: React.FC<ChatMessageProps> = ({
   const isUser = message.role === "user";
   const { reasoning, cleanContent } = extractReasoning(message.content, message.reasoning);
 
-  // Web Speech Synthesis Text-to-Speech (TTS)
+  // Web Speech Synthesis Text-to-Speech (TTS) using Indonesian female voice
   const handleToggleSpeech = () => {
     if (typeof window === "undefined" || !("speechSynthesis" in window)) {
       alert("Text-to-Speech is not supported in this browser.");
@@ -141,23 +142,21 @@ const ChatMessageComponent: React.FC<ChatMessageProps> = ({
     }
 
     if (isSpeaking) {
-      window.speechSynthesis.cancel();
+      stopSpeaking();
       setIsSpeaking(false);
       return;
     }
 
-    window.speechSynthesis.cancel();
-    const textToRead = (cleanContent || message.content).replace(/```[\s\S]*?```/g, "Code block omitted.").trim();
-    if (!textToRead) return;
-
-    const utterance = new SpeechSynthesisUtterance(textToRead);
-    utterance.rate = 1.0;
-    utterance.pitch = 1.0;
-    utterance.onend = () => setIsSpeaking(false);
-    utterance.onerror = () => setIsSpeaking(false);
+    const textToRead = cleanContent || message.content;
+    if (!textToRead.trim()) return;
 
     setIsSpeaking(true);
-    window.speechSynthesis.speak(utterance);
+    speakIndonesianFemale({
+      text: textToRead,
+      onStart: () => setIsSpeaking(true),
+      onEnd: () => setIsSpeaking(false),
+      onError: () => setIsSpeaking(false),
+    });
   };
 
   const handleCopy = async () => {
@@ -257,6 +256,9 @@ const ChatMessageComponent: React.FC<ChatMessageProps> = ({
                     p({ children }) {
                       return <p className="mb-2 last:mb-0 break-words [overflow-wrap:anywhere] [word-break:break-word]">{children}</p>;
                     },
+                    pre({ children }) {
+                      return <>{children}</>;
+                    },
                     code({ node, inline, className, children, ...props }: any) {
                       const match = /language-(\w+)/.exec(className || "");
                       const language = match ? match[1] : "";
@@ -287,7 +289,7 @@ const ChatMessageComponent: React.FC<ChatMessageProps> = ({
           {/* Under-bubble Action Toolbar on right matching Image 1 */}
           {!isEditing && (
             <div className="flex items-center gap-2 text-xs text-[var(--muted)] pr-1">
-              <span className="text-[11px] opacity-75">{formatTimeAgo(message.timestamp)}</span>
+              <span suppressHydrationWarning className="text-[11px] opacity-75">{formatTimeAgo(message.timestamp)}</span>
 
               {onRegenerate && (
                 <button
@@ -458,6 +460,9 @@ const ChatMessageComponent: React.FC<ChatMessageProps> = ({
                     components={{
                       p({ children }) {
                         return <p className="mb-2.5 last:mb-0 text-[13.5px] sm:text-sm leading-relaxed text-[var(--foreground)]">{children}</p>;
+                      },
+                      pre({ children }) {
+                        return <>{children}</>;
                       },
                       ul({ children }) {
                         return <ul className="list-disc list-outside ml-5 my-2 space-y-1 text-[13.5px] sm:text-sm text-[var(--foreground)]">{children}</ul>;

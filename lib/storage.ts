@@ -165,6 +165,7 @@ export const storage = {
       return {
         ...DEFAULT_SETTINGS,
         ...parsed,
+        numCtx: parsed.numCtx || DEFAULT_SETTINGS.numCtx,
         connectors: mergedConnectors,
       };
     } catch (e) {
@@ -173,11 +174,13 @@ export const storage = {
     }
   },
 
-  saveSettings(settings: AppSettings, syncServer = true): void {
+  saveSettings(settings: AppSettings, syncServer = true, immediate = false): void {
     if (typeof window === "undefined") return;
     try {
       localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(settings));
-      if (syncServer) {
+      if (immediate) {
+        this.pushToServer({ settings });
+      } else if (syncServer) {
         this.debouncedSyncToServer({ settings });
       }
     } catch (e) {

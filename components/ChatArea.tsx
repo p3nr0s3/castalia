@@ -28,6 +28,7 @@ import {
   X,
   Swords,
   Settings,
+  Headphones,
 } from "lucide-react";
 import { Conversation, OllamaModel, Attachment, Project, ApiKeysConfig, ThinkingMode, Skill } from "@/lib/types";
 import { STARTER_PROMPTS } from "@/lib/constants";
@@ -41,6 +42,7 @@ interface ChatAreaProps {
   currentProject?: Project | null;
   projects?: Project[];
   skills?: Skill[];
+  onSelectProject?: (projectId: string) => void;
   onOpenProjectSettings?: () => void;
   onOpenDiskExplorer?: () => void;
   onOpenSettings?: () => void;
@@ -84,6 +86,7 @@ interface ChatAreaProps {
   onToggleArenaMode?: () => void;
   arenaModelB?: string;
   onSelectArenaModelB?: (model: string) => void;
+  onOpenVoiceCall?: () => void;
 }
 
 export const ChatArea: React.FC<ChatAreaProps> = ({
@@ -91,6 +94,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   currentProject,
   projects = [],
   skills = [],
+  onSelectProject,
   onOpenProjectSettings,
   onOpenDiskExplorer,
   onOpenSettings,
@@ -134,6 +138,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   setThinkingMode,
   onOpenCodespace,
   nowPlayingInfo,
+  onOpenVoiceCall,
 }) => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -255,14 +260,31 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
           <div className="flex items-center gap-1 min-w-0 flex-1">
             {/* Project Pill */}
             {currentProject ? (
-              <button
-                onClick={onOpenProjectSettings}
-                className="flex items-center gap-1.5 px-2 py-1 rounded-xl text-xs font-semibold text-blue-400 hover:text-blue-300 hover:bg-blue-500/10 transition-colors cursor-pointer flex-shrink-0 max-w-[120px] xs:max-w-[160px] sm:max-w-[200px] truncate"
-                title={`Project: ${currentProject.name} (Click to open settings)`}
-              >
-                <Folder className="w-3.5 h-3.5 flex-shrink-0" />
-                <span className="truncate">{currentProject.name}</span>
-              </button>
+              <div className="flex items-center gap-1 flex-shrink-0">
+                <button
+                  onClick={() => {
+                    if (onSelectProject) {
+                      onSelectProject(currentProject.id);
+                    } else if (onOpenProjectSettings) {
+                      onOpenProjectSettings();
+                    }
+                  }}
+                  className="flex items-center gap-1.5 px-2 py-1 rounded-xl text-xs font-semibold text-blue-400 hover:text-blue-300 hover:bg-blue-500/10 transition-colors cursor-pointer max-w-[120px] xs:max-w-[160px] sm:max-w-[200px] truncate"
+                  title={`Project: ${currentProject.name} (Click to open project dashboard)`}
+                >
+                  <Folder className="w-3.5 h-3.5 flex-shrink-0 text-amber-400" />
+                  <span className="truncate">{currentProject.name}</span>
+                </button>
+                {onOpenProjectSettings && (
+                  <button
+                    onClick={onOpenProjectSettings}
+                    className="p-1 rounded-lg text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--sidebar-hover)] transition-colors cursor-pointer"
+                    title="Project Settings"
+                  >
+                    <Settings className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
             ) : (
               <span className="flex items-center gap-1.5 px-1.5 py-1 text-xs font-medium text-[var(--muted)] flex-shrink-0">
                 <span>💬 General</span>
@@ -433,6 +455,18 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
               <span className="text-[11px] sm:text-xs font-semibold truncate hidden xs:inline">
                 {nowPlayingInfo.title}
               </span>
+            </button>
+          )}
+
+          {/* Interactive Chat Button (Indonesian Female Voice Mode) */}
+          {onOpenVoiceCall && (
+            <button
+              onClick={onOpenVoiceCall}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/25 transition-colors cursor-pointer flex-shrink-0 shadow-xs"
+              title="Interactive Chat (Percakapan Suara Real-Time)"
+            >
+              <Headphones className="w-3.5 h-3.5 text-emerald-400" />
+              <span className="hidden sm:inline font-semibold">Interactive Chat</span>
             </button>
           )}
 
@@ -629,6 +663,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
         onOpenArtifacts={onOpenArtifacts}
         onOpenDiskExplorer={onOpenDiskExplorer}
         onClearChat={onNewChat}
+        onOpenVoiceCall={onOpenVoiceCall}
         skills={skills}
       />
     </div>

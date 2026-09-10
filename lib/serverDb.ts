@@ -94,9 +94,7 @@ async function persistToDisk(db: ServerDatabase) {
   isSaving = true;
   try {
     await fs.mkdir(DATA_DIR, { recursive: true });
-    const tempFile = `${DB_FILE}.tmp.${Date.now()}`;
-    await fs.writeFile(tempFile, JSON.stringify(db, null, 2), "utf-8");
-    await fs.rename(tempFile, DB_FILE);
+    await fs.writeFile(DB_FILE, JSON.stringify(db, null, 2), "utf-8");
   } catch (err) {
     console.error("Failed to persist database to disk:", err);
   } finally {

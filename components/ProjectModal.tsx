@@ -67,7 +67,7 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
   const [temperature, setTemperature] = useState(project?.temperature ?? 0.7);
   const [topP, setTopP] = useState(project?.topP ?? 0.9);
   const [topK, setTopK] = useState(project?.topK ?? 40);
-  const [numCtx, setNumCtx] = useState(project?.numCtx ?? 4096);
+  const [numCtx, setNumCtx] = useState(project?.numCtx ?? 16384);
   const [numPredict, setNumPredict] = useState(project?.numPredict ?? -1);
   const [repeatPenalty, setRepeatPenalty] = useState(project?.repeatPenalty ?? 1.1);
   const [thinkingMode, setThinkingMode] = useState<ThinkingMode>(project?.thinkingMode ?? "default");
@@ -93,7 +93,7 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
         setTemperature(project.temperature ?? 0.7);
         setTopP(project.topP ?? 0.9);
         setTopK(project.topK ?? 40);
-        setNumCtx(project.numCtx ?? 4096);
+        setNumCtx(project.numCtx ?? 16384);
         setNumPredict(project.numPredict ?? -1);
         setRepeatPenalty(project.repeatPenalty ?? 1.1);
         setThinkingMode(project.thinkingMode ?? "default");
@@ -111,7 +111,7 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
         setTemperature(0.7);
         setTopP(0.9);
         setTopK(40);
-        setNumCtx(4096);
+        setNumCtx(16384);
         setNumPredict(-1);
         setRepeatPenalty(1.1);
         setThinkingMode("default");
@@ -144,21 +144,21 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
       setTemperature(0.95);
       setTopP(0.95);
       setTopK(80);
-      setNumCtx(4096);
+      setNumCtx(16384);
       setRepeatPenalty(1.05);
       setThinkingMode("default");
     } else if (preset === "analyst") {
       setTemperature(0.1);
       setTopP(0.5);
       setTopK(20);
-      setNumCtx(8192);
+      setNumCtx(16384);
       setRepeatPenalty(1.2);
       setThinkingMode("default");
     } else {
       setTemperature(0.7);
       setTopP(0.9);
       setTopK(40);
-      setNumCtx(4096);
+      setNumCtx(16384);
       setRepeatPenalty(1.1);
       setThinkingMode("default");
     }

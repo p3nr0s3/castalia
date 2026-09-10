@@ -39,6 +39,7 @@ import { AppSettings, OllamaModel, ThemeType, FontFamilyType, ThinkingMode, Skil
 import { checkOllamaHealth } from "@/lib/ollama";
 import { storage } from "@/lib/storage";
 import { DEFAULT_SKILLS } from "@/lib/skills";
+import { CONTEXT_SIZE_PRESETS } from "@/lib/constants";
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -753,43 +754,144 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </div>
                 </div>
 
-                {/* Context Window & Max Tokens */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div className="p-3.5 rounded-2xl bg-[var(--sidebar-bg)] border border-[var(--card-border)] space-y-2">
-                    <label className="block text-xs font-bold text-[var(--foreground)]">
-                      Context Window Size (num_ctx)
-                    </label>
-                    <select
-                      value={formData.numCtx || 4096}
-                      onChange={(e) => setFormData({ ...formData, numCtx: parseInt(e.target.value) })}
-                      className="w-full px-3 py-1.5 text-xs rounded-xl border border-[var(--card-border)] bg-[var(--card-bg)] text-[var(--foreground)] focus:outline-none"
-                    >
-                      <option value={2048}>2,048 tokens (Lightweight)</option>
-                      <option value={4096}>4,096 tokens (Standard)</option>
-                      <option value={8192}>8,192 tokens (Extended)</option>
-                      <option value={16384}>16,384 tokens (Large Docs)</option>
-                      <option value={32768}>32,768 tokens (Ultra Long)</option>
-                      <option value={65536}>65,536 tokens (Massive)</option>
-                    </select>
+                {/* Visual Context Window Size (num_ctx) Selector */}
+                <div className="p-4 rounded-2xl bg-[var(--sidebar-bg)] border border-[var(--card-border)] space-y-3.5">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <label className="text-xs font-bold text-[var(--foreground)]">
+                          Context Window Capacity (num_ctx)
+                        </label>
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-cyan-500/15 text-cyan-400 border border-cyan-500/30">
+                          {formData.numCtx ? (formData.numCtx >= 1024 ? `${formData.numCtx / 1024}K Tokens` : `${formData.numCtx} Tokens`) : "16K Tokens"}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-[var(--muted)] mt-0.5">
+                        Berapa banyak teks, dokumen, dan riwayat obrolan yang dapat diingat model AI sekaligus.
+                      </p>
+                    </div>
+
+                    {/* VRAM / Performance Indicator */}
+                    <div className="text-[11px] font-mono text-[var(--muted)] flex items-center gap-1.5">
+                      <HardDrive className="w-3.5 h-3.5 text-cyan-400" />
+                      <span>
+                        {CONTEXT_SIZE_PRESETS.find((p) => p.value === formData.numCtx)?.vramEst || "Custom"}
+                      </span>
+                    </div>
                   </div>
 
-                  <div className="p-3.5 rounded-2xl bg-[var(--sidebar-bg)] border border-[var(--card-border)] space-y-2">
+                  {/* Preset Cards Grid */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 pt-1">
+                    {CONTEXT_SIZE_PRESETS.map((preset) => {
+                      const isSelected = (formData.numCtx || 16384) === preset.value;
+                      return (
+                        <div
+                          key={preset.value}
+                          onClick={() => setFormData({ ...formData, numCtx: preset.value })}
+                          className={`p-3 rounded-xl border transition-all cursor-pointer flex flex-col justify-between space-y-2 select-none ${
+                            isSelected
+                              ? "bg-cyan-500/10 border-cyan-500 shadow-sm shadow-cyan-500/10 text-[var(--foreground)]"
+                              : "bg-[var(--card-bg)] border-[var(--card-border)] hover:border-[var(--muted)]/50 hover:bg-[var(--sidebar-hover)]"
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-bold font-mono text-[var(--foreground)] flex items-center gap-1.5">
+                              {preset.name}
+                            </span>
+                            <span
+                              className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full uppercase tracking-wider ${
+                                preset.badge === "Recommended"
+                                  ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/40"
+                                  : preset.badge === "Lightweight"
+                                  ? "bg-blue-500/15 text-blue-400"
+                                  : preset.badge === "Massive"
+                                  ? "bg-purple-500/15 text-purple-400"
+                                  : "bg-[var(--sidebar-bg)] text-[var(--muted)]"
+                              }`}
+                            >
+                              {preset.badge}
+                            </span>
+                          </div>
+
+                          <p className="text-[10px] text-[var(--muted)] leading-relaxed">
+                            {preset.desc}
+                          </p>
+
+                          <div className="flex items-center justify-between text-[10px] font-mono text-[var(--muted)] pt-1 border-t border-[var(--card-border)]/50">
+                            <span>{preset.vramEst}</span>
+                            {isSelected && (
+                              <span className="flex items-center gap-1 text-cyan-400 font-bold">
+                                <Check className="w-3 h-3" />
+                                Aktif
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+
+                    {/* Custom Value Option */}
+                    <div
+                      className={`p-3 rounded-xl border transition-all flex flex-col justify-between space-y-1.5 ${
+                        !CONTEXT_SIZE_PRESETS.some((p) => p.value === formData.numCtx)
+                          ? "bg-cyan-500/10 border-cyan-500 text-[var(--foreground)]"
+                          : "bg-[var(--card-bg)] border-[var(--card-border)]"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-[var(--foreground)]">Custom Tokens</span>
+                        <span className="text-[9px] font-mono bg-[var(--sidebar-bg)] px-1.5 py-0.5 rounded text-[var(--muted)]">
+                          Manual
+                        </span>
+                      </div>
+                      <input
+                        type="number"
+                        min={1024}
+                        max={131072}
+                        step={1024}
+                        value={formData.numCtx || 16384}
+                        onChange={(e) => {
+                          const val = parseInt(e.target.value, 10);
+                          setFormData({ ...formData, numCtx: isNaN(val) ? 16384 : Math.max(1024, val) });
+                        }}
+                        className="w-full px-2.5 py-1 text-xs font-mono rounded-lg border border-[var(--card-border)] bg-[var(--sidebar-bg)] text-[var(--foreground)] focus:outline-none focus:ring-1 focus:ring-cyan-500"
+                        placeholder="e.g. 16384"
+                      />
+                      <span className="text-[9px] text-[var(--muted)]">1,024 - 131,072 tokens</span>
+                    </div>
+                  </div>
+
+                  {/* Persistent Sync Guarantee Banner */}
+                  <div className="flex items-start gap-2 p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 text-xs">
+                    <Zap className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+                    <div className="text-[11px] leading-relaxed">
+                      <strong className="font-semibold text-emerald-300">Penyimpanan Permanen Aktif:</strong> Nilai Context Window disimpan langsung ke file database lokal (<code className="font-mono text-emerald-200">data/db.json</code>) dan disinkronkan ke client. Pengaturan ini akan tetap bertahan dan tidak akan reset ke 4K saat web dimuat ulang atau server npm di-restart.
+                    </div>
+                  </div>
+                </div>
+
+                {/* Max Output Tokens (num_predict) */}
+                <div className="p-3.5 rounded-2xl bg-[var(--sidebar-bg)] border border-[var(--card-border)] space-y-2">
+                  <div className="flex items-center justify-between">
                     <label className="block text-xs font-bold text-[var(--foreground)]">
                       Max Output Tokens (num_predict)
                     </label>
-                    <select
-                      value={formData.numPredict || 2048}
-                      onChange={(e) => setFormData({ ...formData, numPredict: parseInt(e.target.value) })}
-                      className="w-full px-3 py-1.5 text-xs rounded-xl border border-[var(--card-border)] bg-[var(--card-bg)] text-[var(--foreground)] focus:outline-none"
-                    >
-                      <option value={512}>512 tokens (Short answers)</option>
-                      <option value={1024}>1,024 tokens</option>
-                      <option value={2048}>2,048 tokens (Standard)</option>
-                      <option value={4096}>4,096 tokens (Long code/articles)</option>
-                      <option value={8192}>8,192 tokens (Full reports)</option>
-                      <option value={-1}>Unlimited (-1)</option>
-                    </select>
+                    <span className="text-xs font-mono font-semibold text-blue-400">
+                      {formData.numPredict === -1 ? "Unlimited (-1)" : `${formData.numPredict || 2048} tokens`}
+                    </span>
                   </div>
+                  <select
+                    value={formData.numPredict || 2048}
+                    onChange={(e) => setFormData({ ...formData, numPredict: parseInt(e.target.value) })}
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-[var(--card-border)] bg-[var(--card-bg)] text-[var(--foreground)] focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  >
+                    <option value={512}>512 tokens (Jawaban singkat)</option>
+                    <option value={1024}>1,024 tokens</option>
+                    <option value={2048}>2,048 tokens (Standar)</option>
+                    <option value={4096}>4,096 tokens (Kode & artikel panjang)</option>
+                    <option value={8192}>8,192 tokens (Laporan lengkap)</option>
+                    <option value={-1}>Unlimited (-1) — Model memutuskan sendiri</option>
+                  </select>
                 </div>
 
                 {/* Default System Instructions */}

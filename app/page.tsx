@@ -15,6 +15,7 @@ import {
   ThinkingMode,
 } from "@/lib/types";
 import { storage } from "@/lib/storage";
+import { DEFAULT_SETTINGS, PRESET_PERSONAS } from "@/lib/constants";
 import { checkOllamaHealth, fetchOllamaModels, streamChatCompletion } from "@/lib/ollama";
 import { executeAgent, calculateNextRun } from "@/lib/agentEngine";
 import { composeSkillsPrompt, DEFAULT_SKILLS } from "@/lib/skills";
@@ -32,6 +33,7 @@ import { SkillsModal } from "@/components/SkillsModal";
 import { ArtifactsModal } from "@/components/ArtifactsModal";
 import { DirectoryModal } from "@/components/DirectoryModal";
 import { MemoryModal } from "@/components/MemoryModal";
+import { VoiceCallModal } from "@/components/VoiceCallModal";
 import {
   DEFAULT_DIRECTORY_SKILLS,
   DEFAULT_CONNECTORS,
@@ -41,6 +43,11 @@ import {
 import { MusicPlayerWidget, NowPlayingInfo } from "@/components/MusicPlayerWidget";
 import { CodespaceView } from "@/components/CodespaceView";
 import { buildOptimizedKnowledgeContext, trimChatHistoryForBudget } from "@/lib/rag";
+import {
+  buildMusicPromptDirective,
+  executeMusicActionFromResponse,
+  dispatchMusicAction,
+} from "@/lib/musicBridge";
 
 export default function HomePage() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -50,8 +57,8 @@ export default function HomePage() {
   const [agents, setAgents] = useState<AgentTask[]>([]);
   const [runningAgentIds, setRunningAgentIds] = useState<string[]>([]);
 
-  const [settings, setSettings] = useState<AppSettings>(storage.getSettings());
-  const [personas, setPersonas] = useState<PersonaPreset[]>(storage.getPersonas());
+  const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
+  const [personas, setPersonas] = useState<PersonaPreset[]>(PRESET_PERSONAS);
   const [models, setModels] = useState<OllamaModel[]>([]);
   const [selectedModel, setSelectedModel] = useState<string>("");
   const [isConnected, setIsConnected] = useState<boolean>(false);
@@ -63,7 +70,7 @@ export default function HomePage() {
   const [webSearchActive, setWebSearchActive] = useState<boolean>(false);
   const [isStreaming, setIsStreaming] = useState<boolean>(false);
   const [liveStats, setLiveStats] = useState<{ tokenCount: number; liveTps: number } | undefined>(undefined);
-  const [thinkingMode, setThinkingMode] = useState<ThinkingMode>(settings.thinkingMode || "default");
+  const [thinkingMode, setThinkingMode] = useState<ThinkingMode>("default");
   const [mainView, setMainView] = useState<"workspace" | "codespace">("workspace");
   const [workspaceView, setWorkspaceView] = useState<"chat" | "projects-gallery" | "project-detail">("chat");
   const [nowPlayingInfo, setNowPlayingInfo] = useState<{ isPlaying: boolean; title: string; onOpenPlayer: () => void } | null>(null);
@@ -93,6 +100,7 @@ export default function HomePage() {
   const [directoryTab, setDirectoryTab] = useState<"skills" | "connectors" | "plugins">("skills");
   const [isMemoryModalOpen, setIsMemoryModalOpen] = useState<boolean>(false);
   const [isArtifactsModalOpen, setIsArtifactsModalOpen] = useState<boolean>(false);
+  const [isVoiceCallOpen, setIsVoiceCallOpen] = useState<boolean>(false);
   const [sidebarOpen, setSidebarOpen] = useState<boolean>(false);
 
   // Set sidebar open on larger screens and auto-hide/minimize on half-screen / small screens (<1150px)
@@ -137,7 +145,11 @@ export default function HomePage() {
 
   // Active helpers
   const activeConversation = conversations.find((c) => c.id === activeId) || null;
-  const currentProject = projects.find((p) => p.id === (activeConversation?.projectId || activeProjectId)) || null;
+  // Prioritize activeProjectId if set (e.g. when viewing/selecting a project), then fallback to conversation's projectId
+  const currentProject =
+    (activeProjectId ? projects.find((p) => p.id === activeProjectId) : null) ||
+    (activeConversation?.projectId ? projects.find((p) => p.id === activeConversation.projectId) : null) ||
+    (projects.length > 0 && workspaceView === "project-detail" ? projects[0] : null);
 
   // Initialize theme & typography font
   useEffect(() => {
@@ -192,6 +204,7 @@ export default function HomePage() {
         const localConvs = storage.getConversations();
         const localProjects = storage.getProjects();
         const localAgents = storage.getAgents();
+        const localSettings = storage.getSettings();
 
         const res = await fetch("/api/db", {
           method: "POST",
@@ -200,6 +213,7 @@ export default function HomePage() {
             conversations: localConvs,
             projects: localProjects,
             agents: localAgents,
+            settings: localSettings,
           }),
         });
 
@@ -207,6 +221,14 @@ export default function HomePage() {
         const data = await res.json();
 
         if (data.version) currentDbVersionRef.current = data.version;
+
+        if (data.settings) {
+          setSettings(data.settings);
+          storage.saveSettings(data.settings, false);
+          if (data.settings.thinkingMode) {
+            setThinkingMode(data.settings.thinkingMode);
+          }
+        }
 
         if (data.conversations && Array.isArray(data.conversations)) {
           setConversations(data.conversations);
@@ -246,6 +268,14 @@ export default function HomePage() {
 
       if (data.version) currentDbVersionRef.current = data.version;
 
+      if (data.settings) {
+        setSettings(data.settings);
+        storage.saveSettings(data.settings, false);
+        if (data.settings.thinkingMode) {
+          setThinkingMode(data.settings.thinkingMode);
+        }
+      }
+
       if (data.conversations && Array.isArray(data.conversations)) {
         setConversations(data.conversations);
         storage.saveConversations(data.conversations, false);
@@ -278,6 +308,14 @@ export default function HomePage() {
 
   // Initial Load & Health Check
   useEffect(() => {
+    // 0. Safe client-side hydration for localStorage settings & personas
+    const clientSettings = storage.getSettings();
+    setSettings(clientSettings);
+    setPersonas(storage.getPersonas());
+    if (clientSettings.thinkingMode) {
+      setThinkingMode(clientSettings.thinkingMode);
+    }
+
     // 1. Instant load from local cache
     setConversations(storage.getConversations());
     setProjects(storage.getProjects());
@@ -344,6 +382,7 @@ export default function HomePage() {
         ollamaUrl: settings.ollamaUrl,
         searxngUrl: settings.searxngUrl,
         projects,
+        apiKeys: settings.apiKeys,
       });
 
       const nextAgents = agents.map((a) => (a.id === agentId ? updatedAgent : a));
@@ -762,6 +801,10 @@ export default function HomePage() {
       basePrompt = `${basePrompt}${connectorsSection}`;
     }
 
+    // 7. Inject Live Music Player Awareness & Recall Capability
+    const musicDirective = buildMusicPromptDirective();
+    basePrompt = `${basePrompt}${musicDirective}`;
+
     return { prompt: basePrompt, knowledgeNotice };
   };
 
@@ -846,9 +889,11 @@ export default function HomePage() {
       }
     }
 
-    // Process Live Connector Operations (/github, /slack, /discord)
+    // Process Live Connector Operations (/github, /slack, /discord, /blender)
     let connectorContextText = "";
     let connectorNotice = "";
+    let isBlenderCommand = false;
+    let blenderBridgeUrl = "http://127.0.0.1:9876";
 
     if (trimmedInput.startsWith("/github")) {
       const cleanCmd = trimmedInput.replace(/^\/github\s*/, "").trim();
@@ -945,23 +990,54 @@ export default function HomePage() {
         connectorNotice = `⚠️ *Discord connector not configured with a Webhook URL. Open Directory > Connectors to configure it.*\n\n`;
       }
     } else if (trimmedInput.startsWith("/blender")) {
+      isBlenderCommand = true;
       const blenderPrompt = trimmedInput.replace(/^\/blender\s*/, "").trim();
       const blenderConn = (settings.connectors || DEFAULT_CONNECTORS).find((c) => c.id === "blender-mcp");
-      const bridgeUrl = blenderConn?.endpoint || "http://127.0.0.1:9876";
+      blenderBridgeUrl = blenderConn?.endpoint || "http://127.0.0.1:9876";
 
       connectorContextText = `\n\n=== BLENDER 3D MCP SCRIPTING DIRECTIVE ===\n`;
       connectorContextText += `User request: "${blenderPrompt || "Create a procedural 3D scene"}"\n`;
       connectorContextText += `You are an expert 3D Technical Artist and Blender Python (bpy) developer.\n`;
-      connectorContextText += `Generate a clean, robust, and complete Python script using 'bpy' that fulfills the user's 3D request.\n`;
-      connectorContextText += `Guidelines:\n`;
-      connectorContextText += `1. Import bpy and math.\n`;
-      connectorContextText += `2. Create geometry (meshes, primitives, curves, or bmesh).\n`;
-      connectorContextText += `3. Create Principled BSDF materials with vibrant base colors, roughness, and metallic properties.\n`;
-      connectorContextText += `4. Setup three-point lighting (Sun/Area/Point) and frame the camera.\n`;
-      connectorContextText += `5. Wrap the code in a \`\`\`python ... \`\`\` code block so it can be run or pasted directly into Blender's Scripting tab.\n`;
+      connectorContextText += `Generate a clean, 100% executable Python script using 'bpy' that fulfills the user's 3D request.\n`;
+      connectorContextText += `CRITICAL RULES FOR BLENDER PYTHON (bpy) - FOLLOW STRICTLY:\n`;
+      connectorContextText += `1. IMPORTS: Always start with 'import bpy, math, mathutils'.\n`;
+      connectorContextText += `2. CLEANUP: To clean scene, use: for o in list(bpy.data.objects): bpy.data.objects.remove(o, do_unlink=True)\n`;
+      connectorContextText += `3. OBJECT CREATION: Use standard primitives (e.g. bpy.ops.mesh.primitive_cube_add, primitive_uv_sphere_add, primitive_cylinder_add). Always get active object via 'bpy.context.active_object' right after adding.\n`;
+      connectorContextText += `4. RIGID BODY PHYSICS (IMPORTANT):\n`;
+      connectorContextText += `   - To add physics: bpy.context.view_layer.objects.active = obj; bpy.ops.rigidbody.object_add()\n`;
+      connectorContextText += `   - Set properties on 'obj.rigid_body': obj.rigid_body.type = 'ACTIVE' (or 'PASSIVE' for ground floor), obj.rigid_body.mass = 10, obj.rigid_body.collision_shape = 'BOX' (or 'SPHERE').\n`;
+      connectorContextText += `   - NEVER use modifiers.new("RigidBody") or assign obj.rigid_body = ... (these cause fatal TypeErrors).\n`;
+      connectorContextText += `5. BOOLEAN MODIFIER: mod = obj.modifiers.new(name="Cut", type='BOOLEAN'); mod.operation = 'DIFFERENCE'; mod.object = cutter_obj. (NEVER use mod.inputs['Solver']).\n`;
+      connectorContextText += `6. MATERIALS: Use Principled BSDF. Always check 'bsdf = mat.node_tree.nodes.get("Principled BSDF")' before setting base_color, metallic, roughness.\n`;
+      connectorContextText += `7. LIGHTING: For lights, set energy on data: light.data.energy = 1000 (NEVER use 'data_supports').\n`;
+      connectorContextText += `8. ALL REQUESTED OBJECTS: Ensure EVERY object requested by the user is created (never crash midway).\n`;
+      connectorContextText += `9. OUTPUT: Wrap the complete script in a single \`\`\`python ... \`\`\` code block.\n`;
       connectorContextText += `=== END OF BLENDER DIRECTIVE ===\n\n`;
 
-      connectorNotice = `🧊 *Blender 3D Procedural Engine: Generating \`bpy\` Python script for: "${blenderPrompt || "3D Scene"}"* (Bridge: \`${bridgeUrl}\`)\n\n`;
+      connectorNotice = `🧊 *Blender 3D Procedural Engine: Generating & auto-injecting \`bpy\` Python script for: "${blenderPrompt || "3D Scene"}"* (Bridge: \`${blenderBridgeUrl}\`)\n\n`;
+    } else if (trimmedInput.startsWith("/music")) {
+      const musicArgs = trimmedInput.replace(/^\/music\s*/, "").trim();
+      const lowerArgs = musicArgs.toLowerCase();
+      if (!lowerArgs || lowerArgs === "toggle") {
+        dispatchMusicAction({ type: "toggle" });
+        connectorNotice = `🎵 *Toggled Music Player Play/Pause*\n\n`;
+      } else if (lowerArgs === "pause" || lowerArgs === "stop") {
+        dispatchMusicAction({ type: "pause" });
+        connectorNotice = `⏸️ *Music playback paused*\n\n`;
+      } else if (lowerArgs === "open" || lowerArgs === "recall" || lowerArgs === "show") {
+        dispatchMusicAction({ type: "open" });
+        connectorNotice = `🎧 *Music Player widget recalled and opened*\n\n`;
+      } else if (lowerArgs === "next") {
+        dispatchMusicAction({ type: "next" });
+        connectorNotice = `⏭️ *Skipped to next track*\n\n`;
+      } else if (lowerArgs === "prev") {
+        dispatchMusicAction({ type: "prev" });
+        connectorNotice = `⏮️ *Skipped to previous track*\n\n`;
+      } else {
+        const trackTarget = lowerArgs.replace(/^play\s*/, "").trim();
+        dispatchMusicAction({ type: "play", trackId: trackTarget || undefined });
+        connectorNotice = `🎶 *Music Player: Playing ${trackTarget ? `"${trackTarget}"` : "track"}*\n\n`;
+      }
     }
 
     const assistantMessageId = `msg_ast_${Date.now() + 1}`;
@@ -1037,6 +1113,7 @@ export default function HomePage() {
       const rawMessagesToSend = newMessages.slice(0, modelBPlaceholder ? -2 : -1);
       const budgetedMessages = trimChatHistoryForBudget(rawMessagesToSend, historyBudget);
 
+      let accumulatedReasoning = "";
       await streamChatCompletion({
         hostUrl: settings.ollamaUrl,
         model: selectedModel,
@@ -1054,6 +1131,18 @@ export default function HomePage() {
         stop: targetConv.stopSequences ?? proj?.stopSequences,
         apiKeys: settings.apiKeys,
         signal: abortController.signal,
+        onReasoning: (rChunk) => {
+          accumulatedReasoning += rChunk;
+          setConversations((prev) =>
+            prev.map((c) => {
+              if (c.id !== targetId) return c;
+              const msgs = c.messages.map((m) =>
+                m.id === assistantMessageId ? { ...m, reasoning: accumulatedReasoning } : m
+              );
+              return { ...c, messages: msgs };
+            })
+          );
+        },
         onToken: (chunk, stats) => {
           accumulatedText += chunk;
           if (stats) setLiveStats(stats);
@@ -1067,13 +1156,55 @@ export default function HomePage() {
             })
           );
         },
-        onFinish: (full, metrics) => {
+        onFinish: async (full, metrics, fullReasoning) => {
+          let finalFullText = full || accumulatedText;
+          const finalReasoning = fullReasoning || accumulatedReasoning || undefined;
+
+          // Automatic injection to live Blender scene if prompt is a /blender command
+          if (isBlenderCommand) {
+            const codeRegex = /```(?:python|py|bpy)?\s*\n([\s\S]*?)```/i;
+            const match = codeRegex.exec(finalFullText);
+            const pyCode = match ? match[1].trim() : "";
+
+            if (pyCode && (pyCode.includes("bpy") || pyCode.includes("import"))) {
+              try {
+                const bRes = await fetch("/api/connectors", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    action: "blender_execute",
+                    endpoint: blenderBridgeUrl,
+                    payload: { code: pyCode },
+                  }),
+                });
+                const bData = await bRes.json().catch(() => ({}));
+                if (bData.success) {
+                  finalFullText += "\n\n> 🧊 **Blender MCP Live**: 🚀 *Script Python otomatis di-inject & berhasil dieksekusi di viewport Blender kamu!*";
+                } else if (bData.isBridgeOffline) {
+                  finalFullText += "\n\n> ⚠️ **Blender MCP**: *Bridge Blender (port 9876) belum aktif. Klik tombol **Inject to Blender** di atas kode setelah menyalakan script listener di Blender.*";
+                } else {
+                  finalFullText += `\n\n> ⚠️ **Blender MCP**: *Eksekusi ke Blender: ${bData.error || bData.message || "Failed"}*`;
+                }
+              } catch (bErr: any) {
+                console.warn("Blender auto-inject error:", bErr);
+                finalFullText += `\n\n> ⚠️ **Blender MCP**: *Gagal menghubungi bridge Blender: ${bErr.message}*`;
+              }
+            }
+          }
+
+          // Scan and execute any music player actions from AI response
+          const musicResult = executeMusicActionFromResponse(finalFullText);
+          finalFullText = musicResult.cleanedText;
+          if (musicResult.actionExecuted) {
+            finalFullText += "\n\n> 🎶 *Web UI Music Player: Aksi musik berhasil dieksekusi.*";
+          }
+
           setConversations((prev) => {
             const finished = prev.map((c) => {
               if (c.id !== targetId) return c;
               const msgs = c.messages.map((m) =>
                 m.id === assistantMessageId
-                  ? { ...m, content: full || accumulatedText, metrics, sources: searchSources.length > 0 ? searchSources : undefined }
+                  ? { ...m, content: finalFullText, reasoning: finalReasoning, metrics, sources: searchSources.length > 0 ? searchSources : undefined }
                   : m
               );
               return { ...c, messages: msgs, updatedAt: Date.now() };
@@ -1085,6 +1216,7 @@ export default function HomePage() {
           // If Arena Mode is enabled, now stream Model B
           if (modelBMessageId && arenaModelB) {
             let modelBAccumulated = "";
+            let modelBReasoning = "";
             streamChatCompletion({
               hostUrl: settings.ollamaUrl,
               model: arenaModelB,
@@ -1094,6 +1226,18 @@ export default function HomePage() {
               topP: targetConv.topP ?? settings.topP,
               apiKeys: settings.apiKeys,
               signal: abortController.signal,
+              onReasoning: (bReasoning) => {
+                modelBReasoning += bReasoning;
+                setConversations((prev) =>
+                  prev.map((c) => {
+                    if (c.id !== targetId) return c;
+                    const msgs = c.messages.map((m) =>
+                      m.id === modelBMessageId ? { ...m, reasoning: modelBReasoning } : m
+                    );
+                    return { ...c, messages: msgs };
+                  })
+                );
+              },
               onToken: (bChunk) => {
                 modelBAccumulated += bChunk;
                 setConversations((prev) =>
@@ -1106,13 +1250,13 @@ export default function HomePage() {
                   })
                 );
               },
-              onFinish: (bFull, bMetrics) => {
+              onFinish: (bFull, bMetrics, bFullReasoning) => {
                 setConversations((prev) => {
                   const finished = prev.map((c) => {
                     if (c.id !== targetId) return c;
                     const msgs = c.messages.map((m) =>
                       m.id === modelBMessageId
-                        ? { ...m, content: bFull || modelBAccumulated, metrics: bMetrics }
+                        ? { ...m, content: bFull || modelBAccumulated, reasoning: bFullReasoning || modelBReasoning || undefined, metrics: bMetrics }
                         : m
                     );
                     return { ...c, messages: msgs, updatedAt: Date.now() };
@@ -1180,6 +1324,150 @@ export default function HomePage() {
     }
   };
 
+  // Interactive Live Voice Call Message Handler
+  const handleVoiceCallSendMessage = async (
+    spokenText: string,
+    tone: string = "casual"
+  ): Promise<string> => {
+    return new Promise(async (resolve, reject) => {
+      const trimmedInput = spokenText.trim();
+      if (!trimmedInput || !selectedModel) {
+        resolve("Silakan ulangi perkataan kamu ya.");
+        return;
+      }
+
+      let targetConv = activeConversation;
+      let targetId = activeId;
+      const proj = activeProjectId ? projects.find((p) => p.id === activeProjectId) : null;
+
+      if (!targetConv || !targetId) {
+        targetId = `conv_${Date.now()}`;
+        targetConv = {
+          id: targetId,
+          title: `🎙️ Voice: ${trimmedInput.slice(0, 24)}`,
+          projectId: activeProjectId || undefined,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          model: proj?.defaultModel || selectedModel,
+          systemPrompt: proj?.systemPrompt || settings.defaultSystemPrompt,
+          temperature: proj?.temperature ?? settings.temperature,
+          topP: proj?.topP ?? settings.topP,
+          messages: [],
+        };
+        const updated = [targetConv, ...conversations];
+        updateConversations(updated);
+        setActiveId(targetId);
+        storage.saveActiveConversationId(targetId);
+      }
+
+      const userMessage: Message = {
+        id: `msg_user_${Date.now()}`,
+        role: "user",
+        content: trimmedInput,
+        timestamp: Date.now(),
+      };
+
+      const assistantMessageId = `msg_ast_${Date.now() + 1}`;
+      const assistantPlaceholder: Message = {
+        id: assistantMessageId,
+        role: "assistant",
+        content: "",
+        timestamp: Date.now(),
+        model: selectedModel,
+      };
+
+      const newMessages = [...targetConv.messages, userMessage, assistantPlaceholder];
+      const convWithNewMessages = {
+        ...targetConv,
+        updatedAt: Date.now(),
+        messages: newMessages,
+      };
+
+      setConversations((prev) =>
+        prev.map((c) => (c.id === targetId ? convWithNewMessages : c))
+      );
+
+      const { prompt: baseEffectivePrompt } = getEffectiveSystemPrompt(convWithNewMessages, trimmedInput);
+
+      let toneDirective = "";
+      if (tone === "casual") {
+        toneDirective = `
+[PANDUAN KHUSUS: OBROLAN SUARA SANTAI & AKRAB DALAM BAHASA INDONESIA]
+Kamu sedang berbicara langsung dengan pengguna melalui obrolan suara interaktif (Interactive Voice Chat).
+ATURAN GAYA BAHASA (WAJIB DIIKUTI):
+1. SANGAT SANTAI & AKRAB: Bicaralah dengan gaya bahasa santai, asik, luwes, dan akrab seperti mengobrol santai dengan sahabat atau teman dekat (bukan robot kaku atau CS formal).
+2. SAPAAN KASUAL: Gunakan kata ganti "aku" dan "kamu". JANGAN gunakan kata "Anda" karena terlalu kaku dan formal.
+3. KATA & PARTIKEL PERCAKAPAN ALAMI: Gunakan kosa kata percakapan santai sehari-hari yang natural: "nih", "deh", "dong", "kan", "loh", "yuk", "aja", "banget", "nggak" / "gak" (bukan "tidak"), "udah" (bukan "sudah"), "gitu", "gimana", "bisa kok", "santai aja", "oke siap".
+4. RINGKAS & ENAK DIDENGAR: Karena jawabanmu akan dibacakan langsung melalui suara (Text-to-Speech), buat jawaban SINGKAT, padat, dan to the point (maksimal 1 sampai 3 kalimat pendek). Jangan bertele-tele atau membuat paragraf panjang.
+5. HINDARI FORMAT TULISAN: JANGAN gunakan markdown formatting, simbol tebal (* / **), poin-poin/bullet, tabel, atau baris kode program kecuali pengguna secara spesifik memintanya.
+6. TANPA BASA-BASI BIROKRATIS: Jangan gunakan pembuka kaku seperti "Tentu saja, apakah ada yang bisa saya bantu?", "Sebagai sebuah AI...", atau kalimat klise lainnya. Langsung jawab dengan asik dan solutif.`;
+      } else if (tone === "warm") {
+        toneDirective = `
+[PANDUAN KHUSUS: OBROLAN SUARA RAMAH & HANGAT]
+Kamu sedang berbicara langsung dalam obrolan suara interaktif. Bicaralah dalam Bahasa Indonesia yang ramah, hangat, santai namun tetap sopan dan komunikatif. Gunakan "aku" dan "kamu", buat jawaban ringkas (1-3 kalimat) yang nyaman didengar di telinga tanpa format tulisan markdown atau simbol tebal.`;
+      } else {
+        toneDirective = `
+[PANDUAN KHUSUS: OBROLAN SUARA SINGKAT & CEPAT]
+Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to the point dengan super singkat dan santai (1-2 kalimat). Tanpa basa-basi pembuka atau penutup, tanpa format tulisan markdown.`;
+      }
+
+      const voiceSystemDirective = `${baseEffectivePrompt}\n\n${toneDirective}`;
+
+      const targetCtx = targetConv.numCtx ?? proj?.numCtx ?? settings.numCtx ?? 16384;
+      const historyBudget = Math.max(2000, Math.floor(targetCtx * 0.45));
+      const budgetedMessages = trimChatHistoryForBudget(newMessages.slice(0, -1), historyBudget);
+
+      let accumulated = "";
+      try {
+        await streamChatCompletion({
+          hostUrl: settings.ollamaUrl,
+          model: selectedModel,
+          messages: budgetedMessages,
+          systemPrompt: voiceSystemDirective,
+          temperature: targetConv.temperature ?? settings.temperature,
+          topP: targetConv.topP ?? settings.topP,
+          apiKeys: settings.apiKeys,
+          onToken: (chunk) => {
+            accumulated += chunk;
+            setConversations((prev) =>
+              prev.map((c) => {
+                if (c.id !== targetId) return c;
+                const msgs = c.messages.map((m) =>
+                  m.id === assistantMessageId ? { ...m, content: accumulated } : m
+                );
+                return { ...c, messages: msgs };
+              })
+            );
+          },
+          onFinish: (full, metrics, fullReasoning) => {
+            const finalFull = full || accumulated;
+            const { cleanedText } = executeMusicActionFromResponse(finalFull);
+
+            setConversations((prev) => {
+              const finished = prev.map((c) => {
+                if (c.id !== targetId) return c;
+                const msgs = c.messages.map((m) =>
+                  m.id === assistantMessageId
+                    ? { ...m, content: cleanedText, reasoning: fullReasoning, metrics }
+                    : m
+                );
+                return { ...c, messages: msgs, updatedAt: Date.now() };
+              });
+              storage.saveConversations(finished);
+              return finished;
+            });
+            resolve(cleanedText);
+          },
+          onError: (err) => {
+            reject(err);
+          },
+        });
+      } catch (e) {
+        reject(e);
+      }
+    });
+  };
+
   // Regenerate Response
   const handleRegenerate = async (messageId: string) => {
     if (!activeConversation || isStreaming) return;
@@ -1189,6 +1477,10 @@ export default function HomePage() {
     const trimmedHistory = activeConversation.messages.slice(0, msgIndex);
     const lastUserMessage = trimmedHistory.filter((m) => m.role === "user").pop();
     if (!lastUserMessage) return;
+
+    const isBlenderCmd = lastUserMessage.content.trim().startsWith("/blender");
+    const blenderConn = (settings.connectors || DEFAULT_CONNECTORS).find((c) => c.id === "blender-mcp");
+    const blenderBridgeUrl = blenderConn?.endpoint || "http://127.0.0.1:9876";
 
     const assistantMessageId = `msg_ast_${Date.now()}`;
     const assistantPlaceholder: Message = {
@@ -1223,6 +1515,7 @@ export default function HomePage() {
       const historyBudget = Math.max(2000, Math.floor(targetCtx * 0.45));
       const budgetedMessages = trimChatHistoryForBudget(trimmedHistory, historyBudget);
 
+      let accumulatedReasoning = "";
       await streamChatCompletion({
         hostUrl: settings.ollamaUrl,
         model: selectedModel,
@@ -1240,6 +1533,18 @@ export default function HomePage() {
         stop: activeConversation.stopSequences ?? currentProject?.stopSequences,
         apiKeys: settings.apiKeys,
         signal: abortController.signal,
+        onReasoning: (rChunk) => {
+          accumulatedReasoning += rChunk;
+          setConversations((prev) =>
+            prev.map((c) => {
+              if (c.id !== activeId) return c;
+              const msgs = c.messages.map((m) =>
+                m.id === assistantMessageId ? { ...m, reasoning: accumulatedReasoning } : m
+              );
+              return { ...c, messages: msgs };
+            })
+          );
+        },
         onToken: (chunk, stats) => {
           accumulatedText += chunk;
           if (stats) setLiveStats(stats);
@@ -1253,13 +1558,48 @@ export default function HomePage() {
             })
           );
         },
-        onFinish: (full, metrics) => {
+        onFinish: async (full, metrics, fullReasoning) => {
+          let finalFullText = full || accumulatedText;
+          const finalReasoning = fullReasoning || accumulatedReasoning || undefined;
+
+          // Automatic injection to live Blender scene if prompt was a /blender command
+          if (isBlenderCmd) {
+            const codeRegex = /```(?:python|py|bpy)?\s*\n([\s\S]*?)```/i;
+            const match = codeRegex.exec(finalFullText);
+            const pyCode = match ? match[1].trim() : "";
+
+            if (pyCode && (pyCode.includes("bpy") || pyCode.includes("import"))) {
+              try {
+                const bRes = await fetch("/api/connectors", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    action: "blender_execute",
+                    endpoint: blenderBridgeUrl,
+                    payload: { code: pyCode },
+                  }),
+                });
+                const bData = await bRes.json().catch(() => ({}));
+                if (bData.success) {
+                  finalFullText += "\n\n> 🧊 **Blender MCP Live**: 🚀 *Script Python otomatis di-inject & berhasil dieksekusi di viewport Blender kamu!*";
+                } else if (bData.isBridgeOffline) {
+                  finalFullText += "\n\n> ⚠️ **Blender MCP**: *Bridge Blender (port 9876) belum aktif. Klik tombol **Inject to Blender** di atas kode setelah menyalakan script listener di Blender.*";
+                } else {
+                  finalFullText += `\n\n> ⚠️ **Blender MCP**: *Eksekusi ke Blender: ${bData.error || bData.message || "Failed"}*`;
+                }
+              } catch (bErr: any) {
+                console.warn("Blender auto-inject error:", bErr);
+                finalFullText += `\n\n> ⚠️ **Blender MCP**: *Gagal menghubungi bridge Blender: ${bErr.message}*`;
+              }
+            }
+          }
+
           setConversations((prev) => {
             const finished = prev.map((c) => {
               if (c.id !== activeId) return c;
               const msgs = c.messages.map((m) =>
                 m.id === assistantMessageId
-                  ? { ...m, content: full || accumulatedText, metrics }
+                  ? { ...m, content: finalFullText, reasoning: finalReasoning, metrics }
                   : m
               );
               return { ...c, messages: msgs, updatedAt: Date.now() };
@@ -1513,9 +1853,9 @@ export default function HomePage() {
           sidebarOpen={sidebarOpen}
           onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
         />
-      ) : workspaceView === "project-detail" && currentProject ? (
+      ) : workspaceView === "project-detail" && (projects.find((p) => p.id === activeProjectId) || currentProject) ? (
         <ProjectDetailView
-          project={currentProject}
+          project={projects.find((p) => p.id === activeProjectId) || currentProject!}
           conversations={conversations}
           onSelectConversation={handleSelectConversation}
           onStartChatInProject={handleStartChatInProject}
@@ -1534,6 +1874,7 @@ export default function HomePage() {
         <ChatArea
           conversation={activeConversation}
           currentProject={currentProject}
+          onSelectProject={handleSelectProject}
           projects={projects}
           nowPlayingInfo={nowPlayingInfo}
           onOpenProjectSettings={() => {
@@ -1587,6 +1928,7 @@ export default function HomePage() {
           onToggleArenaMode={() => setIsArenaMode(!isArenaMode)}
           arenaModelB={arenaModelB}
           onSelectArenaModelB={setArenaModelB}
+          onOpenVoiceCall={() => setIsVoiceCallOpen(true)}
         />
       )}
 
@@ -1618,7 +1960,7 @@ export default function HomePage() {
         settings={settings}
         onSaveSettings={(newSet) => {
           setSettings(newSet);
-          storage.saveSettings(newSet);
+          storage.saveSettings(newSet, true, true);
           refreshOllama();
         }}
         models={models}
@@ -1705,6 +2047,8 @@ export default function HomePage() {
         setTemperature={(val) => handleUpdateSessionParameters({ temperature: val })}
         topP={activeConversation?.topP ?? settings.topP}
         setTopP={(val) => handleUpdateSessionParameters({ topP: val })}
+        numCtx={activeConversation?.numCtx ?? currentProject?.numCtx ?? settings.numCtx}
+        setNumCtx={(val) => handleUpdateSessionParameters({ numCtx: val })}
         personas={personas}
         onSelectPersona={(p) =>
           handleUpdateSessionParameters({
@@ -1718,6 +2062,7 @@ export default function HomePage() {
             systemPrompt: currentProject?.systemPrompt || settings.defaultSystemPrompt,
             temperature: currentProject?.temperature ?? settings.temperature,
             topP: currentProject?.topP ?? settings.topP,
+            numCtx: currentProject?.numCtx ?? settings.numCtx,
           })
         }
       />
@@ -1771,6 +2116,14 @@ export default function HomePage() {
           setSettings(next);
           storage.saveSettings(next);
         }}
+      />
+
+      {/* Live Voice Call Modal (Interactive Indonesian Female Voice Mode) */}
+      <VoiceCallModal
+        isOpen={isVoiceCallOpen}
+        onClose={() => setIsVoiceCallOpen(false)}
+        selectedModel={selectedModel}
+        onSendMessage={handleVoiceCallSendMessage}
       />
     </div>
   );

@@ -22,6 +22,7 @@ import {
   Headphones,
   X,
 } from "lucide-react";
+import { publishMusicStatus, MusicActionEvent } from "@/lib/musicBridge";
 
 interface AmbientTrack {
   id: string;
@@ -140,6 +141,20 @@ export const MusicPlayerWidget: React.FC<MusicPlayerWidgetProps> = ({
       }
     }
   }, [isPlaying, currentTrackTitle, onTrackUpdate]);
+
+  // Synchronize live status with global music bridge for AI recall
+  useEffect(() => {
+    publishMusicStatus({
+      isPlaying,
+      playerMode,
+      currentTrackTitle,
+      volume,
+      isMuted,
+      isExpanded,
+      ambientTracks: AMBIENT_TRACKS.map((t) => ({ id: t.id, name: t.name, category: t.category })),
+      localTracks: localTracks.map((lt) => ({ id: lt.id, name: lt.name })),
+    });
+  }, [isPlaying, playerMode, currentTrackTitle, volume, isMuted, isExpanded, localTracks]);
 
   // Auto-minimize when clicking anywhere outside or pressing Escape
   useEffect(() => {
@@ -369,6 +384,104 @@ export const MusicPlayerWidget: React.FC<MusicPlayerWidgetProps> = ({
     setIsPlaying(false);
     setCurrentTime(0);
   };
+
+  // Listen for AI commands dispatched from chat / interactive voice assistant
+  useEffect(() => {
+    const handleMusicAction = (e: Event) => {
+      const customEvent = e as CustomEvent<MusicActionEvent>;
+      const action = customEvent.detail;
+      if (!action) return;
+
+      switch (action.type) {
+        case "play":
+          if (action.trackId) {
+            const lowerTrackId = action.trackId.toLowerCase().trim();
+            // Check ambient tracks
+            const ambIdx = AMBIENT_TRACKS.findIndex(
+              (t) =>
+                t.id.toLowerCase() === lowerTrackId ||
+                t.synthType.toLowerCase() === lowerTrackId ||
+                t.name.toLowerCase().includes(lowerTrackId) ||
+                t.category.toLowerCase().includes(lowerTrackId)
+            );
+            if (ambIdx >= 0) {
+              setPlayerMode("ambient");
+              setAmbientIndex(ambIdx);
+              startSynthesis(AMBIENT_TRACKS[ambIdx].synthType);
+              setIsPlaying(true);
+              return;
+            }
+
+            // Check local tracks
+            const locIdx = localTracks.findIndex((t) =>
+              t.name.toLowerCase().includes(lowerTrackId)
+            );
+            if (locIdx >= 0) {
+              setPlayerMode("local");
+              playLocalTrack(locIdx);
+              return;
+            }
+          }
+
+          // If no specific track or not found, toggle or resume current
+          if (!isPlaying) {
+            if (playerMode === "ambient") {
+              startSynthesis(currentAmbient.synthType);
+              setIsPlaying(true);
+            } else if (localTracks.length > 0) {
+              playLocalTrack(localIndex);
+            } else {
+              setPlayerMode("ambient");
+              startSynthesis(currentAmbient.synthType);
+              setIsPlaying(true);
+            }
+          }
+          break;
+
+        case "pause":
+          handleStop();
+          break;
+
+        case "toggle":
+          togglePlay();
+          break;
+
+        case "next":
+          handleNext();
+          break;
+
+        case "prev":
+          handlePrev();
+          break;
+
+        case "open":
+          setIsExpanded(true);
+          break;
+
+        case "close":
+          setIsExpanded(false);
+          break;
+
+        case "set-volume":
+          if (typeof action.volume === "number") {
+            const v = Math.max(0, Math.min(1, action.volume));
+            setVolume(v);
+            if (gainNodeRef.current && audioCtxRef.current) {
+              gainNodeRef.current.gain.setValueAtTime(v * 0.4, audioCtxRef.current.currentTime);
+            }
+            if (audioRef.current) {
+              audioRef.current.volume = v;
+            }
+          }
+          break;
+      }
+    };
+
+    window.addEventListener("webui:music:action", handleMusicAction);
+    return () => {
+      window.removeEventListener("webui:music:action", handleMusicAction);
+    };
+  }, [ambientIndex, currentAmbient, isPlaying, localIndex, localTracks, playerMode]);
 
   // Track Ended Handler
   const handleAudioEnded = () => {

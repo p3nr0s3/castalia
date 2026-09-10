@@ -11,6 +11,10 @@ import {
   Search,
   Settings,
   Folder,
+  FolderOpen,
+  ChevronRight,
+  ChevronDown,
+  LayoutDashboard,
   SlidersHorizontal,
   Play,
   Activity,
@@ -109,6 +113,36 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [editTitle, setEditTitle] = useState("");
   const [sortBy, setSortBy] = useState<SortOption>("recent");
   const [showSortMenu, setShowSortMenu] = useState(false);
+  const [expandedProjectIds, setExpandedProjectIds] = useState<Set<string>>(
+    () => new Set(activeProjectId ? [activeProjectId] : [])
+  );
+
+  React.useEffect(() => {
+    if (activeProjectId) {
+      setExpandedProjectIds((prev) => new Set(prev).add(activeProjectId));
+    }
+  }, [activeProjectId]);
+
+  const toggleProjectExpand = (projId: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setExpandedProjectIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(projId)) {
+        next.delete(projId);
+      } else {
+        next.add(projId);
+      }
+      return next;
+    });
+  };
+
+  const handleProjectClick = (projId: string) => {
+    onSelectProject(projId);
+    setExpandedProjectIds((prev) => new Set(prev).add(projId));
+    if (typeof window !== "undefined" && window.innerWidth < 768) {
+      setIsOpen(false);
+    }
+  };
 
   const handleQuickExport = () => {
     try {
@@ -382,24 +416,118 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 projects.map((proj) => {
                   const isSelected =
                     workspaceView === "project-detail" && activeProjectId === proj.id;
+                  const isExpanded = expandedProjectIds.has(proj.id) || isSelected;
+                  const projChats = conversations.filter((c) => c.projectId === proj.id);
+
                   return (
-                    <button
-                      key={proj.id}
-                      onClick={() => {
-                        onSelectProject(proj.id);
-                        if (typeof window !== "undefined" && window.innerWidth < 1150) {
-                          setIsOpen(false);
-                        }
-                      }}
-                      className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs transition-colors cursor-pointer text-left ${
-                        isSelected
-                          ? "bg-[var(--sidebar-hover)] text-[var(--foreground)] font-medium"
-                          : "text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--sidebar-hover)]"
-                      }`}
-                    >
-                      <Folder className="w-4 h-4 text-[var(--muted)] flex-shrink-0" />
-                      <span className="truncate">{proj.name}</span>
-                    </button>
+                    <div key={proj.id} className="space-y-0.5">
+                      <div
+                        onClick={() => handleProjectClick(proj.id)}
+                        className={`group w-full flex items-center justify-between px-2 py-1.5 rounded-xl text-xs transition-colors cursor-pointer text-left ${
+                          isSelected
+                            ? "bg-[var(--sidebar-hover)] text-[var(--foreground)] font-medium"
+                            : "text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--sidebar-hover)]"
+                        }`}
+                      >
+                        <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                          {/* Folder Chevron Toggle */}
+                          <button
+                            type="button"
+                            onClick={(e) => toggleProjectExpand(proj.id, e)}
+                            className="p-1 -ml-1 rounded-md hover:bg-black/10 dark:hover:bg-white/10 text-[var(--muted)] hover:text-[var(--foreground)] transition-colors cursor-pointer"
+                            title={isExpanded ? "Collapse project folder" : "Expand project folder"}
+                          >
+                            {isExpanded ? (
+                              <ChevronDown className="w-3.5 h-3.5" />
+                            ) : (
+                              <ChevronRight className="w-3.5 h-3.5" />
+                            )}
+                          </button>
+
+                          {/* Folder Icon */}
+                          {isExpanded ? (
+                            <FolderOpen className="w-4 h-4 text-amber-400 flex-shrink-0" />
+                          ) : (
+                            <Folder className="w-4 h-4 text-amber-400/80 flex-shrink-0" />
+                          )}
+
+                          <span className="truncate flex-1 font-medium">{proj.name}</span>
+                        </div>
+
+                        {/* Badges / Actions */}
+                        <div className="flex items-center gap-1 flex-shrink-0">
+                          {projChats.length > 0 && (
+                            <span className="px-1.5 py-0.5 rounded-full bg-[var(--card-bg)] text-[10px] text-[var(--muted)] font-mono border border-[var(--card-border)]">
+                              {projChats.length}
+                            </span>
+                          )}
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onNewChat(proj.id);
+                              setExpandedProjectIds((prev) => new Set(prev).add(proj.id));
+                              if (typeof window !== "undefined" && window.innerWidth < 768) {
+                                setIsOpen(false);
+                              }
+                            }}
+                            className="p-1 rounded-md text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-black/10 dark:hover:bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                            title="New chat in this project"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Nested Content When Project Folder is Open */}
+                      {isExpanded && (
+                        <div className="pl-4 pr-1 py-0.5 space-y-0.5 border-l-2 border-[var(--card-border)] ml-3 my-0.5 animate-in fade-in slide-in-from-top-1 duration-150">
+                          <button
+                            type="button"
+                            onClick={() => handleProjectClick(proj.id)}
+                            className={`w-full flex items-center gap-2 px-2 py-1 rounded-lg text-[11px] transition-colors cursor-pointer text-left ${
+                              isSelected
+                                ? "text-blue-400 font-semibold bg-blue-500/10"
+                                : "text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--sidebar-hover)]"
+                            }`}
+                          >
+                            <LayoutDashboard className="w-3.5 h-3.5 flex-shrink-0" />
+                            <span>Dashboard & Knowledge</span>
+                          </button>
+
+                          {projChats.length === 0 ? (
+                            <div className="px-2 py-1 text-[11px] text-[var(--muted)] italic">
+                              No chats in project
+                            </div>
+                          ) : (
+                            projChats.map((conv) => {
+                              const isChatActive = workspaceView === "chat" && conv.id === activeId;
+                              return (
+                                <button
+                                  key={conv.id}
+                                  type="button"
+                                  onClick={() => {
+                                    handleSelectConv(conv.id);
+                                    if (typeof window !== "undefined" && window.innerWidth < 768) {
+                                      setIsOpen(false);
+                                    }
+                                  }}
+                                  className={`w-full flex items-center gap-2 px-2 py-1 rounded-lg text-[11px] transition-colors cursor-pointer text-left truncate ${
+                                    isChatActive
+                                      ? "bg-[var(--sidebar-hover)] text-[var(--foreground)] font-semibold"
+                                      : "text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--sidebar-hover)]"
+                                  }`}
+                                  title={conv.title}
+                                >
+                                  <span className="text-[9px] opacity-60 flex-shrink-0 font-mono">○</span>
+                                  <span className="truncate">{conv.title}</span>
+                                </button>
+                              );
+                            })
+                          )}
+                        </div>
+                      )}
+                    </div>
                   );
                 })
               )}

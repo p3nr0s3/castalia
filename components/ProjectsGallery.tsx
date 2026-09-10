@@ -137,7 +137,7 @@ export const ProjectsGallery: React.FC<ProjectsGalleryProps> = ({
 
                 {/* Bottom: Date & File count */}
                 <div className="flex items-center justify-between text-xs text-[var(--muted)] font-sans pt-1">
-                  <span>{formatDate(proj.updatedAt || proj.createdAt)}</span>
+                  <span suppressHydrationWarning>{formatDate(proj.updatedAt || proj.createdAt)}</span>
                   {proj.files && proj.files.length > 0 && (
                     <span className="text-[11px] text-[var(--muted)] opacity-80 font-mono">
                       {proj.files.length} {proj.files.length === 1 ? "file" : "files"}

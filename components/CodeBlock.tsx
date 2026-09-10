@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { Check, Copy, Play, Eye, Code, RotateCcw, Terminal, X } from "lucide-react";
+import { Check, Copy, Play, Eye, Code, RotateCcw, Terminal, X, Box, Loader2, AlertCircle } from "lucide-react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/cjs/styles/prism";
 
@@ -15,6 +15,9 @@ export const CodeBlock: React.FC<CodeBlockProps> = ({ language = "text", value }
   const [activeTab, setActiveTab] = useState<"code" | "preview">("code");
   const [runLogs, setRunLogs] = useState<string[] | null>(null);
   const [isRunning, setIsRunning] = useState(false);
+  const [isInjecting, setIsInjecting] = useState(false);
+  const [injectStatus, setInjectStatus] = useState<"success" | "error" | null>(null);
+  const [injectMessage, setInjectMessage] = useState<string>("");
 
   const handleCopy = async () => {
     try {
@@ -40,6 +43,45 @@ export const CodeBlock: React.FC<CodeBlockProps> = ({ language = "text", value }
     detectedLanguage === "js" ||
     detectedLanguage === "typescript" ||
     detectedLanguage === "ts";
+
+  const isBlenderBpy =
+    (detectedLanguage === "python" ||
+      detectedLanguage === "py" ||
+      detectedLanguage === "bpy" ||
+      detectedLanguage === "text") &&
+    (value.includes("bpy.") || value.includes("import bpy") || value.includes("mathutils"));
+
+  const handleInjectBlender = async () => {
+    setIsInjecting(true);
+    setInjectStatus(null);
+    setInjectMessage("");
+    try {
+      const res = await fetch("/api/connectors", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "blender_execute",
+          payload: { code: value },
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (data.success) {
+        setInjectStatus("success");
+        setInjectMessage("Injected to Blender!");
+        setTimeout(() => setInjectStatus(null), 3500);
+      } else {
+        setInjectStatus("error");
+        setInjectMessage(data.isBridgeOffline ? "Bridge Offline (port 9876)" : data.message || "Failed to inject");
+        setTimeout(() => setInjectStatus(null), 4000);
+      }
+    } catch (err: any) {
+      setInjectStatus("error");
+      setInjectMessage(err.message || "Network error");
+      setTimeout(() => setInjectStatus(null), 4000);
+    } finally {
+      setIsInjecting(false);
+    }
+  };
 
   const handleRunJs = () => {
     setIsRunning(true);
@@ -111,6 +153,45 @@ export const CodeBlock: React.FC<CodeBlockProps> = ({ language = "text", value }
         </div>
 
         <div className="flex items-center gap-1.5 font-sans">
+          {/* Inject to Blender Button for Python bpy scripts */}
+          {isBlenderBpy && (
+            <button
+              type="button"
+              onClick={handleInjectBlender}
+              disabled={isInjecting}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                injectStatus === "success"
+                  ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
+                  : injectStatus === "error"
+                  ? "bg-rose-500/20 text-rose-300 border border-rose-500/40"
+                  : "bg-orange-500/15 hover:bg-orange-500/25 text-orange-400 hover:text-orange-300 border border-orange-500/30"
+              }`}
+              title="Inject & execute this script directly in your live Blender scene (Port 9876)"
+            >
+              {isInjecting ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-orange-400" />
+                  <span>Injecting...</span>
+                </>
+              ) : injectStatus === "success" ? (
+                <>
+                  <Check className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Injected!</span>
+                </>
+              ) : injectStatus === "error" ? (
+                <>
+                  <AlertCircle className="w-3.5 h-3.5 text-rose-400" />
+                  <span>{injectMessage}</span>
+                </>
+              ) : (
+                <>
+                  <Box className="w-3.5 h-3.5 text-orange-400" />
+                  <span>Inject to Blender</span>
+                </>
+              )}
+            </button>
+          )}
+
           {/* Run Code Button for JS/TS */}
           {isJavaScript && (
             <button

@@ -1,4 +1,4 @@
-import { AgentTask, AgentLog, Conversation, Message, Project } from "./types";
+import { AgentTask, AgentLog, Conversation, Message, Project, ApiKeysConfig } from "./types";
 import { streamChatCompletion } from "./ollama";
 
 export const AGENT_PRESET_TEMPLATES = [
@@ -77,6 +77,7 @@ export async function executeAgent(
     ollamaUrl: string;
     searxngUrl: string;
     projects: Project[];
+    apiKeys?: ApiKeysConfig;
     onProgress?: (tokenChunk: string) => void;
   }
 ): Promise<{ updatedAgent: AgentTask; createdConversation?: Conversation }> {
@@ -155,6 +156,7 @@ export async function executeAgent(
       systemPrompt: effectiveSystemPrompt,
       temperature: agent.temperature ?? 0.7,
       topP: agent.topP ?? 0.9,
+      apiKeys: options.apiKeys,
       onToken: (token) => {
         fullOutput += token;
         if (options.onProgress) options.onProgress(token);

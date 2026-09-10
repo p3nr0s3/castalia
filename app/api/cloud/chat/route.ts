@@ -149,14 +149,22 @@ export async function POST(req: NextRequest) {
                 try {
                   const parsed = JSON.parse(jsonStr);
                   const candidate = parsed.candidates?.[0];
-                  const textPart = candidate?.content?.parts?.[0]?.text;
-
-                  if (textPart) {
-                    const chunk = JSON.stringify({
-                      message: { content: textPart },
-                      done: false,
-                    }) + "\n";
-                    controller.enqueue(new TextEncoder().encode(chunk));
+                  if (candidate?.content?.parts) {
+                    for (const part of candidate.content.parts) {
+                      if (part.thought) {
+                        const chunk = JSON.stringify({
+                          message: { reasoning: part.text || "" },
+                          done: false,
+                        }) + "\n";
+                        controller.enqueue(new TextEncoder().encode(chunk));
+                      } else if (part.text) {
+                        const chunk = JSON.stringify({
+                          message: { content: part.text },
+                          done: false,
+                        }) + "\n";
+                        controller.enqueue(new TextEncoder().encode(chunk));
+                      }
+                    }
                   }
 
                   if (candidate?.finishReason) {
@@ -259,12 +267,20 @@ export async function POST(req: NextRequest) {
 
                 try {
                   const parsed = JSON.parse(jsonStr);
-                  if (parsed.type === "content_block_delta" && parsed.delta?.text) {
-                    const chunk = JSON.stringify({
-                      message: { content: parsed.delta.text },
-                      done: false,
-                    }) + "\n";
-                    controller.enqueue(new TextEncoder().encode(chunk));
+                  if (parsed.type === "content_block_delta") {
+                    if (parsed.delta?.thinking) {
+                      const chunk = JSON.stringify({
+                        message: { reasoning: parsed.delta.thinking },
+                        done: false,
+                      }) + "\n";
+                      controller.enqueue(new TextEncoder().encode(chunk));
+                    } else if (parsed.delta?.text) {
+                      const chunk = JSON.stringify({
+                        message: { content: parsed.delta.text },
+                        done: false,
+                      }) + "\n";
+                      controller.enqueue(new TextEncoder().encode(chunk));
+                    }
                   } else if (parsed.type === "message_stop") {
                     const doneChunk = JSON.stringify({ done: true }) + "\n";
                     controller.enqueue(new TextEncoder().encode(doneChunk));

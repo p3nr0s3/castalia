@@ -42,6 +42,7 @@ import {
   MessageCircle,
   Box,
   Copy,
+  Zap,
 } from "lucide-react";
 import { Skill, ConnectorItem, PluginItem } from "@/lib/types";
 
@@ -92,6 +93,71 @@ export const DirectoryModal: React.FC<DirectoryModalProps> = ({
   const [isTestingConn, setIsTestingConn] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
   const [copySuccess, setCopySuccess] = useState(false);
+  const [blenderStartupInstalled, setBlenderStartupInstalled] = useState<boolean | null>(null);
+  const [blenderStartupVersions, setBlenderStartupVersions] = useState<any[]>([]);
+  const [isManagingStartup, setIsManagingStartup] = useState(false);
+  const [startupNotice, setStartupNotice] = useState<string | null>(null);
+
+  const checkBlenderStartup = async () => {
+    try {
+      const res = await fetch("/api/connectors", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "blender_check_startup" }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setBlenderStartupInstalled(data.installed);
+        setBlenderStartupVersions(data.versions || []);
+      }
+    } catch (e) {}
+  };
+
+  const handleInstallStartup = async () => {
+    setIsManagingStartup(true);
+    setStartupNotice(null);
+    try {
+      const res = await fetch("/api/connectors", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "blender_install_startup" }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setBlenderStartupInstalled(true);
+        setBlenderStartupVersions(data.versions || []);
+        setStartupNotice("✓ Berhasil dipasang ke Blender Startup! Setiap kali membuka Blender, bridge langsung aktif otomatis.");
+      } else {
+        setStartupNotice("Gagal memasang ke startup: " + (data.error || "Unknown error"));
+      }
+    } catch (err: any) {
+      setStartupNotice("Error: " + err.message);
+    } finally {
+      setIsManagingStartup(false);
+    }
+  };
+
+  const handleUninstallStartup = async () => {
+    setIsManagingStartup(true);
+    setStartupNotice(null);
+    try {
+      const res = await fetch("/api/connectors", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "blender_uninstall_startup" }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setBlenderStartupInstalled(false);
+        setBlenderStartupVersions(data.versions || []);
+        setStartupNotice("Auto-start berhasil dicopot dari Blender startup.");
+      }
+    } catch (err: any) {
+      setStartupNotice("Error: " + err.message);
+    } finally {
+      setIsManagingStartup(false);
+    }
+  };
 
   // Sync initialTab if prop changes
   React.useEffect(() => {
@@ -126,6 +192,10 @@ export const DirectoryModal: React.FC<DirectoryModalProps> = ({
         ? { success: !!conn.isLiveConnected, message: conn.statusMessage }
         : null
     );
+    setStartupNotice(null);
+    if (conn.id === "blender-mcp") {
+      checkBlenderStartup();
+    }
   };
 
   const handleTestConnection = async () => {
@@ -1012,16 +1082,74 @@ export const DirectoryModal: React.FC<DirectoryModalProps> = ({
                     </p>
                   </div>
 
+                  {/* 1-CLICK AUTO-START CARD */}
+                  <div className="p-3.5 rounded-2xl bg-orange-500/10 border border-orange-500/25 space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Zap className="w-4 h-4 text-orange-400" />
+                        <span className="text-xs font-semibold text-[var(--foreground)]">
+                          Auto-Start Otomatis Saat Blender Dibuka
+                        </span>
+                      </div>
+                      {blenderStartupInstalled ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                          <Check className="w-3 h-3" />
+                          Aktif di Startup
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                          Belum Terpasang
+                        </span>
+                      )}
+                    </div>
+
+                    <p className="text-[11px] text-[var(--muted)] leading-relaxed">
+                      {blenderStartupInstalled
+                        ? `Bridge telah terpasang di startup folder Blender (${blenderStartupVersions.map((v) => v.version).join(", ") || "5.2"}). Setiap kali kamu membuka Blender, bridge port 9876 otomatis langsung aktif di background!`
+                        : "Pasang bridge sekali klik ke folder startup Blender. Kamu tidak perlu lagi copy-paste atau klik Run Script manual setiap kali membuka Blender!"}
+                    </p>
+
+                    {startupNotice && (
+                      <div className="text-[11px] p-2 rounded-lg bg-black/20 text-orange-300 border border-orange-500/20 font-medium">
+                        {startupNotice}
+                      </div>
+                    )}
+
+                    <div className="flex items-center gap-2 pt-1">
+                      {blenderStartupInstalled ? (
+                        <button
+                          type="button"
+                          onClick={handleUninstallStartup}
+                          disabled={isManagingStartup}
+                          className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-rose-500/15 hover:bg-rose-500/25 text-rose-400 border border-rose-500/30 transition-all cursor-pointer disabled:opacity-50"
+                        >
+                          {isManagingStartup ? "Memproses..." : "Copot dari Startup"}
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={handleInstallStartup}
+                          disabled={isManagingStartup}
+                          className="px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-orange-500 text-white hover:bg-orange-600 transition-all flex items-center gap-1.5 cursor-pointer shadow-sm disabled:opacity-50"
+                        >
+                          <Zap className="w-3.5 h-3.5 fill-current" />
+                          <span>{isManagingStartup ? "Memasang..." : "⚡ Pasang Auto-Start (1-Klik)"}</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* MANUAL SCRIPT CARD (FALLBACK) */}
                   <div className="p-3 rounded-2xl bg-[var(--sidebar-bg)] border border-[var(--card-border)] space-y-2">
                     <div className="flex items-center justify-between">
-                      <span className="text-[11px] font-semibold text-orange-400 flex items-center gap-1.5">
-                        <Box className="w-3.5 h-3.5" />
-                        Blender 1-Minute Bridge Script
+                      <span className="text-[11px] font-semibold text-[var(--foreground)] flex items-center gap-1.5">
+                        <Box className="w-3.5 h-3.5 text-orange-400" />
+                        Script Python Manual (Cadangan)
                       </span>
                       <button
                         type="button"
                         onClick={() => {
-                          const script = `import bpy, threading, json\nfrom http.server import HTTPServer, BaseHTTPRequestHandler\n\nclass MCPHandler(BaseHTTPRequestHandler):\n    def do_GET(self):\n        self.send_response(200)\n        self.send_header('Content-type', 'application/json')\n        self.end_headers()\n        self.wfile.write(b'{"status":"ready","blender":true}')\n    def do_POST(self):\n        length = int(self.headers.get('Content-Length', 0))\n        data = json.loads(self.rfile.read(length).decode('utf-8'))\n        code = data.get('code', '')\n        def exec_bpy(): exec(code, {'bpy': bpy})\n        bpy.app.timers.register(exec_bpy)\n        self.send_response(200)\n        self.end_headers()\n        self.wfile.write(b'{"success":true}')\n\nserver = HTTPServer(('127.0.0.1', 9876), MCPHandler)\nthreading.Thread(target=server.serve_forever, daemon=True).start()\nprint('Blender MCP Bridge active on port 9876!')`;
+                          const script = `import bpy, threading, json\nfrom http.server import HTTPServer, BaseHTTPRequestHandler\n\n# Stop previous server if active to prevent address collision\nif 'mcp_server' in bpy.app.driver_namespace:\n    try:\n        bpy.app.driver_namespace['mcp_server'].shutdown()\n        bpy.app.driver_namespace['mcp_server'].server_close()\n        print('Previous Blender MCP Bridge stopped.')\n    except Exception:\n        pass\n\nclass MCPHandler(BaseHTTPRequestHandler):\n    def address_string(self):\n        return str(self.client_address[0])\n\n    def log_message(self, format, *args):\n        pass\n\n    def _cors(self):\n        self.send_header('Access-Control-Allow-Origin', '*')\n        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')\n        self.send_header('Access-Control-Allow-Headers', 'Content-Type')\n\n    def do_OPTIONS(self):\n        self.send_response(200)\n        self._cors()\n        self.end_headers()\n\n    def do_GET(self):\n        self.send_response(200)\n        self.send_header('Content-Type', 'application/json')\n        self._cors()\n        self.end_headers()\n        ver = bpy.app.version_string\n        self.wfile.write(json.dumps({'status': 'ready', 'blender': True, 'version': ver}).encode('utf-8'))\n\n    def do_POST(self):\n        try:\n            length = int(self.headers.get('Content-Length', 0))\n            body = self.rfile.read(length).decode('utf-8')\n            data = json.loads(body) if body else {}\n            code = data.get('code', '')\n            def run_bpy():\n                try:\n                    exec(code, {'bpy': bpy})\n                except Exception as ex:\n                    print('Blender execution error:', ex)\n            if code:\n                bpy.app.timers.register(run_bpy)\n            self.send_response(200)\n            self.send_header('Content-Type', 'application/json')\n            self._cors()\n            self.end_headers()\n            self.wfile.write(b'{\"success\": true}')\n        except Exception as e:\n            self.send_response(500)\n            self.send_header('Content-Type', 'application/json')\n            self._cors()\n            self.end_headers()\n            self.wfile.write(json.dumps({'error': str(e)}).encode('utf-8'))\n\nclass ReusableServer(HTTPServer):\n    allow_reuse_address = True\n\nserver = ReusableServer(('127.0.0.1', 9876), MCPHandler)\nbpy.app.driver_namespace['mcp_server'] = server\nthreading.Thread(target=server.serve_forever, daemon=True).start()\nprint('>>> Blender MCP Bridge LIVE on port 9876 (Blender ' + bpy.app.version_string + ') <<<')`;
                           navigator.clipboard.writeText(script);
                           setCopySuccess(true);
                           setTimeout(() => setCopySuccess(false), 2000);
@@ -1033,9 +1161,7 @@ export const DirectoryModal: React.FC<DirectoryModalProps> = ({
                       </button>
                     </div>
                     <p className="text-[11px] text-[var(--muted)] leading-relaxed">
-                      1. Buka <strong>Blender</strong> &gt; tab <strong>Scripting</strong> &gt; klik <strong>New</strong>.<br />
-                      2. Paste script di atas lalu klik <strong>Run Script</strong> (ikon segitiga ▶).<br />
-                      3. Klik tombol <strong>Test Connection</strong> di bawah.
+                      Jika tidak memakai auto-start, kamu bisa copy script ini dan jalankan di tab <strong>Scripting</strong> Blender.
                     </p>
                   </div>
                 </div>

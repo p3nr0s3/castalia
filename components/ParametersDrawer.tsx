@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { X, Sliders, Sparkles, RotateCcw } from "lucide-react";
+import { X, Sliders, Sparkles, RotateCcw, Database } from "lucide-react";
 import { PersonaPreset } from "@/lib/types";
 
 interface ParametersDrawerProps {
@@ -13,6 +13,8 @@ interface ParametersDrawerProps {
   setTemperature: (val: number) => void;
   topP: number;
   setTopP: (val: number) => void;
+  numCtx?: number;
+  setNumCtx?: (val: number) => void;
   personas: PersonaPreset[];
   onSelectPersona: (persona: PersonaPreset) => void;
   onReset: () => void;
@@ -27,6 +29,8 @@ export const ParametersDrawer: React.FC<ParametersDrawerProps> = ({
   setTemperature,
   topP,
   setTopP,
+  numCtx,
+  setNumCtx,
   personas,
   onSelectPersona,
   onReset,
@@ -150,6 +154,43 @@ export const ParametersDrawer: React.FC<ParametersDrawerProps> = ({
               <div className="flex justify-between text-[10px] text-[var(--muted)] mt-1">
                 <span>0.0 (Focused)</span>
                 <span>1.0 (Diverse)</span>
+              </div>
+            </div>
+
+            {/* Context Window Size (num_ctx) */}
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-xs font-semibold uppercase tracking-wider text-[var(--muted)] flex items-center gap-1.5">
+                  <Database className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>Context Window (Tokens)</span>
+                </label>
+                <span className="text-xs font-mono font-bold text-cyan-400 bg-cyan-500/15 px-2 py-0.5 rounded-lg border border-cyan-500/30">
+                  {numCtx ? (numCtx >= 1024 ? `${numCtx / 1024}K` : numCtx) : "16K"}
+                </span>
+              </div>
+              <div className="grid grid-cols-5 gap-1.5 pt-1">
+                {[4096, 8192, 16384, 32768, 65536].map((ctx) => {
+                  const isCur = (numCtx ?? 16384) === ctx;
+                  return (
+                    <button
+                      key={ctx}
+                      type="button"
+                      onClick={() => setNumCtx && setNumCtx(ctx)}
+                      className={`py-1.5 px-1 rounded-xl text-xs font-mono font-semibold transition-all cursor-pointer border text-center ${
+                        isCur
+                          ? "bg-cyan-500 text-white border-cyan-400 shadow-sm"
+                          : "bg-[var(--sidebar-bg)] text-[var(--muted)] hover:text-[var(--foreground)] border-[var(--card-border)] hover:border-cyan-500/50"
+                      }`}
+                    >
+                      {ctx / 1024}K
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="flex justify-between text-[10px] text-[var(--muted)] mt-1.5">
+                <span>4K (Light)</span>
+                <span className="text-cyan-400 font-medium">16K (Optimal)</span>
+                <span>64K (Max)</span>
               </div>
             </div>
           </div>
