@@ -1,0 +1,220 @@
+diff --git a/app/api/audio/route.ts b/app/api/audio/route.ts
+index 429f4db..d8df7e8 100644
+--- a/app/api/audio/route.ts
++++ b/app/api/audio/route.ts
+@@ -60,49 +60,74 @@ export async function GET(req: NextRequest) {
+       });
+     }
+ 
+-    // 2. Scan directory for audio files and cover art
++    // 2. Scan directory for audio files and cover art (recursive — subfolders included)
+     if (scanDir) {
+       const normalizedDir = path.resolve(scanDir);
+-      const stats = await fsp.stat(normalizedDir);
+-      if (!stats.isDirectory()) {
++      const rootStats = await fsp.stat(normalizedDir);
++      if (!rootStats.isDirectory()) {
+         return NextResponse.json({ error: "Path is not a directory" }, { status: 400 });
+       }
+ 
+-      const entries = await fsp.readdir(normalizedDir, { withFileTypes: true });
+-      const imageFiles = entries
+-        .filter((e) => !e.isDirectory() && IMAGE_EXTENSIONS.has(path.extname(e.name).toLowerCase()))
+-        .map((e) => e.name);
+-
+-      // Default folder cover art if found
+-      const defaultCover = imageFiles.find((f) =>
+-        /^(cover|folder|album|front|art)\.(jpg|jpeg|png|webp)$/i.test(f)
+-      );
+-
+-      const audioFiles = entries
+-        .filter((e) => !e.isDirectory() && AUDIO_EXTENSIONS.has(path.extname(e.name).toLowerCase()))
+-        .map((e) => {
+-          const baseName = e.name.replace(/\.[^/.]+$/, "");
+-          const ext = path.extname(e.name).toLowerCase().replace(".", "");
+-
+-          // Find track-specific cover or fallback to default folder cover
+-          const trackCover = imageFiles.find((img) =>
+-            img.toLowerCase().startsWith(baseName.toLowerCase())
+-          ) || defaultCover;
+-
++      const IGNORED_DIR_NAMES = new Set([
++        "node_modules", ".git", ".next", "$RECYCLE.BIN", "System Volume Information",
++      ]);
++      const MAX_DEPTH = 8;
++      const MAX_FILES = 2000; // sane ceiling so a huge library doesn't hang the request
++
++      const audioFiles: Array<{ name: string; fullName: string; path: string; format: string; coverUrl?: string; folder?: string }> = [];
++
++      const scan = async (dir: string, depth: number): Promise<void> => {
++        if (depth > MAX_DEPTH || audioFiles.length >= MAX_FILES) return;
++
++        let entries;
++        try {
++          entries = await fsp.readdir(dir, { withFileTypes: true });
++        } catch {
++          return; // unreadable/locked folder — skip rather than fail the whole scan
++        }
++
++        const imageFilesHere = entries
++          .filter((e) => !e.isDirectory() && IMAGE_EXTENSIONS.has(path.extname(e.name).toLowerCase()))
++          .map((e) => e.name);
++        const defaultCoverHere = imageFilesHere.find((f) =>
++          /^(cover|folder|album|front|art)\.(jpg|jpeg|png|webp)$/i.test(f)
++        );
++
++        for (const entry of entries) {
++          if (audioFiles.length >= MAX_FILES) break;
++
++          if (entry.isDirectory()) {
++            if (IGNORED_DIR_NAMES.has(entry.name)) continue;
++            await scan(path.join(dir, entry.name), depth + 1);
++            continue;
++          }
++
++          const ext = path.extname(entry.name).toLowerCase();
++          if (!AUDIO_EXTENSIONS.has(ext)) continue;
++
++          const baseName = entry.name.replace(/\.[^/.]+$/, "");
++          const formatExt = ext.replace(".", "");
++          const trackCover = imageFilesHere.find((img) => img.toLowerCase().startsWith(baseName.toLowerCase())) || defaultCoverHere;
+           const coverUrl = trackCover
+-            ? `/api/audio?cover=${encodeURIComponent(path.join(normalizedDir, trackCover))}`
++            ? `/api/audio?cover=${encodeURIComponent(path.join(dir, trackCover))}`
+             : undefined;
+ 
+-          return {
++          audioFiles.push({
+             name: baseName,
+-            fullName: e.name,
+-            path: path.join(normalizedDir, e.name),
+-            format: ext.toUpperCase(),
++            fullName: entry.name,
++            path: path.join(dir, entry.name),
++            format: formatExt.toUpperCase(),
+             coverUrl,
+-          };
+-        });
++            // Relative subfolder path from the root scan dir, e.g. "Albums/2019" — lets the
++            // UI show which subfolder a track came from once a library spans several folders.
++            folder: path.relative(normalizedDir, dir) || undefined,
++          });
++        }
++      };
++
++      await scan(normalizedDir, 0);
+ 
+-      return NextResponse.json({ files: audioFiles });
++      return NextResponse.json({ files: audioFiles, scannedRoot: normalizedDir, truncated: audioFiles.length >= MAX_FILES });
+     }
+ 
+     // 2. Stream single audio file with Range support
+diff --git a/components/MusicPlayerWidget.tsx b/components/MusicPlayerWidget.tsx
+index 58258f1..853d213 100644
+--- a/components/MusicPlayerWidget.tsx
++++ b/components/MusicPlayerWidget.tsx
+@@ -1,7 +1,7 @@
+ "use client";
+ 
+ import React, { useState, useEffect, useRef } from "react";
+-import { apiFetch } from "../lib/apiClient";
++import { apiFetch, withAccessToken } from "../lib/apiClient";
+ import {
+   Play,
+   Pause,
+@@ -41,6 +41,8 @@ export interface LocalTrack {
+   coverUrl?: string;
+   artist?: string;
+   isLocalFile?: boolean;
++  /** Subfolder path relative to the scanned root, e.g. "Albums/2019". Empty/undefined = root. */
++  folder?: string;
+ }
+ 
+ const AMBIENT_TRACKS: AmbientTrack[] = [
+@@ -193,10 +195,11 @@ export const MusicPlayerWidget: React.FC<MusicPlayerWidgetProps> = ({
+             const fetched: LocalTrack[] = data.files.map((f: any) => ({
+               id: `disk_${f.path}`,
+               name: f.name,
+-              src: `/api/audio?path=${encodeURIComponent(f.path)}`,
++              src: withAccessToken(`/api/audio?path=${encodeURIComponent(f.path)}`),
+               format: f.format,
+-              coverUrl: f.coverUrl,
++              coverUrl: f.coverUrl ? withAccessToken(f.coverUrl) : undefined,
+               isLocalFile: true,
++              folder: f.folder,
+             }));
+             setLocalTracks(fetched);
+             setPlayerMode("local");
+@@ -538,10 +541,11 @@ export const MusicPlayerWidget: React.FC<MusicPlayerWidgetProps> = ({
+         const fetched: LocalTrack[] = data.files.map((f: any) => ({
+           id: `disk_${f.path}`,
+           name: f.name,
+-          src: `/api/audio?path=${encodeURIComponent(f.path)}`,
++          src: withAccessToken(`/api/audio?path=${encodeURIComponent(f.path)}`),
+           format: f.format,
+-          coverUrl: f.coverUrl,
++          coverUrl: f.coverUrl ? withAccessToken(f.coverUrl) : undefined,
+           isLocalFile: true,
++          folder: f.folder,
+         }));
+ 
+         if (fetched.length > 0) {
+diff --git a/lib/apiClient.ts b/lib/apiClient.ts
+index bf9e161..abd6f21 100644
+--- a/lib/apiClient.ts
++++ b/lib/apiClient.ts
+@@ -25,3 +25,18 @@ export function apiFetch(input: string, init: RequestInit = {}): Promise<Respons
+   }
+   return fetch(input, { ...init, headers });
+ }
++
++/**
++ * Appends the access token as a `?token=` query param instead of an
++ * Authorization header. Needed for URLs handed directly to native browser
++ * elements (`<audio src>`, `<img src>`) — those issue their own GET requests
++ * and cannot attach custom headers, so middleware.ts accepts this as a
++ * fallback specifically for media routes. Not used for apiFetch calls,
++ * which use the (safer, not URL/log-visible) header instead.
++ */
++export function withAccessToken(url: string): string {
++  const token = getAccessToken();
++  if (!token) return url;
++  const separator = url.includes("?") ? "&" : "?";
++  return `${url}${separator}token=${encodeURIComponent(token)}`;
++}
+diff --git a/middleware.ts b/middleware.ts
+index fb7de1a..ba73d20 100644
+--- a/middleware.ts
++++ b/middleware.ts
+@@ -20,9 +20,16 @@ import { NextRequest, NextResponse } from "next/server";
+  * lib/apiClient.ts can send it). If APP_ACCESS_TOKEN is unset, the app falls
+  * back to open access — this keeps local dev friction-free without a token
+  * configured, but means you MUST set it before ever running the tunnel.
++ *
++ * /api/audio is a special case: it's loaded by native <audio>/<img> elements
++ * (MusicPlayerWidget), which issue their own GET requests and cannot attach
++ * an Authorization header. For this route only, a `?token=` query param is
++ * accepted as an equivalent credential (lib/apiClient.ts's withAccessToken()
++ * appends it). Every other route only accepts the header.
+  */
+ 
+ const UNPROTECTED_METHODS = new Set(["OPTIONS"]);
++const QUERY_TOKEN_ROUTES = ["/api/audio"];
+ 
+ export function middleware(req: NextRequest) {
+   if (UNPROTECTED_METHODS.has(req.method)) {
+@@ -38,7 +45,13 @@ export function middleware(req: NextRequest) {
+   }
+ 
+   const authHeader = req.headers.get("authorization") || "";
+-  const providedToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
++  const headerToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
++
++  const { pathname, searchParams } = req.nextUrl;
++  const allowsQueryToken = QUERY_TOKEN_ROUTES.some((route) => pathname.startsWith(route));
++  const queryToken = allowsQueryToken ? searchParams.get("token") || "" : "";
++
++  const providedToken = headerToken || queryToken;
+ 
+   if (providedToken !== requiredToken) {
+     return NextResponse.json(

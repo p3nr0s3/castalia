@@ -60,49 +60,74 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    // 2. Scan directory for audio files and cover art
+    // 2. Scan directory for audio files and cover art (recursive — subfolders included)
     if (scanDir) {
       const normalizedDir = path.resolve(scanDir);
-      const stats = await fsp.stat(normalizedDir);
-      if (!stats.isDirectory()) {
+      const rootStats = await fsp.stat(normalizedDir);
+      if (!rootStats.isDirectory()) {
         return NextResponse.json({ error: "Path is not a directory" }, { status: 400 });
       }
 
-      const entries = await fsp.readdir(normalizedDir, { withFileTypes: true });
-      const imageFiles = entries
-        .filter((e) => !e.isDirectory() && IMAGE_EXTENSIONS.has(path.extname(e.name).toLowerCase()))
-        .map((e) => e.name);
+      const IGNORED_DIR_NAMES = new Set([
+        "node_modules", ".git", ".next", "$RECYCLE.BIN", "System Volume Information",
+      ]);
+      const MAX_DEPTH = 8;
+      const MAX_FILES = 2000; // sane ceiling so a huge library doesn't hang the request
 
-      // Default folder cover art if found
-      const defaultCover = imageFiles.find((f) =>
-        /^(cover|folder|album|front|art)\.(jpg|jpeg|png|webp)$/i.test(f)
-      );
+      const audioFiles: Array<{ name: string; fullName: string; path: string; format: string; coverUrl?: string; folder?: string }> = [];
 
-      const audioFiles = entries
-        .filter((e) => !e.isDirectory() && AUDIO_EXTENSIONS.has(path.extname(e.name).toLowerCase()))
-        .map((e) => {
-          const baseName = e.name.replace(/\.[^/.]+$/, "");
-          const ext = path.extname(e.name).toLowerCase().replace(".", "");
+      const scan = async (dir: string, depth: number): Promise<void> => {
+        if (depth > MAX_DEPTH || audioFiles.length >= MAX_FILES) return;
 
-          // Find track-specific cover or fallback to default folder cover
-          const trackCover = imageFiles.find((img) =>
-            img.toLowerCase().startsWith(baseName.toLowerCase())
-          ) || defaultCover;
+        let entries;
+        try {
+          entries = await fsp.readdir(dir, { withFileTypes: true });
+        } catch {
+          return; // unreadable/locked folder — skip rather than fail the whole scan
+        }
 
+        const imageFilesHere = entries
+          .filter((e) => !e.isDirectory() && IMAGE_EXTENSIONS.has(path.extname(e.name).toLowerCase()))
+          .map((e) => e.name);
+        const defaultCoverHere = imageFilesHere.find((f) =>
+          /^(cover|folder|album|front|art)\.(jpg|jpeg|png|webp)$/i.test(f)
+        );
+
+        for (const entry of entries) {
+          if (audioFiles.length >= MAX_FILES) break;
+
+          if (entry.isDirectory()) {
+            if (IGNORED_DIR_NAMES.has(entry.name)) continue;
+            await scan(path.join(dir, entry.name), depth + 1);
+            continue;
+          }
+
+          const ext = path.extname(entry.name).toLowerCase();
+          if (!AUDIO_EXTENSIONS.has(ext)) continue;
+
+          const baseName = entry.name.replace(/\.[^/.]+$/, "");
+          const formatExt = ext.replace(".", "");
+          const trackCover = imageFilesHere.find((img) => img.toLowerCase().startsWith(baseName.toLowerCase())) || defaultCoverHere;
           const coverUrl = trackCover
-            ? `/api/audio?cover=${encodeURIComponent(path.join(normalizedDir, trackCover))}`
+            ? `/api/audio?cover=${encodeURIComponent(path.join(dir, trackCover))}`
             : undefined;
 
-          return {
+          audioFiles.push({
             name: baseName,
-            fullName: e.name,
-            path: path.join(normalizedDir, e.name),
-            format: ext.toUpperCase(),
+            fullName: entry.name,
+            path: path.join(dir, entry.name),
+            format: formatExt.toUpperCase(),
             coverUrl,
-          };
-        });
+            // Relative subfolder path from the root scan dir, e.g. "Albums/2019" — lets the
+            // UI show which subfolder a track came from once a library spans several folders.
+            folder: path.relative(normalizedDir, dir) || undefined,
+          });
+        }
+      };
 
-      return NextResponse.json({ files: audioFiles });
+      await scan(normalizedDir, 0);
+
+      return NextResponse.json({ files: audioFiles, scannedRoot: normalizedDir, truncated: audioFiles.length >= MAX_FILES });
     }
 
     // 2. Stream single audio file with Range support

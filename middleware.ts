@@ -20,9 +20,16 @@ import { NextRequest, NextResponse } from "next/server";
  * lib/apiClient.ts can send it). If APP_ACCESS_TOKEN is unset, the app falls
  * back to open access — this keeps local dev friction-free without a token
  * configured, but means you MUST set it before ever running the tunnel.
+ *
+ * /api/audio is a special case: it's loaded by native <audio>/<img> elements
+ * (MusicPlayerWidget), which issue their own GET requests and cannot attach
+ * an Authorization header. For this route only, a `?token=` query param is
+ * accepted as an equivalent credential (lib/apiClient.ts's withAccessToken()
+ * appends it). Every other route only accepts the header.
  */
 
 const UNPROTECTED_METHODS = new Set(["OPTIONS"]);
+const QUERY_TOKEN_ROUTES = ["/api/audio"];
 
 export function middleware(req: NextRequest) {
   if (UNPROTECTED_METHODS.has(req.method)) {
@@ -38,7 +45,13 @@ export function middleware(req: NextRequest) {
   }
 
   const authHeader = req.headers.get("authorization") || "";
-  const providedToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
+  const headerToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
+
+  const { pathname, searchParams } = req.nextUrl;
+  const allowsQueryToken = QUERY_TOKEN_ROUTES.some((route) => pathname.startsWith(route));
+  const queryToken = allowsQueryToken ? searchParams.get("token") || "" : "";
+
+  const providedToken = headerToken || queryToken;
 
   if (providedToken !== requiredToken) {
     return NextResponse.json(

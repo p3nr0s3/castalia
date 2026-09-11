@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
-import { apiFetch } from "../lib/apiClient";
+import { apiFetch, withAccessToken } from "../lib/apiClient";
 import {
   Play,
   Pause,
@@ -41,6 +41,8 @@ export interface LocalTrack {
   coverUrl?: string;
   artist?: string;
   isLocalFile?: boolean;
+  /** Subfolder path relative to the scanned root, e.g. "Albums/2019". Empty/undefined = root. */
+  folder?: string;
 }
 
 const AMBIENT_TRACKS: AmbientTrack[] = [
@@ -193,10 +195,11 @@ export const MusicPlayerWidget: React.FC<MusicPlayerWidgetProps> = ({
             const fetched: LocalTrack[] = data.files.map((f: any) => ({
               id: `disk_${f.path}`,
               name: f.name,
-              src: `/api/audio?path=${encodeURIComponent(f.path)}`,
+              src: withAccessToken(`/api/audio?path=${encodeURIComponent(f.path)}`),
               format: f.format,
-              coverUrl: f.coverUrl,
+              coverUrl: f.coverUrl ? withAccessToken(f.coverUrl) : undefined,
               isLocalFile: true,
+              folder: f.folder,
             }));
             setLocalTracks(fetched);
             setPlayerMode("local");
@@ -538,10 +541,11 @@ export const MusicPlayerWidget: React.FC<MusicPlayerWidgetProps> = ({
         const fetched: LocalTrack[] = data.files.map((f: any) => ({
           id: `disk_${f.path}`,
           name: f.name,
-          src: `/api/audio?path=${encodeURIComponent(f.path)}`,
+          src: withAccessToken(`/api/audio?path=${encodeURIComponent(f.path)}`),
           format: f.format,
-          coverUrl: f.coverUrl,
+          coverUrl: f.coverUrl ? withAccessToken(f.coverUrl) : undefined,
           isLocalFile: true,
+          folder: f.folder,
         }));
 
         if (fetched.length > 0) {
