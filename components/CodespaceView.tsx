@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { apiFetch } from "../lib/apiClient";
 import {
   Code2,
@@ -156,6 +156,70 @@ export const CodespaceView: React.FC<CodespaceViewProps> = ({
   const [isCreatingFile, setIsCreatingFile] = useState(false);
   const [isEnvMenuOpen, setIsEnvMenuOpen] = useState(false);
 
+  // JS/TS execution now runs inside a sandboxed, cross-origin iframe instead
+  // of `new Function` in the main app context — the old approach ran with
+  // full access to this window's DOM, localStorage, and could fetch the
+  // app's own APIs with the user's APP_ACCESS_TOKEN if it was reachable from
+  // memory. The iframe has `sandbox="allow-scripts"` with NO
+  // `allow-same-origin`, so it gets a unique opaque origin: it cannot read
+  // this page's localStorage/cookies, cannot make credentialed same-origin
+  // requests, and can only talk back to us via postMessage.
+  const jsRunnerRef = useRef<HTMLIFrameElement>(null);
+  const jsRunIdRef = useRef(0);
+  const jsRunCompletedRef = useRef(0);
+  const [jsRunnerDoc, setJsRunnerDoc] = useState<string | null>(null);
+
+  useEffect(() => {
+    function handleRunnerMessage(event: MessageEvent) {
+      if (jsRunnerRef.current && event.source !== jsRunnerRef.current.contentWindow) return;
+      const data = event.data;
+      if (!data || data.__codespaceRunner !== true || data.runId !== jsRunIdRef.current) return;
+
+      if (data.type === "log") {
+        setConsoleLogs((prev) => [...prev, data.args.join(" ")]);
+      } else if (data.type === "warn") {
+        setConsoleLogs((prev) => [...prev, `[WARN] ${data.args.join(" ")}`]);
+      } else if (data.type === "error") {
+        setConsoleLogs((prev) => [...prev, `❌ Runtime Error: ${data.args.join(" ")}`]);
+      } else if (data.type === "done") {
+        jsRunCompletedRef.current = data.runId;
+        setConsoleLogs((prev) => [...prev, "✓ Execution completed successfully."]);
+      }
+      if (data.type === "error") {
+        jsRunCompletedRef.current = data.runId;
+      }
+    }
+    window.addEventListener("message", handleRunnerMessage);
+    return () => window.removeEventListener("message", handleRunnerMessage);
+  }, []);
+
+  function buildJsRunnerDoc(code: string, runId: number): string {
+    const escaped = JSON.stringify(code);
+    return `<!DOCTYPE html><html><head></head><body><script>
+(function(){
+  var runId = ${runId};
+  function send(type, args) {
+    try {
+      parent.postMessage({ __codespaceRunner: true, runId: runId, type: type, args: args.map(function(a){
+        try { return typeof a === "object" ? JSON.stringify(a, null, 2) : String(a); } catch (e) { return String(a); }
+      }) }, "*");
+    } catch (e) {}
+  }
+  console.log = function(){ send("log", Array.prototype.slice.call(arguments)); };
+  console.error = function(){ send("error", Array.prototype.slice.call(arguments)); };
+  console.warn = function(){ send("warn", Array.prototype.slice.call(arguments)); };
+  window.onerror = function(msg){ send("error", [String(msg)]); return true; };
+  try {
+    var code = ${escaped};
+    (new Function(code))();
+    send("done", []);
+  } catch (err) {
+    send("error", [err && err.message ? err.message : String(err)]);
+  }
+})();
+<\/script></body></html>`;
+  }
+
   const activeSnippet = snippets.find((s) => s.id === activeSnippetId) || snippets[0];
 
   const updateActiveContent = (newContent: string) => {
@@ -225,27 +289,21 @@ export const CodespaceView: React.FC<CodespaceViewProps> = ({
     }
 
     if (activeSnippet.language === "javascript" || activeSnippet.language === "typescript") {
-      try {
-        const captured: string[] = [];
-        const customConsole = {
-          log: (...args: any[]) => captured.push(args.map((a) => (typeof a === "object" ? JSON.stringify(a, null, 2) : String(a))).join(" ")),
-          error: (...args: any[]) => captured.push(`[ERROR] ${args.join(" ")}`),
-          warn: (...args: any[]) => captured.push(`[WARN] ${args.join(" ")}`),
-        };
+      const runnable = activeSnippet.content.replace(/import\s+.*?from\s+['"].*?['"];?/g, "");
+      const runId = ++jsRunIdRef.current;
+      setJsRunnerDoc(buildJsRunnerDoc(runnable, runId));
 
-        // Safe eval simulation
-        const runnable = activeSnippet.content.replace(/import\s+.*?from\s+['"].*?['"];?/g, "");
-        const runFn = new Function("console", runnable);
-        runFn(customConsole);
-
-        if (captured.length > 0) {
-          setConsoleLogs((prev) => [...prev, ...captured, "✓ Execution completed successfully."]);
-        } else {
-          setConsoleLogs((prev) => [...prev, "✓ Code executed (no console output produced)."]);
+      // The iframe runs fully isolated (no allow-same-origin), so a hung
+      // script can't freeze this tab — but it also means we never hear back
+      // if it never finishes. Give it a few seconds, then say so.
+      setTimeout(() => {
+        if (jsRunIdRef.current === runId && jsRunCompletedRef.current !== runId) {
+          setConsoleLogs((prev) => [
+            ...prev,
+            "⏱ No response after 5s — code may still be running in the sandboxed frame, or produced no output.",
+          ]);
         }
-      } catch (err: any) {
-        setConsoleLogs((prev) => [...prev, `❌ Runtime Error: ${err.message}`]);
-      }
+      }, 5000);
     } else {
       setConsoleLogs((prev) => [
         ...prev,
@@ -595,6 +653,20 @@ export const CodespaceView: React.FC<CodespaceViewProps> = ({
                 </div>
               )}
             </div>
+          )}
+
+          {/* Hidden sandboxed runner for JS/TS "Run" — see buildJsRunnerDoc above.
+              sandbox has NO allow-same-origin: this frame gets a unique opaque
+              origin and can only report back via postMessage. */}
+          {jsRunnerDoc !== null && (
+            <iframe
+              ref={jsRunnerRef}
+              key={jsRunIdRef.current}
+              title="Codespace JS Runner"
+              srcDoc={jsRunnerDoc}
+              sandbox="allow-scripts"
+              style={{ display: "none" }}
+            />
           )}
 
           {/* Tab 2: Console Logs */}

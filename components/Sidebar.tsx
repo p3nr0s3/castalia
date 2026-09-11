@@ -448,7 +448,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 projects.map((proj) => {
                   const isSelected =
                     workspaceView === "project-detail" && activeProjectId === proj.id;
-                  const isExpanded = expandedProjectIds.has(proj.id) || isSelected;
+                  // Note: intentionally NOT `|| isSelected` — the useEffect above
+                  // already auto-expands a project the moment it becomes active,
+                  // but after that the user must be able to manually collapse the
+                  // active project's folder too. Forcing it open via isSelected
+                  // made the chevron toggle a no-op for whichever project is
+                  // currently selected.
+                  const isExpanded = expandedProjectIds.has(proj.id);
                   const projChats = conversations.filter((c) => c.projectId === proj.id);
 
                   return (

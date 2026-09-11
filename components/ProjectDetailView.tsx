@@ -57,6 +57,7 @@ export const ProjectDetailView: React.FC<ProjectDetailViewProps> = ({
   const [promptInput, setPromptInput] = useState("");
   const [isEditingInstructions, setIsEditingInstructions] = useState(false);
   const [instructionsText, setInstructionsText] = useState(project?.systemPrompt || "");
+  const [isInstructionsExpanded, setIsInstructionsExpanded] = useState(false);
   const [fileSearchQuery, setFileSearchQuery] = useState("");
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -401,14 +402,29 @@ export const ProjectDetailView: React.FC<ProjectDetailViewProps> = ({
                   </div>
                 </div>
               ) : (
-                <p
-                  onClick={() => setIsEditingInstructions(true)}
-                  className="text-xs text-[var(--muted)] hover:text-[var(--foreground)] cursor-pointer transition-colors leading-relaxed"
-                >
-                  {project.systemPrompt
-                    ? project.systemPrompt
-                    : "Add instructions to tailor AI responses"}
-                </p>
+                <div className="space-y-1">
+                  <p
+                    onClick={() => setIsEditingInstructions(true)}
+                    className={`text-xs text-[var(--muted)] hover:text-[var(--foreground)] cursor-pointer transition-colors leading-relaxed whitespace-pre-wrap ${
+                      isInstructionsExpanded ? "" : "line-clamp-3"
+                    }`}
+                  >
+                    {project.systemPrompt
+                      ? project.systemPrompt
+                      : "Add instructions to tailor AI responses"}
+                  </p>
+                  {project.systemPrompt && project.systemPrompt.length > 160 && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setIsInstructionsExpanded((prev) => !prev);
+                      }}
+                      className="text-[10px] font-medium text-[var(--muted)] hover:text-[var(--foreground)] transition-colors cursor-pointer"
+                    >
+                      {isInstructionsExpanded ? "Show less" : "Show more"}
+                    </button>
+                  )}
+                </div>
               )}
             </div>
 
