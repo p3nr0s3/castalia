@@ -84,6 +84,8 @@ interface ChatAreaProps {
   onOpenCodespace?: () => void;
   nowPlayingInfo?: { isPlaying: boolean; title: string; onOpenPlayer: () => void } | null;
   onForkConversation?: (messageId: string) => void;
+  onApproveTool?: (approvalId: string) => void;
+  onRejectTool?: (approvalId: string) => void;
   isArenaMode?: boolean;
   onToggleArenaMode?: () => void;
   arenaModelB?: string;
@@ -104,6 +106,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   onOpenSkills,
   activeSkillsCount = 0,
   onForkConversation,
+  onApproveTool,
+  onRejectTool,
   isArenaMode = false,
   onToggleArenaMode,
   arenaModelB,
@@ -613,6 +617,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                   onEdit={onEditMessage}
                   onDelete={onDeleteMessage}
                   onForkConversation={onForkConversation}
+                  onApproveTool={onApproveTool}
+                  onRejectTool={onRejectTool}
                 />
               );
             })}

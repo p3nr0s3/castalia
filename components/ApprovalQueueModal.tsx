@@ -29,7 +29,7 @@ export function ApprovalQueueModal({ isOpen, onClose, approvals, onDecision, res
         <div className="flex items-center justify-between px-5 py-4 border-b border-white/10">
           <div className="flex items-center gap-2.5">
             <ShieldAlert className="w-5 h-5 text-amber-400" />
-            <h2 className="font-semibold text-white">Persetujuan Agent</h2>
+            <h2 className="font-semibold text-white">Persetujuan</h2>
             {pending.length > 0 && (
               <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 text-xs font-medium">
                 {pending.length} menunggu
@@ -57,7 +57,8 @@ export function ApprovalQueueModal({ isOpen, onClose, approvals, onDecision, res
                     <ToolIcon toolName={approval.toolName} />
                     <div className="min-w-0">
                       <p className="text-sm font-medium text-white">
-                        {approval.agentName} ingin menjalankan <code className="text-amber-300">{approval.toolName}</code>
+                        {approval.source === "chat" ? "Chat" : approval.agentName} ingin menjalankan{" "}
+                        <code className="text-amber-300">{approval.toolName}</code>
                       </p>
                       <pre className="mt-1.5 text-xs text-neutral-400 bg-black/30 rounded-lg p-2 overflow-x-auto max-h-32">
                         {JSON.stringify(approval.args, null, 2)}
@@ -97,7 +98,7 @@ export function ApprovalQueueModal({ isOpen, onClose, approvals, onDecision, res
                     <div className="flex items-center gap-2 min-w-0">
                       <ToolIcon toolName={approval.toolName} />
                       <span className="text-xs text-neutral-400 truncate">
-                        {approval.agentName} — {approval.toolName}
+                        {approval.source === "chat" ? "Chat" : approval.agentName} — {approval.toolName}
                       </span>
                     </div>
                     <span

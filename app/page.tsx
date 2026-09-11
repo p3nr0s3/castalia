@@ -20,7 +20,7 @@ import {
 import { storage } from "@/lib/storage";
 import { DEFAULT_SETTINGS, PRESET_PERSONAS } from "@/lib/constants";
 import { checkOllamaHealth, fetchOllamaModels, streamChatCompletion } from "@/lib/ollama";
-import { buildToolDirectivePrompt, parseToolDirective } from "@/lib/tools";
+import { buildToolDirectivePrompt, parseToolDirective, MUTATING_TOOLS } from "@/lib/tools";
 import { executeToolCall } from "@/lib/toolEngine";
 import { executeAgent, calculateNextRun, resumeAgentAfterApproval } from "@/lib/agentEngine";
 import { composeSkillsPrompt, skillsRequireDiskTools, DEFAULT_SKILLS } from "@/lib/skills";
@@ -111,6 +111,13 @@ export default function HomePage() {
   const pausedContextsRef = useRef<
     Record<string, { history: Message[]; effectiveSystemPrompt: string; userMsg: Message; searchSources: any[] }>
   >({});
+  // Resolver functions for chat-sourced (non-agent) tool approvals. The manual-chat
+  // disk-tool loop `await`s a Promise stored here while a write_file/delete_file
+  // card sits in the UI; handleApprovalDecision resolves it when the user clicks
+  // Approve/Reject. Unlike agent approvals this is NOT resumable across a tab
+  // reload — the loop is a live in-memory async function tied to this page
+  // session, same as any other in-flight generation.
+  const chatApprovalResolversRef = useRef<Map<string, (decision: "approved" | "rejected") => void>>(new Map());
   const [isDiskExplorerOpen, setIsDiskExplorerOpen] = useState<boolean>(false);
   const [isSkillsModalOpen, setIsSkillsModalOpen] = useState<boolean>(false);
   const [isDirectoryModalOpen, setIsDirectoryModalOpen] = useState<boolean>(false);
@@ -442,6 +449,25 @@ export default function HomePage() {
     const approval = pendingApprovals.find((a) => a.id === approvalId);
     if (!approval || approval.status !== "pending") return;
 
+    // Chat-sourced approval (manual "Disk Tools" toggle, not an Autonomous Agent):
+    // just mark it resolved and wake up the waiting tool loop. No agent resume
+    // plumbing needed — the loop that's `await`-ing this is still alive in this
+    // same page session.
+    if (approval.source === "chat") {
+      const resolvedChatApproval: PendingApproval = { ...approval, status: decision, resolvedAt: Date.now() };
+      setPendingApprovals((prev) => {
+        const next = prev.map((a) => (a.id === approvalId ? resolvedChatApproval : a));
+        storage.savePendingApprovals(next);
+        return next;
+      });
+      const resolver = chatApprovalResolversRef.current.get(approvalId);
+      if (resolver) {
+        resolver(decision);
+        chatApprovalResolversRef.current.delete(approvalId);
+      }
+      return;
+    }
+
     const pausedContext = pausedContextsRef.current[approvalId];
 
     // Mark resolved immediately so the badge/list updates without waiting on the model.
@@ -465,7 +491,7 @@ export default function HomePage() {
     const targetAgent = agents.find((a) => a.id === approval.agentId);
     if (!targetAgent) return;
 
-    setRunningAgentIds((prev) => [...prev, approval.agentId]);
+    setRunningAgentIds((prev) => [...prev, targetAgent.id]);
     setResolvingApprovalIds((prev) => [...prev, approvalId]);
     try {
       const result = await resumeAgentAfterApproval(targetAgent, resolvedApproval, decision, pausedContext, {
@@ -808,6 +834,19 @@ export default function HomePage() {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
+    }
+    // Any disk-tool approval card still waiting on this generation would
+    // otherwise hang forever (its Promise never resolves) since the loop
+    // that's awaiting it just got aborted. Auto-reject so the UI doesn't
+    // leave a dead "waiting for approval" card behind.
+    if (chatApprovalResolversRef.current.size > 0) {
+      chatApprovalResolversRef.current.forEach((resolve) => resolve("rejected"));
+      chatApprovalResolversRef.current.clear();
+      setPendingApprovals((prev) => {
+        const next = prev.map((a) => (a.source === "chat" && a.status === "pending" ? { ...a, status: "rejected" as const, resolvedAt: Date.now() } : a));
+        storage.savePendingApprovals(next);
+        return next;
+      });
     }
     setIsStreaming(false);
   };
@@ -1350,17 +1389,64 @@ export default function HomePage() {
               );
 
               let toolResultText: string;
-              try {
-                const result = await executeToolCall(directive.toolName, directive.args, abortController.signal);
+              const isMutating = MUTATING_TOOLS.includes(directive.toolName);
+              let approvalDecision: "approved" | "rejected" = "approved";
+
+              if (isMutating) {
+                const approvalId = `chatapproval_${execId}`;
+                const approval: PendingApproval = {
+                  id: approvalId,
+                  source: "chat",
+                  conversationId: targetId,
+                  toolName: directive.toolName,
+                  args: directive.args,
+                  status: "pending",
+                  createdAt: Date.now(),
+                };
+                setPendingApprovals((prev) => {
+                  const next = [approval, ...prev];
+                  storage.savePendingApprovals(next);
+                  return next;
+                });
                 toolExecutions = toolExecutions.map((t) =>
-                  t.id === execId ? { ...t, status: "success", result: result.raw } : t
+                  t.id === execId ? { ...t, status: "awaiting_approval", approvalId } : t
                 );
-                toolResultText = JSON.stringify(result.raw).slice(0, 4000);
-              } catch (toolErr: any) {
+                setConversations((prev) =>
+                  prev.map((c) =>
+                    c.id !== targetId
+                      ? c
+                      : {
+                          ...c,
+                          messages: c.messages.map((m) =>
+                            m.id === assistantMessageId ? { ...m, toolExecutions } : m
+                          ),
+                        }
+                  )
+                );
+
+                approvalDecision = await new Promise<"approved" | "rejected">((resolve) => {
+                  chatApprovalResolversRef.current.set(approvalId, resolve);
+                });
+              }
+
+              if (isMutating && approvalDecision === "rejected") {
                 toolExecutions = toolExecutions.map((t) =>
-                  t.id === execId ? { ...t, status: "error", error: toolErr.message || String(toolErr) } : t
+                  t.id === execId ? { ...t, status: "error", error: "Ditolak oleh user." } : t
                 );
-                toolResultText = `ERROR: ${toolErr.message || toolErr}`;
+                toolResultText = `DITOLAK oleh user. Tool '${directive.toolName}' tidak dijalankan. Lanjutkan tanpa hasil ini, atau jelaskan ke user kenapa langkah ini diperlukan jika masih relevan.`;
+              } else {
+                try {
+                  const result = await executeToolCall(directive.toolName, directive.args, abortController.signal);
+                  toolExecutions = toolExecutions.map((t) =>
+                    t.id === execId ? { ...t, status: "success", result: result.raw } : t
+                  );
+                  toolResultText = JSON.stringify(result.raw).slice(0, 4000);
+                } catch (toolErr: any) {
+                  toolExecutions = toolExecutions.map((t) =>
+                    t.id === execId ? { ...t, status: "error", error: toolErr.message || String(toolErr) } : t
+                  );
+                  toolResultText = `ERROR: ${toolErr.message || toolErr}`;
+                }
               }
 
               toolHistory = [
@@ -2144,6 +2230,8 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
           setThinkingMode={setThinkingMode}
           onOpenCodespace={() => setMainView("codespace")}
           onForkConversation={handleForkConversation}
+          onApproveTool={(approvalId) => handleApprovalDecision(approvalId, "approved")}
+          onRejectTool={(approvalId) => handleApprovalDecision(approvalId, "rejected")}
           isArenaMode={isArenaMode}
           onToggleArenaMode={() => setIsArenaMode(!isArenaMode)}
           arenaModelB={arenaModelB}

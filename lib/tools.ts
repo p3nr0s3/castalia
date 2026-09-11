@@ -27,41 +27,41 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: "list_directory",
     description:
-      "List isi sebuah folder di dalam project (nama file/folder, ukuran, tanggal modifikasi). Path kosong berarti root project.",
+      "List isi sebuah folder di disk lokal user (nama file/folder, ukuran, tanggal modifikasi). Path kosong berarti home directory user.",
     parameters: {
-      path: { type: "string", description: "Path relatif dari root project, contoh 'lib' atau 'app/api'.", required: false },
+      path: { type: "string", description: "Path absolut (mis. 'D:\\Projects\\foo' atau '/home/user/foo'), atau relatif ke home directory.", required: false },
       recursive: { type: "boolean", description: "Jika true, masuk ke subfolder juga (maks kedalaman 3).", required: false },
       maxItems: { type: "number", description: "Batas jumlah item yang dikembalikan (maks 200).", required: false },
     },
   },
   {
     name: "read_file",
-    description: "Baca isi teks sebuah file di dalam project.",
+    description: "Baca isi teks sebuah file di disk lokal user (drive/folder mana pun, bukan cuma folder project).",
     parameters: {
-      path: { type: "string", description: "Path relatif file yang mau dibaca, contoh 'package.json'.", required: true },
+      path: { type: "string", description: "Path absolut atau relatif ke home directory dari file yang mau dibaca.", required: true },
       maxBytes: { type: "number", description: "Batas ukuran baca dalam byte (default 2MB).", required: false },
     },
   },
   {
     name: "write_file",
-    description: "Buat file baru atau timpa isi file yang sudah ada di dalam project. Folder induk dibuat otomatis jika belum ada.",
+    description: "Buat file baru atau timpa isi file yang sudah ada di disk lokal user. Folder induk dibuat otomatis jika belum ada. Selalu menunggu persetujuan manual user sebelum benar-benar dieksekusi.",
     parameters: {
-      path: { type: "string", description: "Path relatif file tujuan.", required: true },
+      path: { type: "string", description: "Path absolut atau relatif ke home directory dari file tujuan.", required: true },
       content: { type: "string", description: "Isi teks lengkap yang akan ditulis ke file.", required: true },
     },
   },
   {
     name: "search_files",
-    description: "Cari file berdasarkan nama atau isi teks di dalam sebuah folder project (rekursif, maks kedalaman 5).",
+    description: "Cari file berdasarkan nama atau isi teks di dalam sebuah folder di disk lokal user (rekursif, maks kedalaman 5).",
     parameters: {
       query: { type: "string", description: "Kata kunci pencarian.", required: true },
-      path: { type: "string", description: "Folder awal pencarian (default root project).", required: false },
+      path: { type: "string", description: "Folder awal pencarian (default home directory).", required: false },
       maxResults: { type: "number", description: "Batas jumlah hasil (maks 100).", required: false },
     },
   },
   {
     name: "delete_file",
-    description: "Hapus sebuah file. Aksi ini permanen dan untuk agent selalu butuh persetujuan manual sebelum dieksekusi.",
+    description: "Hapus sebuah file. Aksi ini permanen dan selalu menunggu persetujuan manual user sebelum benar-benar dieksekusi.",
     parameters: {
       path: { type: "string", description: "Path file yang akan dihapus.", required: true },
     },
@@ -101,15 +101,18 @@ export function buildToolDirectivePrompt(): string {
     return `- ${t.name}(${argsDesc})\n  ${t.description}`;
   }).join("\n");
 
-  return `Kamu punya akses ke Disk Tools berikut untuk membaca/menulis file di dalam project user:
+  return `Kamu punya akses ke Disk Tools berikut untuk membaca/menulis file di SELURUH disk lokal user (bukan cuma folder project ini — path absolut ke drive/folder mana pun juga bisa):
 ${toolList}
 
 Untuk memanggil tool, tulis PERSIS satu baris dengan format ini dan JANGAN tulis apa pun setelahnya:
 [TOOL_CALL:nama_tool:{"arg1":"value1"}]
 
 Contoh: [TOOL_CALL:read_file:{"path":"package.json"}]
+Contoh path absolut: [TOOL_CALL:list_directory:{"path":"D:\\\\Projects"}]
 
-Hasil eksekusi akan diberikan kembali ke kamu di giliran berikutnya. Jangan mengarang hasil tool sendiri.
+PENTING: ${MUTATING_TOOLS.join(" dan ")} tidak langsung dieksekusi — permintaan itu akan tampil sebagai kartu
+persetujuan di chat dan kamu PAUSE sampai user approve atau reject secara manual. Kalau ditolak, kamu akan
+diberi tahu dan harus melanjutkan tanpa hasil itu. Jangan mengarang hasil tool sendiri.
 Kalau tidak perlu memanggil tool, jawab seperti biasa tanpa format di atas.`;
 }
 

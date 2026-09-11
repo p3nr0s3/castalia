@@ -188,6 +188,7 @@ async function runAgentToolLoop(
       // resumeAgentAfterApproval() once the user decides.
       const pendingApproval: PendingApproval = {
         id: `approval_${agent.id}_${Date.now()}`,
+        source: "agent",
         agentId: agent.id,
         agentName: agent.name,
         toolName,

@@ -1,0 +1,503 @@
+diff --git a/app/api/tools/execute/route.ts b/app/api/tools/execute/route.ts
+index dfe1630..163eb34 100644
+--- a/app/api/tools/execute/route.ts
++++ b/app/api/tools/execute/route.ts
+@@ -2,19 +2,59 @@ import { NextRequest, NextResponse } from "next/server";
+ import path from "path";
+ import os from "os";
+ import { runDiskTool } from "@/lib/diskToolOps";
+-import { resolveWithinBase } from "@/lib/pathSandbox";
+ 
+ export const runtime = "nodejs";
+ export const dynamic = "force-dynamic";
+ 
+ // This route is for manual chat's disk tools. Originally sandboxed to the
+-// project directory; widened to the user's home directory on request so
+-// manual chat can browse/read/write outside the project folder, matching
+-// the scope /api/fs and /api/tools/execute-agent already use.
+-const BASE_DIR = path.resolve(os.homedir());
++// project directory, then widened to the user's home directory, then
++// widened again (per explicit user request) to the WHOLE local filesystem —
++// any drive, any path, no containment boundary anymore.
++//
++// The only thing still blocked is a short denylist of OS-critical system
++// directories where a stray write_file/delete_file could break the machine
++// itself (not the user's data — the operating system). This is not a
++// security sandbox; it does not protect user files, other users' accounts,
++// or anything else. It exists purely so a bad tool call can't brick Windows.
++//
++// mutating write_file/delete_file calls from this route always go through
++// an approval step in the UI first (see app/page.tsx's disk-tool loop) —
++// this route itself has no way to know whether that happened, it just
++// executes whatever request reaches it.
++const DENYLISTED_ROOTS = [
++  // Windows
++  "C:\\Windows",
++  "C:\\Program Files",
++  "C:\\Program Files (x86)",
++  "C:\\ProgramData",
++  // macOS / Linux, in case this is ever run there
++  "/System",
++  "/Library",
++  "/usr",
++  "/bin",
++  "/sbin",
++  "/etc",
++  "/boot",
++].map((p) => path.normalize(p).toLowerCase());
+ 
+ function resolveSafePath(inputPath?: string): string {
+-  return resolveWithinBase(BASE_DIR, inputPath);
++  if (!inputPath || inputPath.trim() === "" || inputPath === ".") {
++    return path.resolve(os.homedir());
++  }
++
++  const resolved = path.resolve(inputPath);
++  const normalizedLower = path.normalize(resolved).toLowerCase();
++
++  const hitsDenylist = DENYLISTED_ROOTS.some(
++    (root) => normalizedLower === root || normalizedLower.startsWith(root + path.sep)
++  );
++  if (hitsDenylist) {
++    throw new Error(
++      `Access denied: '${resolved}' is inside a protected OS system directory. Disk tools cannot touch Windows/Program Files/system folders.`
++    );
++  }
++
++  return resolved;
+ }
+ 
+ export async function POST(req: NextRequest) {
+@@ -37,3 +77,4 @@ export async function POST(req: NextRequest) {
+     );
+   }
+ }
++
+diff --git a/app/page.tsx b/app/page.tsx
+index d4a9128..9aeabb0 100644
+--- a/app/page.tsx
++++ b/app/page.tsx
+@@ -20,7 +20,7 @@ import {
+ import { storage } from "@/lib/storage";
+ import { DEFAULT_SETTINGS, PRESET_PERSONAS } from "@/lib/constants";
+ import { checkOllamaHealth, fetchOllamaModels, streamChatCompletion } from "@/lib/ollama";
+-import { buildToolDirectivePrompt, parseToolDirective } from "@/lib/tools";
++import { buildToolDirectivePrompt, parseToolDirective, MUTATING_TOOLS } from "@/lib/tools";
+ import { executeToolCall } from "@/lib/toolEngine";
+ import { executeAgent, calculateNextRun, resumeAgentAfterApproval } from "@/lib/agentEngine";
+ import { composeSkillsPrompt, skillsRequireDiskTools, DEFAULT_SKILLS } from "@/lib/skills";
+@@ -111,6 +111,13 @@ export default function HomePage() {
+   const pausedContextsRef = useRef<
+     Record<string, { history: Message[]; effectiveSystemPrompt: string; userMsg: Message; searchSources: any[] }>
+   >({});
++  // Resolver functions for chat-sourced (non-agent) tool approvals. The manual-chat
++  // disk-tool loop `await`s a Promise stored here while a write_file/delete_file
++  // card sits in the UI; handleApprovalDecision resolves it when the user clicks
++  // Approve/Reject. Unlike agent approvals this is NOT resumable across a tab
++  // reload — the loop is a live in-memory async function tied to this page
++  // session, same as any other in-flight generation.
++  const chatApprovalResolversRef = useRef<Map<string, (decision: "approved" | "rejected") => void>>(new Map());
+   const [isDiskExplorerOpen, setIsDiskExplorerOpen] = useState<boolean>(false);
+   const [isSkillsModalOpen, setIsSkillsModalOpen] = useState<boolean>(false);
+   const [isDirectoryModalOpen, setIsDirectoryModalOpen] = useState<boolean>(false);
+@@ -442,6 +449,25 @@ export default function HomePage() {
+     const approval = pendingApprovals.find((a) => a.id === approvalId);
+     if (!approval || approval.status !== "pending") return;
+ 
++    // Chat-sourced approval (manual "Disk Tools" toggle, not an Autonomous Agent):
++    // just mark it resolved and wake up the waiting tool loop. No agent resume
++    // plumbing needed — the loop that's `await`-ing this is still alive in this
++    // same page session.
++    if (approval.source === "chat") {
++      const resolvedChatApproval: PendingApproval = { ...approval, status: decision, resolvedAt: Date.now() };
++      setPendingApprovals((prev) => {
++        const next = prev.map((a) => (a.id === approvalId ? resolvedChatApproval : a));
++        storage.savePendingApprovals(next);
++        return next;
++      });
++      const resolver = chatApprovalResolversRef.current.get(approvalId);
++      if (resolver) {
++        resolver(decision);
++        chatApprovalResolversRef.current.delete(approvalId);
++      }
++      return;
++    }
++
+     const pausedContext = pausedContextsRef.current[approvalId];
+ 
+     // Mark resolved immediately so the badge/list updates without waiting on the model.
+@@ -465,7 +491,7 @@ export default function HomePage() {
+     const targetAgent = agents.find((a) => a.id === approval.agentId);
+     if (!targetAgent) return;
+ 
+-    setRunningAgentIds((prev) => [...prev, approval.agentId]);
++    setRunningAgentIds((prev) => [...prev, targetAgent.id]);
+     setResolvingApprovalIds((prev) => [...prev, approvalId]);
+     try {
+       const result = await resumeAgentAfterApproval(targetAgent, resolvedApproval, decision, pausedContext, {
+@@ -809,6 +835,19 @@ export default function HomePage() {
+       abortControllerRef.current.abort();
+       abortControllerRef.current = null;
+     }
++    // Any disk-tool approval card still waiting on this generation would
++    // otherwise hang forever (its Promise never resolves) since the loop
++    // that's awaiting it just got aborted. Auto-reject so the UI doesn't
++    // leave a dead "waiting for approval" card behind.
++    if (chatApprovalResolversRef.current.size > 0) {
++      chatApprovalResolversRef.current.forEach((resolve) => resolve("rejected"));
++      chatApprovalResolversRef.current.clear();
++      setPendingApprovals((prev) => {
++        const next = prev.map((a) => (a.source === "chat" && a.status === "pending" ? { ...a, status: "rejected" as const, resolvedAt: Date.now() } : a));
++        storage.savePendingApprovals(next);
++        return next;
++      });
++    }
+     setIsStreaming(false);
+   };
+ 
+@@ -1350,17 +1389,64 @@ export default function HomePage() {
+               );
+ 
+               let toolResultText: string;
+-              try {
+-                const result = await executeToolCall(directive.toolName, directive.args, abortController.signal);
++              const isMutating = MUTATING_TOOLS.includes(directive.toolName);
++              let approvalDecision: "approved" | "rejected" = "approved";
++
++              if (isMutating) {
++                const approvalId = `chatapproval_${execId}`;
++                const approval: PendingApproval = {
++                  id: approvalId,
++                  source: "chat",
++                  conversationId: targetId,
++                  toolName: directive.toolName,
++                  args: directive.args,
++                  status: "pending",
++                  createdAt: Date.now(),
++                };
++                setPendingApprovals((prev) => {
++                  const next = [approval, ...prev];
++                  storage.savePendingApprovals(next);
++                  return next;
++                });
+                 toolExecutions = toolExecutions.map((t) =>
+-                  t.id === execId ? { ...t, status: "success", result: result.raw } : t
++                  t.id === execId ? { ...t, status: "awaiting_approval", approvalId } : t
+                 );
+-                toolResultText = JSON.stringify(result.raw).slice(0, 4000);
+-              } catch (toolErr: any) {
++                setConversations((prev) =>
++                  prev.map((c) =>
++                    c.id !== targetId
++                      ? c
++                      : {
++                          ...c,
++                          messages: c.messages.map((m) =>
++                            m.id === assistantMessageId ? { ...m, toolExecutions } : m
++                          ),
++                        }
++                  )
++                );
++
++                approvalDecision = await new Promise<"approved" | "rejected">((resolve) => {
++                  chatApprovalResolversRef.current.set(approvalId, resolve);
++                });
++              }
++
++              if (isMutating && approvalDecision === "rejected") {
+                 toolExecutions = toolExecutions.map((t) =>
+-                  t.id === execId ? { ...t, status: "error", error: toolErr.message || String(toolErr) } : t
++                  t.id === execId ? { ...t, status: "error", error: "Ditolak oleh user." } : t
+                 );
+-                toolResultText = `ERROR: ${toolErr.message || toolErr}`;
++                toolResultText = `DITOLAK oleh user. Tool '${directive.toolName}' tidak dijalankan. Lanjutkan tanpa hasil ini, atau jelaskan ke user kenapa langkah ini diperlukan jika masih relevan.`;
++              } else {
++                try {
++                  const result = await executeToolCall(directive.toolName, directive.args, abortController.signal);
++                  toolExecutions = toolExecutions.map((t) =>
++                    t.id === execId ? { ...t, status: "success", result: result.raw } : t
++                  );
++                  toolResultText = JSON.stringify(result.raw).slice(0, 4000);
++                } catch (toolErr: any) {
++                  toolExecutions = toolExecutions.map((t) =>
++                    t.id === execId ? { ...t, status: "error", error: toolErr.message || String(toolErr) } : t
++                  );
++                  toolResultText = `ERROR: ${toolErr.message || toolErr}`;
++                }
+               }
+ 
+               toolHistory = [
+@@ -2144,6 +2230,8 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
+           setThinkingMode={setThinkingMode}
+           onOpenCodespace={() => setMainView("codespace")}
+           onForkConversation={handleForkConversation}
++          onApproveTool={(approvalId) => handleApprovalDecision(approvalId, "approved")}
++          onRejectTool={(approvalId) => handleApprovalDecision(approvalId, "rejected")}
+           isArenaMode={isArenaMode}
+           onToggleArenaMode={() => setIsArenaMode(!isArenaMode)}
+           arenaModelB={arenaModelB}
+diff --git a/components/ApprovalQueueModal.tsx b/components/ApprovalQueueModal.tsx
+index 0375ae6..6c846b0 100644
+--- a/components/ApprovalQueueModal.tsx
++++ b/components/ApprovalQueueModal.tsx
+@@ -29,7 +29,7 @@ export function ApprovalQueueModal({ isOpen, onClose, approvals, onDecision, res
+         <div className="flex items-center justify-between px-5 py-4 border-b border-white/10">
+           <div className="flex items-center gap-2.5">
+             <ShieldAlert className="w-5 h-5 text-amber-400" />
+-            <h2 className="font-semibold text-white">Persetujuan Agent</h2>
++            <h2 className="font-semibold text-white">Persetujuan</h2>
+             {pending.length > 0 && (
+               <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 text-xs font-medium">
+                 {pending.length} menunggu
+@@ -57,7 +57,8 @@ export function ApprovalQueueModal({ isOpen, onClose, approvals, onDecision, res
+                     <ToolIcon toolName={approval.toolName} />
+                     <div className="min-w-0">
+                       <p className="text-sm font-medium text-white">
+-                        {approval.agentName} ingin menjalankan <code className="text-amber-300">{approval.toolName}</code>
++                        {approval.source === "chat" ? "Chat" : approval.agentName} ingin menjalankan{" "}
++                        <code className="text-amber-300">{approval.toolName}</code>
+                       </p>
+                       <pre className="mt-1.5 text-xs text-neutral-400 bg-black/30 rounded-lg p-2 overflow-x-auto max-h-32">
+                         {JSON.stringify(approval.args, null, 2)}
+@@ -97,7 +98,7 @@ export function ApprovalQueueModal({ isOpen, onClose, approvals, onDecision, res
+                     <div className="flex items-center gap-2 min-w-0">
+                       <ToolIcon toolName={approval.toolName} />
+                       <span className="text-xs text-neutral-400 truncate">
+-                        {approval.agentName} — {approval.toolName}
++                        {approval.source === "chat" ? "Chat" : approval.agentName} — {approval.toolName}
+                       </span>
+                     </div>
+                     <span
+diff --git a/components/ChatArea.tsx b/components/ChatArea.tsx
+index 5fa5cf4..af02e94 100644
+--- a/components/ChatArea.tsx
++++ b/components/ChatArea.tsx
+@@ -84,6 +84,8 @@ interface ChatAreaProps {
+   onOpenCodespace?: () => void;
+   nowPlayingInfo?: { isPlaying: boolean; title: string; onOpenPlayer: () => void } | null;
+   onForkConversation?: (messageId: string) => void;
++  onApproveTool?: (approvalId: string) => void;
++  onRejectTool?: (approvalId: string) => void;
+   isArenaMode?: boolean;
+   onToggleArenaMode?: () => void;
+   arenaModelB?: string;
+@@ -104,6 +106,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
+   onOpenSkills,
+   activeSkillsCount = 0,
+   onForkConversation,
++  onApproveTool,
++  onRejectTool,
+   isArenaMode = false,
+   onToggleArenaMode,
+   arenaModelB,
+@@ -613,6 +617,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
+                   onEdit={onEditMessage}
+                   onDelete={onDeleteMessage}
+                   onForkConversation={onForkConversation}
++                  onApproveTool={onApproveTool}
++                  onRejectTool={onRejectTool}
+                 />
+               );
+             })}
+diff --git a/components/ChatMessage.tsx b/components/ChatMessage.tsx
+index ed25267..6c498de 100644
+--- a/components/ChatMessage.tsx
++++ b/components/ChatMessage.tsx
+@@ -31,6 +31,7 @@ import {
+   CheckCircle2,
+   XCircle,
+   Loader2,
++  FileEdit,
+ } from "lucide-react";
+ import dynamic from "next/dynamic";
+ import { Message } from "@/lib/types";
+@@ -54,6 +55,8 @@ interface ChatMessageProps {
+   onEdit?: (messageId: string, newContent: string) => void;
+   onDelete?: (messageId: string) => void;
+   onForkConversation?: (messageId: string) => void;
++  onApproveTool?: (approvalId: string) => void;
++  onRejectTool?: (approvalId: string) => void;
+ }
+ 
+ function formatTimeAgo(timestamp?: number): string {
+@@ -125,6 +128,8 @@ const ChatMessageComponent: React.FC<ChatMessageProps> = ({
+   onEdit,
+   onDelete,
+   onForkConversation,
++  onApproveTool,
++  onRejectTool,
+ }) => {
+   const [copied, setCopied] = useState(false);
+   const [isEditing, setIsEditing] = useState(false);
+@@ -430,7 +435,51 @@ const ChatMessageComponent: React.FC<ChatMessageProps> = ({
+               {toolExecutions.map((exec) => {
+                 const isRunning = exec.status === "running";
+                 const isError = exec.status === "error";
++                const isAwaitingApproval = exec.status === "awaiting_approval";
+                 const pathArg = exec.args?.path || exec.args?.directoryPath || "";
++
++                if (isAwaitingApproval) {
++                  return (
++                    <div
++                      key={exec.id}
++                      className="rounded-xl border border-amber-500/40 bg-amber-500/10 text-xs overflow-hidden"
++                    >
++                      <div className="flex items-start gap-2 px-3 py-2.5">
++                        {exec.toolName === "delete_file" ? (
++                          <Trash2 className="w-3.5 h-3.5 text-amber-400 flex-shrink-0 mt-0.5" />
++                        ) : (
++                          <FileEdit className="w-3.5 h-3.5 text-amber-400 flex-shrink-0 mt-0.5" />
++                        )}
++                        <div className="min-w-0 flex-1">
++                          <p className="font-medium text-[var(--foreground)]">
++                            AI minta izin menjalankan <span className="font-mono text-amber-400">{exec.toolName}</span>
++                          </p>
++                          {pathArg && <p className="text-[var(--muted)] font-mono truncate mt-0.5">{pathArg}</p>}
++                          {exec.toolName === "write_file" && typeof exec.args?.content === "string" && (
++                            <pre className="mt-1.5 text-[11px] text-[var(--muted)] bg-black/20 rounded-lg p-2 overflow-x-auto max-h-32 whitespace-pre-wrap break-words">
++                              {exec.args.content.slice(0, 1000)}
++                            </pre>
++                          )}
++                        </div>
++                      </div>
++                      <div className="flex items-center gap-2 px-3 pb-2.5">
++                        <button
++                          onClick={() => exec.approvalId && onApproveTool?.(exec.approvalId)}
++                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-300 text-xs font-medium transition-colors"
++                        >
++                          <CheckCircle2 className="w-3.5 h-3.5" /> Approve
++                        </button>
++                        <button
++                          onClick={() => exec.approvalId && onRejectTool?.(exec.approvalId)}
++                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/40 text-rose-300 text-xs font-medium transition-colors"
++                        >
++                          <XCircle className="w-3.5 h-3.5" /> Reject
++                        </button>
++                      </div>
++                    </div>
++                  );
++                }
++
+                 return (
+                   <details
+                     key={exec.id}
+diff --git a/lib/agentEngine.ts b/lib/agentEngine.ts
+index be0084f..f9188c4 100644
+--- a/lib/agentEngine.ts
++++ b/lib/agentEngine.ts
+@@ -188,6 +188,7 @@ async function runAgentToolLoop(
+       // resumeAgentAfterApproval() once the user decides.
+       const pendingApproval: PendingApproval = {
+         id: `approval_${agent.id}_${Date.now()}`,
++        source: "agent",
+         agentId: agent.id,
+         agentName: agent.name,
+         toolName,
+diff --git a/lib/tools.ts b/lib/tools.ts
+index f7d6900..0f95697 100644
+--- a/lib/tools.ts
++++ b/lib/tools.ts
+@@ -27,41 +27,41 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
+   {
+     name: "list_directory",
+     description:
+-      "List isi sebuah folder di dalam project (nama file/folder, ukuran, tanggal modifikasi). Path kosong berarti root project.",
++      "List isi sebuah folder di disk lokal user (nama file/folder, ukuran, tanggal modifikasi). Path kosong berarti home directory user.",
+     parameters: {
+-      path: { type: "string", description: "Path relatif dari root project, contoh 'lib' atau 'app/api'.", required: false },
++      path: { type: "string", description: "Path absolut (mis. 'D:\\Projects\\foo' atau '/home/user/foo'), atau relatif ke home directory.", required: false },
+       recursive: { type: "boolean", description: "Jika true, masuk ke subfolder juga (maks kedalaman 3).", required: false },
+       maxItems: { type: "number", description: "Batas jumlah item yang dikembalikan (maks 200).", required: false },
+     },
+   },
+   {
+     name: "read_file",
+-    description: "Baca isi teks sebuah file di dalam project.",
++    description: "Baca isi teks sebuah file di disk lokal user (drive/folder mana pun, bukan cuma folder project).",
+     parameters: {
+-      path: { type: "string", description: "Path relatif file yang mau dibaca, contoh 'package.json'.", required: true },
++      path: { type: "string", description: "Path absolut atau relatif ke home directory dari file yang mau dibaca.", required: true },
+       maxBytes: { type: "number", description: "Batas ukuran baca dalam byte (default 2MB).", required: false },
+     },
+   },
+   {
+     name: "write_file",
+-    description: "Buat file baru atau timpa isi file yang sudah ada di dalam project. Folder induk dibuat otomatis jika belum ada.",
++    description: "Buat file baru atau timpa isi file yang sudah ada di disk lokal user. Folder induk dibuat otomatis jika belum ada. Selalu menunggu persetujuan manual user sebelum benar-benar dieksekusi.",
+     parameters: {
+-      path: { type: "string", description: "Path relatif file tujuan.", required: true },
++      path: { type: "string", description: "Path absolut atau relatif ke home directory dari file tujuan.", required: true },
+       content: { type: "string", description: "Isi teks lengkap yang akan ditulis ke file.", required: true },
+     },
+   },
+   {
+     name: "search_files",
+-    description: "Cari file berdasarkan nama atau isi teks di dalam sebuah folder project (rekursif, maks kedalaman 5).",
++    description: "Cari file berdasarkan nama atau isi teks di dalam sebuah folder di disk lokal user (rekursif, maks kedalaman 5).",
+     parameters: {
+       query: { type: "string", description: "Kata kunci pencarian.", required: true },
+-      path: { type: "string", description: "Folder awal pencarian (default root project).", required: false },
++      path: { type: "string", description: "Folder awal pencarian (default home directory).", required: false },
+       maxResults: { type: "number", description: "Batas jumlah hasil (maks 100).", required: false },
+     },
+   },
+   {
+     name: "delete_file",
+-    description: "Hapus sebuah file. Aksi ini permanen dan untuk agent selalu butuh persetujuan manual sebelum dieksekusi.",
++    description: "Hapus sebuah file. Aksi ini permanen dan selalu menunggu persetujuan manual user sebelum benar-benar dieksekusi.",
+     parameters: {
+       path: { type: "string", description: "Path file yang akan dihapus.", required: true },
+     },
+@@ -101,15 +101,18 @@ export function buildToolDirectivePrompt(): string {
+     return `- ${t.name}(${argsDesc})\n  ${t.description}`;
+   }).join("\n");
+ 
+-  return `Kamu punya akses ke Disk Tools berikut untuk membaca/menulis file di dalam project user:
++  return `Kamu punya akses ke Disk Tools berikut untuk membaca/menulis file di SELURUH disk lokal user (bukan cuma folder project ini — path absolut ke drive/folder mana pun juga bisa):
+ ${toolList}
+ 
+ Untuk memanggil tool, tulis PERSIS satu baris dengan format ini dan JANGAN tulis apa pun setelahnya:
+ [TOOL_CALL:nama_tool:{"arg1":"value1"}]
+ 
+ Contoh: [TOOL_CALL:read_file:{"path":"package.json"}]
++Contoh path absolut: [TOOL_CALL:list_directory:{"path":"D:\\\\Projects"}]
+ 
+-Hasil eksekusi akan diberikan kembali ke kamu di giliran berikutnya. Jangan mengarang hasil tool sendiri.
++PENTING: ${MUTATING_TOOLS.join(" dan ")} tidak langsung dieksekusi — permintaan itu akan tampil sebagai kartu
++persetujuan di chat dan kamu PAUSE sampai user approve atau reject secara manual. Kalau ditolak, kamu akan
++diberi tahu dan harus melanjutkan tanpa hasil itu. Jangan mengarang hasil tool sendiri.
+ Kalau tidak perlu memanggil tool, jawab seperti biasa tanpa format di atas.`;
+ }
+ 
+diff --git a/lib/types.ts b/lib/types.ts
+index e66fa7e..41f8f76 100644
+--- a/lib/types.ts
++++ b/lib/types.ts
+@@ -108,10 +108,12 @@ export interface ToolCallExecution {
+   id: string;
+   toolName: ToolName;
+   args: Record<string, any>;
+-  status: "running" | "success" | "error";
++  status: "running" | "success" | "error" | "awaiting_approval";
+   result?: any;
+   error?: string;
+   timestamp: number;
++  /** Diisi kalau status "awaiting_approval" — id record di pendingApprovals yang menunggu keputusan user. */
++  approvalId?: string;
+ }
+ 
+ export interface Message {
+@@ -253,8 +255,11 @@ export type ApprovalStatus = "pending" | "approved" | "rejected";
+ 
+ export interface PendingApproval {
+   id: string;
+-  agentId: string;
+-  agentName: string;
++  /** "agent" untuk run Autonomous Agent, "chat" untuk toggle Disk Tools di chat manual. */
++  source: "agent" | "chat";
++  agentId?: string;
++  agentName?: string;
++  conversationId?: string;
+   toolName: ToolName;
+   args: Record<string, any>;
+   status: ApprovalStatus;

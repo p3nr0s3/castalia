@@ -108,10 +108,12 @@ export interface ToolCallExecution {
   id: string;
   toolName: ToolName;
   args: Record<string, any>;
-  status: "running" | "success" | "error";
+  status: "running" | "success" | "error" | "awaiting_approval";
   result?: any;
   error?: string;
   timestamp: number;
+  /** Diisi kalau status "awaiting_approval" — id record di pendingApprovals yang menunggu keputusan user. */
+  approvalId?: string;
 }
 
 export interface Message {
@@ -253,8 +255,11 @@ export type ApprovalStatus = "pending" | "approved" | "rejected";
 
 export interface PendingApproval {
   id: string;
-  agentId: string;
-  agentName: string;
+  /** "agent" untuk run Autonomous Agent, "chat" untuk toggle Disk Tools di chat manual. */
+  source: "agent" | "chat";
+  agentId?: string;
+  agentName?: string;
+  conversationId?: string;
   toolName: ToolName;
   args: Record<string, any>;
   status: ApprovalStatus;

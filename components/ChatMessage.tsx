@@ -31,6 +31,7 @@ import {
   CheckCircle2,
   XCircle,
   Loader2,
+  FileEdit,
 } from "lucide-react";
 import dynamic from "next/dynamic";
 import { Message } from "@/lib/types";
@@ -54,6 +55,8 @@ interface ChatMessageProps {
   onEdit?: (messageId: string, newContent: string) => void;
   onDelete?: (messageId: string) => void;
   onForkConversation?: (messageId: string) => void;
+  onApproveTool?: (approvalId: string) => void;
+  onRejectTool?: (approvalId: string) => void;
 }
 
 function formatTimeAgo(timestamp?: number): string {
@@ -125,6 +128,8 @@ const ChatMessageComponent: React.FC<ChatMessageProps> = ({
   onEdit,
   onDelete,
   onForkConversation,
+  onApproveTool,
+  onRejectTool,
 }) => {
   const [copied, setCopied] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -430,7 +435,51 @@ const ChatMessageComponent: React.FC<ChatMessageProps> = ({
               {toolExecutions.map((exec) => {
                 const isRunning = exec.status === "running";
                 const isError = exec.status === "error";
+                const isAwaitingApproval = exec.status === "awaiting_approval";
                 const pathArg = exec.args?.path || exec.args?.directoryPath || "";
+
+                if (isAwaitingApproval) {
+                  return (
+                    <div
+                      key={exec.id}
+                      className="rounded-xl border border-amber-500/40 bg-amber-500/10 text-xs overflow-hidden"
+                    >
+                      <div className="flex items-start gap-2 px-3 py-2.5">
+                        {exec.toolName === "delete_file" ? (
+                          <Trash2 className="w-3.5 h-3.5 text-amber-400 flex-shrink-0 mt-0.5" />
+                        ) : (
+                          <FileEdit className="w-3.5 h-3.5 text-amber-400 flex-shrink-0 mt-0.5" />
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <p className="font-medium text-[var(--foreground)]">
+                            AI minta izin menjalankan <span className="font-mono text-amber-400">{exec.toolName}</span>
+                          </p>
+                          {pathArg && <p className="text-[var(--muted)] font-mono truncate mt-0.5">{pathArg}</p>}
+                          {exec.toolName === "write_file" && typeof exec.args?.content === "string" && (
+                            <pre className="mt-1.5 text-[11px] text-[var(--muted)] bg-black/20 rounded-lg p-2 overflow-x-auto max-h-32 whitespace-pre-wrap break-words">
+                              {exec.args.content.slice(0, 1000)}
+                            </pre>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 px-3 pb-2.5">
+                        <button
+                          onClick={() => exec.approvalId && onApproveTool?.(exec.approvalId)}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-300 text-xs font-medium transition-colors"
+                        >
+                          <CheckCircle2 className="w-3.5 h-3.5" /> Approve
+                        </button>
+                        <button
+                          onClick={() => exec.approvalId && onRejectTool?.(exec.approvalId)}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/40 text-rose-300 text-xs font-medium transition-colors"
+                        >
+                          <XCircle className="w-3.5 h-3.5" /> Reject
+                        </button>
+                      </div>
+                    </div>
+                  );
+                }
+
                 return (
                   <details
                     key={exec.id}
