@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
+import { assertPublicUrl, assertBlenderUrl, SsrfBlockedError } from "@/lib/ssrfGuard";
 
 export async function POST(req: NextRequest) {
   try {
@@ -63,6 +64,14 @@ export async function POST(req: NextRequest) {
             { status: 400 }
           );
         }
+        try {
+          await assertPublicUrl(webhookUrl.trim());
+        } catch (e) {
+          if (e instanceof SsrfBlockedError) {
+            return NextResponse.json({ success: false, error: e.message }, { status: 400 });
+          }
+          throw e;
+        }
         const res = await fetch(webhookUrl.trim(), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -90,6 +99,14 @@ export async function POST(req: NextRequest) {
             { status: 400 }
           );
         }
+        try {
+          await assertPublicUrl(webhookUrl.trim());
+        } catch (e) {
+          if (e instanceof SsrfBlockedError) {
+            return NextResponse.json({ success: false, error: e.message }, { status: 400 });
+          }
+          throw e;
+        }
         const res = await fetch(webhookUrl.trim(), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -112,6 +129,14 @@ export async function POST(req: NextRequest) {
 
       if (service === "blender" || service === "blender-mcp") {
         const targetUrl = (endpoint || "http://127.0.0.1:9876").trim().replace(/\/$/, "");
+        try {
+          await assertBlenderUrl(targetUrl);
+        } catch (e) {
+          if (e instanceof SsrfBlockedError) {
+            return NextResponse.json({ success: false, error: e.message }, { status: 400 });
+          }
+          throw e;
+        }
         try {
           const controller = new AbortController();
           const timeoutId = setTimeout(() => controller.abort(), 4000);
@@ -147,6 +172,14 @@ export async function POST(req: NextRequest) {
             { success: false, error: "Please provide a valid endpoint URL." },
             { status: 400 }
           );
+        }
+        try {
+          await assertPublicUrl(endpoint.trim());
+        } catch (e) {
+          if (e instanceof SsrfBlockedError) {
+            return NextResponse.json({ success: false, error: e.message }, { status: 400 });
+          }
+          throw e;
         }
         const headers: Record<string, string> = {};
         if (apiKey) {
@@ -279,6 +312,14 @@ export async function POST(req: NextRequest) {
       if (!targetUrl || !targetUrl.startsWith("http")) {
         return NextResponse.json({ success: false, error: "A valid Webhook URL is required." }, { status: 400 });
       }
+      try {
+        await assertPublicUrl(targetUrl);
+      } catch (e) {
+        if (e instanceof SsrfBlockedError) {
+          return NextResponse.json({ success: false, error: e.message }, { status: 400 });
+        }
+        throw e;
+      }
 
       const text = payload?.text || payload?.content || "Notification from Ollama Workspace";
       let postBody: any;
@@ -316,6 +357,15 @@ export async function POST(req: NextRequest) {
 
       if (!scriptCode) {
         return NextResponse.json({ success: false, error: "Python code is required for Blender execution." }, { status: 400 });
+      }
+
+      try {
+        await assertBlenderUrl(targetUrl);
+      } catch (e) {
+        if (e instanceof SsrfBlockedError) {
+          return NextResponse.json({ success: false, error: e.message }, { status: 400 });
+        }
+        throw e;
       }
 
       try {
