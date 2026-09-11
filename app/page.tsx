@@ -455,11 +455,16 @@ export default function HomePage() {
     // same page session.
     if (approval.source === "chat") {
       const resolvedChatApproval: PendingApproval = { ...approval, status: decision, resolvedAt: Date.now() };
-      setPendingApprovals((prev) => {
-        const next = prev.map((a) => (a.id === approvalId ? resolvedChatApproval : a));
-        storage.savePendingApprovals(next);
-        return next;
-      });
+      const nextApprovals = pendingApprovals.map((a) => (a.id === approvalId ? resolvedChatApproval : a));
+      setPendingApprovals(nextApprovals);
+      // Chat approvals need the server write to land BEFORE the waiting tool
+      // loop resumes and calls executeToolCall with this approval id as proof
+      // — the server verifies it against readServerDb(), so the usual
+      // 400ms-debounced sync would race a legitimately-approved write into
+      // being wrongly rejected. savePendingApprovalsSync persists to
+      // localStorage and awaits the server push in one step.
+      await storage.savePendingApprovalsSync(nextApprovals);
+
       const resolver = chatApprovalResolversRef.current.get(approvalId);
       if (resolver) {
         resolver(decision);
@@ -1391,11 +1396,11 @@ export default function HomePage() {
               let toolResultText: string;
               const isMutating = MUTATING_TOOLS.includes(directive.toolName);
               let approvalDecision: "approved" | "rejected" = "approved";
+              const chatApprovalId = isMutating ? `chatapproval_${execId}` : undefined;
 
               if (isMutating) {
-                const approvalId = `chatapproval_${execId}`;
                 const approval: PendingApproval = {
-                  id: approvalId,
+                  id: chatApprovalId!,
                   source: "chat",
                   conversationId: targetId,
                   toolName: directive.toolName,
@@ -1409,7 +1414,7 @@ export default function HomePage() {
                   return next;
                 });
                 toolExecutions = toolExecutions.map((t) =>
-                  t.id === execId ? { ...t, status: "awaiting_approval", approvalId } : t
+                  t.id === execId ? { ...t, status: "awaiting_approval", approvalId: chatApprovalId } : t
                 );
                 setConversations((prev) =>
                   prev.map((c) =>
@@ -1425,7 +1430,7 @@ export default function HomePage() {
                 );
 
                 approvalDecision = await new Promise<"approved" | "rejected">((resolve) => {
-                  chatApprovalResolversRef.current.set(approvalId, resolve);
+                  chatApprovalResolversRef.current.set(chatApprovalId!, resolve);
                 });
               }
 
@@ -1436,7 +1441,12 @@ export default function HomePage() {
                 toolResultText = `DITOLAK oleh user. Tool '${directive.toolName}' tidak dijalankan. Lanjutkan tanpa hasil ini, atau jelaskan ke user kenapa langkah ini diperlukan jika masih relevan.`;
               } else {
                 try {
-                  const result = await executeToolCall(directive.toolName, directive.args, abortController.signal);
+                  const result = await executeToolCall(
+                    directive.toolName,
+                    directive.args,
+                    abortController.signal,
+                    chatApprovalId
+                  );
                   toolExecutions = toolExecutions.map((t) =>
                     t.id === execId ? { ...t, status: "success", result: result.raw } : t
                   );

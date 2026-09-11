@@ -50,14 +50,15 @@ function summarize(toolName: ToolName, raw: any): string {
 export async function executeToolCall(
   toolName: ToolName,
   args: Record<string, any>,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  approvalToken?: string
 ): Promise<ToolCallResult> {
   let response: Response;
   try {
     response = await apiFetch(TOOL_EXECUTION_API, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ tool: toolName, args }),
+      body: JSON.stringify({ tool: toolName, args, approvalToken }),
       signal,
     });
   } catch (networkErr: any) {

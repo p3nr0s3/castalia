@@ -178,6 +178,28 @@ export const storage = {
     }
   },
 
+  /**
+   * Like savePendingApprovals, but pushes to the server immediately and
+   * awaits completion instead of debouncing. Use this when a caller is about
+   * to hand an approval id to a server route as proof of approval (e.g.
+   * resuming a paused tool-call loop right after the user clicks Approve) —
+   * the server checks readServerDb() for that approval, so the write must
+   * actually land before that check happens, not up to 400ms later.
+   */
+  async savePendingApprovalsSync(approvals: PendingApproval[]): Promise<void> {
+    if (typeof window === "undefined") return;
+    try {
+      localStorage.setItem(STORAGE_KEYS.PENDING_APPROVALS, JSON.stringify(approvals));
+    } catch (e) {
+      console.error("Failed to save pending approvals to localStorage:", e);
+    }
+    try {
+      await this.pushToServer({ pendingApprovals: approvals });
+    } catch (e) {
+      console.error("Failed to push pending approvals to server:", e);
+    }
+  },
+
   getSettings(): AppSettings {
     if (typeof window === "undefined") return DEFAULT_SETTINGS;
     try {

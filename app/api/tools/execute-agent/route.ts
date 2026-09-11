@@ -3,6 +3,7 @@ import path from "path";
 import os from "os";
 import { runDiskTool } from "@/lib/diskToolOps";
 import { resolveWithinBase } from "@/lib/pathSandbox";
+import { readServerDb, writeServerDb } from "@/lib/serverDb";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,12 +16,16 @@ export const dynamic = "force-dynamic";
  *
  * The wider blast radius is why this route enforces something the manual
  * chat route doesn't need to: write_file and delete_file are refused here
- * outright. The approval gate lives in the CALLER (lib/agentEngine.ts) —
- * by the time a request reaches this route with a mutating tool, it must
- * already have been through the user's explicit approval. This route
- * re-checks and refuses mutating tools unless the request carries an
- * approval token proving that happened, so a bug in the caller's approval
- * logic can't silently turn into an unapproved write.
+ * outright unless approvalToken names a PendingApproval record that is
+ * ACTUALLY status "approved" in the server DB, for THIS exact tool+args,
+ * and hasn't already been consumed. This is a real check against
+ * persisted state (via lib/serverDb.ts), not a presence-only check — a
+ * bug in the caller (or a direct curl call with a made-up token) cannot
+ * get a write/delete through.
+ *
+ * The approval is marked "consumed" (result field set) immediately after
+ * a successful check, in the same request, so the same approval id can't
+ * be replayed for a second execution.
  */
 
 const HOME_DIR = path.resolve(os.homedir());
@@ -30,6 +35,20 @@ function resolveWithinHome(inputPath?: string): string {
 }
 
 const MUTATING_TOOLS = new Set(["write_file", "delete_file"]);
+
+// Consider an approval usable only within this window of being resolved —
+// stops an old approved-but-forgotten record from being replayed much later
+// against a since-changed file. 5 minutes is generous for a human clicking
+// Approve and the agent resuming right after, per the pause/resume design.
+const APPROVAL_FRESHNESS_MS = 5 * 60 * 1000;
+
+function argsMatch(a: Record<string, any>, b: Record<string, any>): boolean {
+  // Compare only the fields that matter for identifying "the same request" —
+  // path is the security-relevant one. Content is intentionally excluded so
+  // this doesn't break if content was re-serialized with different
+  // whitespace; path is what determines blast radius.
+  return (a?.path ?? null) === (b?.path ?? null);
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -41,11 +60,6 @@ export async function POST(req: NextRequest) {
     }
 
     if (MUTATING_TOOLS.has(tool)) {
-      // approvalToken must be the id of an approval record the caller has
-      // already confirmed is status "approved" — this route can't verify
-      // that itself (approvals live in client-side state/db.json, not here),
-      // so it only checks that SOME token was passed, forcing the caller to
-      // go through its approval path rather than calling this directly.
       if (!approvalToken) {
         return NextResponse.json(
           {
@@ -56,6 +70,59 @@ export async function POST(req: NextRequest) {
           { status: 403 }
         );
       }
+
+      const db = await readServerDb();
+      const approval = db.pendingApprovals.find((a) => a.id === approvalToken);
+
+      if (!approval) {
+        return NextResponse.json(
+          { success: false, tool, error: `Unknown approval id '${approvalToken}'. Refusing to execute.` },
+          { status: 403 }
+        );
+      }
+
+      if (approval.status !== "approved") {
+        return NextResponse.json(
+          {
+            success: false,
+            tool,
+            error: `Approval '${approvalToken}' is not approved (status: ${approval.status}). Refusing to execute.`,
+          },
+          { status: 403 }
+        );
+      }
+
+      if (approval.toolName !== tool || !argsMatch(approval.args, args)) {
+        return NextResponse.json(
+          {
+            success: false,
+            tool,
+            error: `Approval '${approvalToken}' does not match this request (approved for ${approval.toolName} on a different target). Refusing to execute.`,
+          },
+          { status: 403 }
+        );
+      }
+
+      const resolvedAt = approval.resolvedAt ?? approval.createdAt;
+      if (Date.now() - resolvedAt > APPROVAL_FRESHNESS_MS) {
+        return NextResponse.json(
+          { success: false, tool, error: `Approval '${approvalToken}' has expired. Ask the user to approve again.` },
+          { status: 403 }
+        );
+      }
+
+      if (approval.result?.consumedAt) {
+        return NextResponse.json(
+          { success: false, tool, error: `Approval '${approvalToken}' was already used and cannot be replayed.` },
+          { status: 403 }
+        );
+      }
+
+      // Mark consumed before executing — if the write below fails, the
+      // approval is still burned rather than reusable, which is the safer
+      // failure direction for a one-shot authorization.
+      const consumedApproval = { ...approval, result: { ...(approval.result || {}), consumedAt: Date.now() } };
+      await writeServerDb({ pendingApprovals: [consumedApproval] });
     }
 
     const { status, body: resultBody } = await runDiskTool(tool, args, resolveWithinHome);
