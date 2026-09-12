@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import { apiFetch } from "../lib/apiClient";
-import { Check, Copy, Play, Eye, Code, RotateCcw, Terminal, X, Box, Loader2, AlertCircle } from "lucide-react";
+import { Check, Copy, Download, Play, Eye, Code, RotateCcw, Terminal, X, Box, Loader2, AlertCircle } from "lucide-react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/cjs/styles/prism";
 
@@ -11,8 +11,117 @@ interface CodeBlockProps {
   value: string;
 }
 
+const LANGUAGE_EXTENSION_MAP: Record<string, { ext: string; mime: string; label: string }> = {
+  yara: { ext: "yar", mime: "text/plain", label: "YARA Rule" },
+  yar: { ext: "yar", mime: "text/plain", label: "YARA Rule" },
+  md: { ext: "md", mime: "text/markdown", label: "Markdown" },
+  markdown: { ext: "md", mime: "text/markdown", label: "Markdown" },
+  python: { ext: "py", mime: "text/x-python", label: "Python" },
+  py: { ext: "py", mime: "text/x-python", label: "Python" },
+  javascript: { ext: "js", mime: "application/javascript", label: "JavaScript" },
+  js: { ext: "js", mime: "application/javascript", label: "JavaScript" },
+  typescript: { ext: "ts", mime: "application/typescript", label: "TypeScript" },
+  ts: { ext: "ts", mime: "application/typescript", label: "TypeScript" },
+  jsx: { ext: "jsx", mime: "text/jsx", label: "React JSX" },
+  tsx: { ext: "tsx", mime: "text/tsx", label: "React TSX" },
+  html: { ext: "html", mime: "text/html", label: "HTML" },
+  htm: { ext: "html", mime: "text/html", label: "HTML" },
+  css: { ext: "css", mime: "text/css", label: "CSS" },
+  scss: { ext: "scss", mime: "text/x-scss", label: "SCSS" },
+  json: { ext: "json", mime: "application/json", label: "JSON" },
+  yaml: { ext: "yaml", mime: "text/yaml", label: "YAML" },
+  yml: { ext: "yaml", mime: "text/yaml", label: "YAML" },
+  sh: { ext: "sh", mime: "application/x-sh", label: "Shell" },
+  bash: { ext: "sh", mime: "application/x-sh", label: "Bash" },
+  shell: { ext: "sh", mime: "application/x-sh", label: "Shell" },
+  zsh: { ext: "zsh", mime: "application/x-sh", label: "Zsh" },
+  powershell: { ext: "ps1", mime: "text/plain", label: "PowerShell" },
+  ps1: { ext: "ps1", mime: "text/plain", label: "PowerShell" },
+  sql: { ext: "sql", mime: "application/sql", label: "SQL" },
+  cpp: { ext: "cpp", mime: "text/x-c++src", label: "C++" },
+  "c++": { ext: "cpp", mime: "text/x-c++src", label: "C++" },
+  c: { ext: "c", mime: "text/x-csrc", label: "C" },
+  csharp: { ext: "cs", mime: "text/plain", label: "C#" },
+  cs: { ext: "cs", mime: "text/plain", label: "C#" },
+  java: { ext: "java", mime: "text/x-java-source", label: "Java" },
+  rust: { ext: "rs", mime: "text/rust", label: "Rust" },
+  rs: { ext: "rs", mime: "text/rust", label: "Rust" },
+  go: { ext: "go", mime: "text/x-go", label: "Go" },
+  golang: { ext: "go", mime: "text/x-go", label: "Go" },
+  php: { ext: "php", mime: "application/x-httpd-php", label: "PHP" },
+  ruby: { ext: "rb", mime: "application/x-ruby", label: "Ruby" },
+  rb: { ext: "rb", mime: "application/x-ruby", label: "Ruby" },
+  dockerfile: { ext: "dockerfile", mime: "text/plain", label: "Dockerfile" },
+  docker: { ext: "dockerfile", mime: "text/plain", label: "Dockerfile" },
+  graphql: { ext: "graphql", mime: "application/graphql", label: "GraphQL" },
+  xml: { ext: "xml", mime: "application/xml", label: "XML" },
+  svg: { ext: "svg", mime: "image/svg+xml", label: "SVG" },
+  toml: { ext: "toml", mime: "text/plain", label: "TOML" },
+  ini: { ext: "ini", mime: "text/plain", label: "INI" },
+  bat: { ext: "bat", mime: "text/plain", label: "Batch" },
+  cmd: { ext: "cmd", mime: "text/plain", label: "Batch" },
+  lua: { ext: "lua", mime: "text/x-lua", label: "Lua" },
+  zig: { ext: "zig", mime: "text/plain", label: "Zig" },
+  sol: { ext: "sol", mime: "text/plain", label: "Solidity" },
+  solidity: { ext: "sol", mime: "text/plain", label: "Solidity" },
+  asm: { ext: "asm", mime: "text/plain", label: "Assembly" },
+  diff: { ext: "diff", mime: "text/x-diff", label: "Diff" },
+  patch: { ext: "patch", mime: "text/x-diff", label: "Patch" },
+  tex: { ext: "tex", mime: "application/x-tex", label: "LaTeX" },
+  latex: { ext: "tex", mime: "application/x-tex", label: "LaTeX" },
+  csv: { ext: "csv", mime: "text/csv", label: "CSV" },
+  text: { ext: "txt", mime: "text/plain", label: "Text" },
+  txt: { ext: "txt", mime: "text/plain", label: "Text" },
+};
+
+const getSmartDownloadFilename = (lang: string, code: string): { filename: string; mime: string } => {
+  const normLang = (lang || "").toLowerCase().trim();
+  const mapping = LANGUAGE_EXTENSION_MAP[normLang] || { ext: normLang || "txt", mime: "text/plain", label: "File" };
+  const ext = mapping.ext;
+
+  // 1. Check if YARA rule name is in code: rule <RuleName>
+  if (normLang === "yara" || normLang === "yar" || code.includes("rule ")) {
+    const matchRule = code.match(/^\s*rule\s+([a-zA-Z0-9_]+)/m);
+    if (matchRule && matchRule[1]) {
+      return { filename: `${matchRule[1]}.${ext}`, mime: mapping.mime };
+    }
+  }
+
+  // 2. Check if first few lines contain a filename comment (e.g. // app.tsx, # script.py)
+  const lines = code.slice(0, 500).split("\n").slice(0, 5);
+  for (const line of lines) {
+    const trimmed = line.trim();
+    const fileMatch = trimmed.match(/^(?:\/{2,3}|#|\/\*|<!--|;\s*)\s*([\w\-./\\]+\.[a-zA-Z0-9]{1,10})\b/);
+    if (fileMatch && fileMatch[1]) {
+      const detected = fileMatch[1].split(/[/\\]/).pop();
+      if (detected && detected.includes(".")) {
+        return { filename: detected, mime: mapping.mime };
+      }
+    }
+  }
+
+  // 3. Fallback to descriptive name based on language
+  if (normLang === "dockerfile" || normLang === "docker") {
+    return { filename: "Dockerfile", mime: mapping.mime };
+  }
+
+  const defaultBaseName =
+    normLang === "yara" || normLang === "yar"
+      ? "rule"
+      : normLang === "md" || normLang === "markdown"
+      ? "document"
+      : normLang === "python" || normLang === "py"
+      ? "script"
+      : normLang === "sh" || normLang === "bash"
+      ? "script"
+      : "code";
+
+  return { filename: `${defaultBaseName}.${ext}`, mime: mapping.mime };
+};
+
 export const CodeBlock: React.FC<CodeBlockProps> = ({ language = "text", value }) => {
   const [copied, setCopied] = useState(false);
+  const [downloaded, setDownloaded] = useState(false);
   const [activeTab, setActiveTab] = useState<"code" | "preview">("code");
   const [runLogs, setRunLogs] = useState<string[] | null>(null);
   const [isRunning, setIsRunning] = useState(false);
@@ -27,6 +136,25 @@ export const CodeBlock: React.FC<CodeBlockProps> = ({ language = "text", value }
       setTimeout(() => setCopied(false), 2000);
     } catch (err) {
       console.error("Failed to copy text:", err);
+    }
+  };
+
+  const handleDownload = () => {
+    try {
+      const { filename, mime } = getSmartDownloadFilename(detectedLanguage, value);
+      const blob = new Blob([value], { type: mime });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      setDownloaded(true);
+      setTimeout(() => setDownloaded(false), 2000);
+    } catch (err) {
+      console.error("Failed to download file:", err);
     }
   };
 
@@ -206,6 +334,26 @@ export const CodeBlock: React.FC<CodeBlockProps> = ({ language = "text", value }
               <span>Run</span>
             </button>
           )}
+
+          {/* Download File Button */}
+          <button
+            type="button"
+            onClick={handleDownload}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-slate-300 hover:text-white hover:bg-white/10 transition-colors cursor-pointer text-xs"
+            title={`Download as ${getSmartDownloadFilename(detectedLanguage, value).filename}`}
+          >
+            {downloaded ? (
+              <>
+                <Check className="w-3.5 h-3.5 text-emerald-400" />
+                <span className="text-emerald-400">Downloaded!</span>
+              </>
+            ) : (
+              <>
+                <Download className="w-3.5 h-3.5" />
+                <span>Download</span>
+              </>
+            )}
+          </button>
 
           {/* Copy Button */}
           <button

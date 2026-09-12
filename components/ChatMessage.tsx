@@ -9,6 +9,7 @@ import {
   Bot,
   User,
   Copy,
+  Download,
   Check,
   RotateCcw,
   Trash2,
@@ -134,6 +135,7 @@ const ChatMessageComponent: React.FC<ChatMessageProps> = ({
   onRejectTool,
 }) => {
   const [copied, setCopied] = useState(false);
+  const [downloaded, setDownloaded] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState(message.content);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
@@ -177,6 +179,26 @@ const ChatMessageComponent: React.FC<ChatMessageProps> = ({
       setTimeout(() => setCopied(false), 2000);
     } catch (err) {
       console.error("Failed to copy message:", err);
+    }
+  };
+
+  const handleDownloadMessage = () => {
+    try {
+      const textToDownload = cleanContent || message.content;
+      const blob = new Blob([textToDownload], { type: "text/markdown" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      const timeStr = new Date(message.timestamp || Date.now()).toISOString().slice(0, 10);
+      link.download = `${isUser ? "user-prompt" : "ai-response"}-${timeStr}.md`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      setDownloaded(true);
+      setTimeout(() => setDownloaded(false), 2000);
+    } catch (err) {
+      console.error("Failed to download message:", err);
     }
   };
 
@@ -329,6 +351,15 @@ const ChatMessageComponent: React.FC<ChatMessageProps> = ({
                 title="Copy prompt"
               >
                 {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+              </button>
+
+              <button
+                type="button"
+                onClick={handleDownloadMessage}
+                className="p-1 rounded-md text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--sidebar-hover)] transition-colors cursor-pointer"
+                title="Download prompt as .md"
+              >
+                {downloaded ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Download className="w-3.5 h-3.5" />}
               </button>
             </div>
           )}
@@ -813,6 +844,16 @@ const ChatMessageComponent: React.FC<ChatMessageProps> = ({
                     title="Copy message text"
                   >
                     {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                  </button>
+
+                  {/* Download Message as Markdown */}
+                  <button
+                    type="button"
+                    onClick={handleDownloadMessage}
+                    className="p-1.5 rounded-lg text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--sidebar-hover)] transition-colors cursor-pointer"
+                    title="Download message as .md file"
+                  >
+                    {downloaded ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Download className="w-3.5 h-3.5" />}
                   </button>
 
                   {isUser && onEdit && (
