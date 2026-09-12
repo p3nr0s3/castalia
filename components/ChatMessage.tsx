@@ -36,6 +36,7 @@ import {
 } from "lucide-react";
 import dynamic from "next/dynamic";
 import { Message } from "@/lib/types";
+import { DiffPreview } from "./DiffPreview";
 import { formatBytes } from "@/lib/ollama";
 import { speakIndonesianFemale, stopSpeaking } from "@/lib/voiceEngine";
 
@@ -457,9 +458,7 @@ const ChatMessageComponent: React.FC<ChatMessageProps> = ({
                           </p>
                           {pathArg && <p className="text-[var(--muted)] font-mono truncate mt-0.5">{pathArg}</p>}
                           {exec.toolName === "write_file" && typeof exec.args?.content === "string" && (
-                            <pre className="mt-1.5 text-[11px] text-[var(--muted)] bg-black/20 rounded-lg p-2 overflow-x-auto max-h-32 whitespace-pre-wrap break-words">
-                              {exec.args.content.slice(0, 1000)}
-                            </pre>
+                            <DiffPreview previousContent={exec.previousContent} newContent={exec.args.content} />
                           )}
                         </div>
                       </div>

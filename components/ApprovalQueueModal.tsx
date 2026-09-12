@@ -3,6 +3,7 @@
 import React from "react";
 import { X, ShieldAlert, Check, XCircle, FileEdit, Trash2, Clock } from "lucide-react";
 import { PendingApproval } from "@/lib/types";
+import { DiffPreview } from "./DiffPreview";
 
 interface ApprovalQueueModalProps {
   isOpen: boolean;
@@ -60,9 +61,17 @@ export function ApprovalQueueModal({ isOpen, onClose, approvals, onDecision, res
                         {approval.source === "chat" ? "Chat" : approval.agentName} ingin menjalankan{" "}
                         <code className="text-amber-300">{approval.toolName}</code>
                       </p>
-                      <pre className="mt-1.5 text-xs text-neutral-400 bg-black/30 rounded-lg p-2 overflow-x-auto max-h-32">
-                        {JSON.stringify(approval.args, null, 2)}
-                      </pre>
+                      {approval.toolName === "write_file" ? (
+                        <DiffPreview
+                          path={approval.args?.path}
+                          previousContent={approval.previousContent}
+                          newContent={typeof approval.args?.content === "string" ? approval.args.content : ""}
+                        />
+                      ) : (
+                        <pre className="mt-1.5 text-xs text-neutral-400 bg-black/30 rounded-lg p-2 overflow-x-auto max-h-32">
+                          {JSON.stringify(approval.args, null, 2)}
+                        </pre>
+                      )}
                       <p className="mt-1 text-[11px] text-neutral-500 flex items-center gap-1">
                         <Clock className="w-3 h-3" /> {new Date(approval.createdAt).toLocaleString()}
                       </p>

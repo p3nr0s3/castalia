@@ -984,6 +984,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     className="w-4 h-4 rounded accent-emerald-500 cursor-pointer"
                   />
                 </div>
+
+                <div className="p-3.5 rounded-2xl bg-[var(--sidebar-bg)] border border-[var(--card-border)] flex items-center justify-between">
+                  <div>
+                    <div className="text-xs font-bold text-[var(--foreground)]">Full-Width Chat</div>
+                    <div className="text-[10px] text-[var(--muted)]">
+                      Stretch messages & composer to fill the window instead of a centered reading column
+                    </div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={formData.chatFullWidth ?? true}
+                    onChange={(e) => setFormData({ ...formData, chatFullWidth: e.target.checked })}
+                    className="w-4 h-4 rounded accent-emerald-500 cursor-pointer"
+                  />
+                </div>
               </div>
             )}
 

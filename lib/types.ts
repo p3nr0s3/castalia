@@ -114,6 +114,8 @@ export interface ToolCallExecution {
   timestamp: number;
   /** Diisi kalau status "awaiting_approval" — id record di pendingApprovals yang menunggu keputusan user. */
   approvalId?: string;
+  /** Diisi kalau toolName "write_file" dan status "awaiting_approval" — isi file sebelum ditimpa, buat diff preview. */
+  previousContent?: string;
 }
 
 export interface RetrievedChunkInfo {
@@ -279,6 +281,13 @@ export interface PendingApproval {
   /** Hasil eksekusi setelah di-approve, atau alasan penolakan. Diisi setelah resolve. */
   result?: any;
   error?: string;
+  /**
+   * Untuk toolName "write_file" saja: isi file SEBELUM ditimpa, dibaca saat approval
+   * dibuat (bukan saat di-approve — supaya diff yang ditampilkan ke user akurat
+   * mencerminkan apa yang bakal berubah, bukan state file yang mungkin sudah beda
+   * lagi pas mereka klik approve). `undefined` berarti file belum ada (file baru).
+   */
+  previousContent?: string;
 }
 
 // ============================================================================
@@ -442,6 +451,13 @@ export interface AppSettings {
   fontFamily: FontFamilyType;
   sendOnEnter: boolean;
   streamResponse: boolean;
+  /**
+   * When true (default), the chat message list and composer stretch to the
+   * full width of the window instead of being capped to a centered ~896px
+   * reading column. Off = the narrower "compact" column some people prefer
+   * for long-form reading.
+   */
+  chatFullWidth?: boolean;
   apiKeys: ApiKeysConfig;
   skills: Skill[];
   connectors: ConnectorItem[];

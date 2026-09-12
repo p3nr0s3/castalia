@@ -137,6 +137,15 @@ export default function HomePage() {
   const [isArtifactsModalOpen, setIsArtifactsModalOpen] = useState<boolean>(false);
   const [isVoiceCallOpen, setIsVoiceCallOpen] = useState<boolean>(false);
   const [sidebarOpen, setSidebarOpen] = useState<boolean>(false);
+  const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
+    if (typeof window === "undefined") return 256;
+    const saved = Number(window.localStorage.getItem("sidebarWidth"));
+    return saved >= 200 && saved <= 480 ? saved : 256;
+  });
+  const handleSidebarWidthChange = (width: number) => {
+    setSidebarWidth(width);
+    if (typeof window !== "undefined") window.localStorage.setItem("sidebarWidth", String(width));
+  };
 
   // Set sidebar open on larger screens and auto-hide/minimize on half-screen / small screens (<1150px)
   useEffect(() => {
@@ -1564,6 +1573,17 @@ export default function HomePage() {
               const chatApprovalId = isMutating ? `chatapproval_${execId}` : undefined;
 
               if (isMutating) {
+                let previousContent: string | undefined;
+                if (directive.toolName === "write_file" && typeof directive.args.path === "string") {
+                  try {
+                    const readResult = await executeToolCall("read_file", { path: directive.args.path }, abortController.signal);
+                    previousContent = readResult.raw?.content;
+                  } catch {
+                    // File doesn't exist yet (new file) or isn't readable — previousContent
+                    // stays undefined, diff preview shows it as a new file.
+                  }
+                }
+
                 const approval: PendingApproval = {
                   id: chatApprovalId!,
                   source: "chat",
@@ -1572,6 +1592,7 @@ export default function HomePage() {
                   args: directive.args,
                   status: "pending",
                   createdAt: Date.now(),
+                  previousContent,
                 };
                 setPendingApprovals((prev) => {
                   const next = [approval, ...prev];
@@ -1579,7 +1600,7 @@ export default function HomePage() {
                   return next;
                 });
                 toolExecutions = toolExecutions.map((t) =>
-                  t.id === execId ? { ...t, status: "awaiting_approval", approvalId: chatApprovalId } : t
+                  t.id === execId ? { ...t, status: "awaiting_approval", approvalId: chatApprovalId, previousContent } : t
                 );
                 setConversations((prev) =>
                   prev.map((c) =>
@@ -2322,6 +2343,8 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
         ollamaUrl={settings.ollamaUrl}
         isOpen={sidebarOpen}
         setIsOpen={setSidebarOpen}
+        width={sidebarWidth}
+        onWidthChange={handleSidebarWidthChange}
         projects={projects}
         activeProjectId={activeProjectId}
         onSelectProject={handleSelectProject}
@@ -2419,6 +2442,7 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
           onSelectProject={handleSelectProject}
           projects={projects}
           nowPlayingInfo={nowPlayingInfo}
+          chatFullWidth={settings.chatFullWidth}
           onOpenProjectSettings={() => {
             if (currentProject) {
               setEditingProject(currentProject);

@@ -72,6 +72,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   fontFamily: "inter",
   sendOnEnter: true,
   streamResponse: true,
+  chatFullWidth: true,
   apiKeys: {
     geminiApiKey: "",
     openaiApiKey: "",

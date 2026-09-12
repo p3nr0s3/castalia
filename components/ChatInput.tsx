@@ -49,6 +49,7 @@ interface ChatInputProps {
   setInput: (val: string) => void;
   attachments: Attachment[];
   setAttachments: React.Dispatch<React.SetStateAction<Attachment[]>>;
+  chatFullWidth?: boolean;
   webSearchActive: boolean;
   setWebSearchActive: (val: boolean) => void;
   diskToolsActive: boolean;
@@ -82,6 +83,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   setInput,
   attachments,
   setAttachments,
+  chatFullWidth = true,
   webSearchActive,
   setWebSearchActive,
   diskToolsActive,
@@ -518,7 +520,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     modelHealth.isHealthy;
 
   return (
-    <div className="flex-shrink-0 p-2 sm:p-3 max-w-4xl mx-auto w-full relative">
+    <div className={`flex-shrink-0 p-2 sm:p-3 mx-auto w-full relative ${chatFullWidth ? "max-w-none sm:px-4" : "max-w-4xl"}`}>
       {/* Slash Commands Dropdown Menu */}
       {showSlashMenu && filteredCommands.length > 0 && (
         <div className="absolute bottom-full left-3 right-3 sm:left-4 sm:right-4 mb-2 max-h-64 overflow-y-auto rounded-2xl bg-[var(--card-bg)] border border-[var(--card-border)] shadow-2xl z-50 p-1.5 space-y-0.5 animate-in slide-in-from-bottom-2 duration-150 touch-scroll">

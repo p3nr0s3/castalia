@@ -49,6 +49,9 @@ interface SidebarProps {
   ollamaUrl: string;
   isOpen: boolean;
   setIsOpen: (open: boolean) => void;
+  /** Current sidebar width in px (desktop only — mobile is a fixed-width overlay drawer). */
+  width?: number;
+  onWidthChange?: (width: number) => void;
   projects: Project[];
   activeProjectId: string | null;
   onSelectProject: (projectId: string | null) => void;
@@ -91,6 +94,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   ollamaUrl,
   isOpen,
   setIsOpen,
+  width = 256,
+  onWidthChange,
   projects,
   activeProjectId,
   onSelectProject,
@@ -228,10 +233,39 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       {/* Sidebar Container matching layout with theme variables */}
       <aside
-        className={`fixed md:static inset-y-0 left-0 z-50 w-64 sm:w-68 h-full flex-col bg-[var(--sidebar-bg)] text-[var(--foreground)] border-r border-[var(--sidebar-border)] transition-transform duration-200 ease-in-out shadow-2xl md:shadow-none select-none ${
+        className={`fixed md:static inset-y-0 left-0 z-50 h-full flex-shrink-0 flex-col bg-[var(--sidebar-bg)] text-[var(--foreground)] border-r border-[var(--sidebar-border)] transition-transform duration-200 ease-in-out shadow-2xl md:shadow-none select-none relative ${
           isOpen ? "flex translate-x-0" : "hidden -translate-x-full"
         }`}
+        style={{ width: `${width}px`, maxWidth: "85vw" }}
       >
+        {/* Drag handle — desktop only (md:static, part of the flex row so the
+            main content naturally reflows). Mobile is a fixed-width overlay
+            drawer over the content, dragging doesn't make sense there. */}
+        <div
+          onMouseDown={(e) => {
+            e.preventDefault();
+            const startX = e.clientX;
+            const startWidth = width;
+            const prevCursor = document.body.style.cursor;
+            const prevUserSelect = document.body.style.userSelect;
+            document.body.style.cursor = "col-resize";
+            document.body.style.userSelect = "none";
+            const handleMouseMove = (moveEvent: MouseEvent) => {
+              const next = Math.min(480, Math.max(200, startWidth + (moveEvent.clientX - startX)));
+              onWidthChange?.(next);
+            };
+            const handleMouseUp = () => {
+              document.body.style.cursor = prevCursor;
+              document.body.style.userSelect = prevUserSelect;
+              window.removeEventListener("mousemove", handleMouseMove);
+              window.removeEventListener("mouseup", handleMouseUp);
+            };
+            window.addEventListener("mousemove", handleMouseMove);
+            window.addEventListener("mouseup", handleMouseUp);
+          }}
+          className="hidden md:block absolute top-0 right-0 w-1.5 h-full cursor-col-resize hover:bg-blue-500/50 active:bg-blue-500/70 z-10 touch-none translate-x-1/2"
+          title="Geser buat ubah lebar sidebar"
+        />
         {/* Brand Header: Serif Font with Theme Foreground */}
         <div className="px-4 pt-4 pb-2 flex items-center justify-between">
           <span className="font-serif text-xl font-bold tracking-tight text-[var(--foreground)]">

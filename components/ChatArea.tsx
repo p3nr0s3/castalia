@@ -46,6 +46,7 @@ interface ChatAreaProps {
   skills?: Skill[];
   onSelectProject?: (projectId: string) => void;
   onOpenProjectSettings?: () => void;
+  chatFullWidth?: boolean;
   onOpenDiskExplorer?: () => void;
   onOpenSettings?: () => void;
   onOpenArtifacts?: () => void;
@@ -106,6 +107,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   skills = [],
   onSelectProject,
   onOpenProjectSettings,
+  chatFullWidth = true,
   onOpenDiskExplorer,
   onOpenSettings,
   onOpenArtifacts,
@@ -634,7 +636,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
           </div>
         ) : (
           /* Message List (Seamless Transparent Stream) */
-          <div className="w-full max-w-4xl mx-auto py-2 space-y-1 min-w-0">
+          <div className={`w-full mx-auto py-2 space-y-1 min-w-0 ${chatFullWidth ? "max-w-none px-2 sm:px-4" : "max-w-4xl"}`}>
             {messages.map((msg, index) => {
               const isLastMessage = index === messages.length - 1;
               return (
@@ -684,6 +686,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
         setInput={setInput}
         attachments={attachments}
         setAttachments={setAttachments}
+        chatFullWidth={chatFullWidth}
         webSearchActive={webSearchActive}
         setWebSearchActive={setWebSearchActive}
         diskToolsActive={diskToolsActive}

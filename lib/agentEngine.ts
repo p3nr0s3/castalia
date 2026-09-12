@@ -186,6 +186,17 @@ async function runAgentToolLoop(
     if (isMutating) {
       // Pause here. Caller persists this approval and re-invokes
       // resumeAgentAfterApproval() once the user decides.
+      let previousContent: string | undefined;
+      if (toolName === "write_file" && typeof args.path === "string") {
+        try {
+          const readResult = await executeAgentToolCall("read_file", { path: args.path });
+          previousContent = readResult.raw?.content;
+        } catch {
+          // File doesn't exist yet (new file) or isn't readable — leave
+          // previousContent undefined, the diff preview treats that as "new file".
+        }
+      }
+
       const pendingApproval: PendingApproval = {
         id: `approval_${agent.id}_${Date.now()}`,
         source: "agent",
@@ -195,6 +206,7 @@ async function runAgentToolLoop(
         args,
         status: "pending",
         createdAt: Date.now(),
+        previousContent,
       };
       notifyApprovalNeeded(agent, toolName, args);
       return { paused: true, pendingApproval, historySoFar: workingHistory, outputSoFar: loopText };
