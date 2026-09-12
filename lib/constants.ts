@@ -89,6 +89,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   plugins: DEFAULT_PLUGINS,
   memory: DEFAULT_MEMORY_CONFIG,
   musicDirectory: "",
+  booksDirectory: "",
   smartContextEnabled: true,
   ollamaKeepAlive: "60m",
   customTheme: {

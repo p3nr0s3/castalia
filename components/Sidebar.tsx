@@ -33,6 +33,7 @@ import {
   ShieldAlert,
   BookOpen,
   Music,
+  CheckSquare,
 } from "lucide-react";
 import { Conversation, Project, AgentTask } from "@/lib/types";
 import { storage } from "@/lib/storage";
@@ -66,8 +67,9 @@ interface SidebarProps {
   onOpenCodespace?: () => void;
   onOpenReader?: () => void;
   onOpenMusic?: () => void;
+  onOpenTasks?: () => void;
   onOpenWorkspace?: () => void;
-  mainView?: "workspace" | "codespace" | "reader";
+  mainView?: "workspace" | "codespace" | "reader" | "music" | "tasks";
   nowPlayingInfo?: { isPlaying: boolean; title: string } | null;
   agents?: AgentTask[];
   onOpenNewAgentModal?: () => void;
@@ -113,6 +115,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenCodespace,
   onOpenReader,
   onOpenMusic,
+  onOpenTasks,
   onOpenWorkspace,
   mainView = "workspace",
   nowPlayingInfo = null,
@@ -403,14 +406,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
               }
               if (typeof window !== "undefined" && window.innerWidth < 768) setIsOpen(false);
             }}
-            className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--sidebar-hover)] transition-colors cursor-pointer group"
-            title="Buka Offline Music Player & Ambient Audio"
+            className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs transition-colors cursor-pointer group ${
+              mainView === "music"
+                ? "bg-[var(--sidebar-hover)] text-[var(--foreground)] font-medium"
+                : "text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--sidebar-hover)]"
+            }`}
+            title="Buka Dedicated Music Sanctuary & Ambient Station"
           >
             <div className="flex items-center gap-3">
               <Music
                 className={`w-4 h-4 transition-colors ${
                   nowPlayingInfo?.isPlaying
                     ? "text-emerald-400 animate-pulse"
+                    : mainView === "music"
+                    ? "text-[var(--foreground)]"
                     : "text-[var(--muted)] group-hover:text-[var(--foreground)]"
                 }`}
               />
@@ -425,6 +434,25 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </span>
             )}
           </button>
+
+          {/* Tasks Manager Item */}
+          {onOpenTasks && (
+            <button
+              onClick={() => {
+                onOpenTasks();
+                if (typeof window !== "undefined" && window.innerWidth < 768) setIsOpen(false);
+              }}
+              className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs transition-colors cursor-pointer ${
+                mainView === "tasks"
+                  ? "bg-[var(--sidebar-hover)] text-[var(--foreground)] font-medium"
+                  : "text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--sidebar-hover)]"
+              }`}
+              title="Manajemen Task & Kanban Board"
+            >
+              <CheckSquare className="w-4 h-4 text-[var(--muted)]" />
+              <span>Tasks</span>
+            </button>
+          )}
 
           {/* SECTION: CUSTOMIZE matching Image 4 */}
           <div className="pt-2">

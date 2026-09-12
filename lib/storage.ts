@@ -1,4 +1,4 @@
-import { AppSettings, Conversation, PersonaPreset, Project, AgentTask, PendingApproval } from "./types";
+import { AppSettings, Conversation, PersonaPreset, Project, AgentTask, PendingApproval, TaskItem, ReadingItem } from "./types";
 import { apiFetch } from "./apiClient";
 import { DEFAULT_SETTINGS, PRESET_PERSONAS } from "./constants";
 import { DEFAULT_CONNECTORS } from "./directoryData";
@@ -10,6 +10,8 @@ const STORAGE_KEYS = {
   PERSONAS: "ollama_chat_custom_personas",
   PROJECTS: "ollama_chat_projects",
   AGENTS: "ollama_chat_agents",
+  TASKS: "ollama_chat_tasks",
+  READING_ITEMS: "ollama_chat_reading_items",
   PENDING_APPROVALS: "ollama_chat_pending_approvals",
   LAST_SYNC: "ollama_chat_last_sync",
 };
@@ -22,6 +24,8 @@ export const storage = {
     conversations: Conversation[];
     projects: Project[];
     agents: AgentTask[];
+    tasks?: TaskItem[];
+    readingItems?: ReadingItem[];
     settings: AppSettings;
     personas: PersonaPreset[];
     lastUpdated: number;
@@ -40,6 +44,8 @@ export const storage = {
     conversations?: Conversation[];
     projects?: Project[];
     agents?: AgentTask[];
+    tasks?: TaskItem[];
+    readingItems?: ReadingItem[];
     settings?: AppSettings;
     personas?: PersonaPreset[];
     pendingApprovals?: PendingApproval[];
@@ -61,6 +67,8 @@ export const storage = {
     conversations?: Conversation[];
     projects?: Project[];
     agents?: AgentTask[];
+    tasks?: TaskItem[];
+    readingItems?: ReadingItem[];
     settings?: AppSettings;
     personas?: PersonaPreset[];
     pendingApprovals?: PendingApproval[];
@@ -152,6 +160,52 @@ export const storage = {
       }
     } catch (e) {
       console.error("Failed to save agents:", e);
+    }
+  },
+
+  getTasks(): TaskItem[] {
+    if (typeof window === "undefined") return [];
+    try {
+      const data = localStorage.getItem(STORAGE_KEYS.TASKS);
+      return data ? JSON.parse(data) : [];
+    } catch (e) {
+      console.error("Failed to load tasks:", e);
+      return [];
+    }
+  },
+
+  saveTasks(tasks: TaskItem[], syncServer = true): void {
+    if (typeof window === "undefined") return;
+    try {
+      localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(tasks));
+      if (syncServer) {
+        this.debouncedSyncToServer({ tasks });
+      }
+    } catch (e) {
+      console.error("Failed to save tasks:", e);
+    }
+  },
+
+  getReadingItems(): ReadingItem[] {
+    if (typeof window === "undefined") return [];
+    try {
+      const data = localStorage.getItem(STORAGE_KEYS.READING_ITEMS);
+      return data ? JSON.parse(data) : [];
+    } catch (e) {
+      console.error("Failed to load reading items:", e);
+      return [];
+    }
+  },
+
+  saveReadingItems(items: ReadingItem[], syncServer = true): void {
+    if (typeof window === "undefined") return;
+    try {
+      localStorage.setItem(STORAGE_KEYS.READING_ITEMS, JSON.stringify(items));
+      if (syncServer) {
+        this.debouncedSyncToServer({ readingItems: items });
+      }
+    } catch (e) {
+      console.error("Failed to save reading items:", e);
     }
   },
 
@@ -269,6 +323,8 @@ export const storage = {
       conversations: this.getConversations(),
       projects: this.getProjects(),
       agents: this.getAgents(),
+      tasks: this.getTasks(),
+      readingItems: this.getReadingItems(),
       settings: this.getSettings(),
       personas: this.getPersonas(),
       exportDate: new Date().toISOString(),
@@ -289,6 +345,12 @@ export const storage = {
       if (data.agents && Array.isArray(data.agents)) {
         this.saveAgents(data.agents);
       }
+      if (data.tasks && Array.isArray(data.tasks)) {
+        this.saveTasks(data.tasks);
+      }
+      if (data.readingItems && Array.isArray(data.readingItems)) {
+        this.saveReadingItems(data.readingItems);
+      }
       if (data.settings) {
         this.saveSettings(data.settings);
       }
@@ -300,6 +362,8 @@ export const storage = {
         conversations: data.conversations,
         projects: data.projects,
         agents: data.agents,
+        tasks: data.tasks,
+        readingItems: data.readingItems,
         settings: data.settings,
         personas: data.personas,
       });

@@ -35,6 +35,7 @@ import {
   Music,
   Folder,
   HardDrive,
+  BookOpen,
 } from "lucide-react";
 import { AppSettings, OllamaModel, ThemeType, FontFamilyType, ThinkingMode, Skill } from "@/lib/types";
 import { checkOllamaHealth } from "@/lib/ollama";
@@ -228,6 +229,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   // Music state in settings
   const [isScanningMusic, setIsScanningMusic] = useState(false);
   const [musicScanResult, setMusicScanResult] = useState<string | null>(null);
+
+  // Books / Reader state in settings
+  const [isScanningBooks, setIsScanningBooks] = useState(false);
+  const [booksScanResult, setBooksScanResult] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
@@ -439,7 +444,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       />
 
       {/* iOS-Style Modal Container */}
-      <div className="relative w-full max-w-4xl bg-[var(--card-bg)] text-[var(--foreground)] rounded-t-3xl sm:rounded-3xl border-t sm:border border-[var(--card-border)] shadow-2xl overflow-hidden flex flex-col z-10 h-[94dvh] sm:h-[86vh] animate-in slide-in-from-bottom sm:zoom-in-95 duration-200">
+      <div className="relative w-full max-w-5xl xl:max-w-6xl bg-[var(--card-bg)] text-[var(--foreground)] rounded-t-3xl sm:rounded-3xl border-t sm:border border-[var(--card-border)] shadow-2xl overflow-hidden flex flex-col z-10 h-[94dvh] sm:h-[90vh] animate-in slide-in-from-bottom sm:zoom-in-95 duration-200">
         {/* Top Header Bar (No Save Button Above) */}
         <div className="px-5 py-3.5 border-b border-[var(--sidebar-border)] flex items-center justify-between flex-shrink-0 bg-[var(--sidebar-bg)]">
           <div className="flex items-center gap-2">
@@ -1464,7 +1469,65 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   )}
 
                   <p className="text-[11px] text-[var(--muted)] leading-relaxed">
-                    When configured, the floating music widget will automatically load and stream your offline songs directly using the local backend streaming engine with instant seeking support.
+                    When configured, the offline music player will automatically load and stream your songs directly using the local backend streaming engine with instant seeking support.
+                  </p>
+                </div>
+
+                {/* Local Books & Comics Directory on Disk */}
+                <div className="p-4 rounded-2xl bg-[var(--sidebar-bg)] border border-[var(--card-border)] space-y-3">
+                  <div className="flex items-center gap-2 text-xs font-bold text-[var(--foreground)]">
+                    <BookOpen className="w-4 h-4 text-blue-400" />
+                    <span>Default Offline Books & Comics Directory Path</span>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      placeholder="e.g. C:\Users\Rei\Books or D:\Comics or /Users/.../Books"
+                      value={formData.booksDirectory || ""}
+                      onChange={(e) => setFormData({ ...formData, booksDirectory: e.target.value })}
+                      className="flex-1 px-3 py-2 text-xs font-mono rounded-xl border border-[var(--card-border)] bg-[var(--card-bg)] text-[var(--foreground)] focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    />
+                    <button
+                      type="button"
+                      disabled={isScanningBooks || !formData.booksDirectory?.trim()}
+                      onClick={async () => {
+                        if (!formData.booksDirectory?.trim()) return;
+                        setIsScanningBooks(true);
+                        setBooksScanResult(null);
+                        try {
+                          const res = await apiFetch(`/api/books?scanDir=${encodeURIComponent(formData.booksDirectory.trim())}`);
+                          const data = await res.json();
+                          if (data.files && Array.isArray(data.files)) {
+                            setBooksScanResult(`✓ Found ${data.files.length} items (.epub, .cbz, .cbr, .pdf, .txt, .md) in directory!`);
+                          } else {
+                            setBooksScanResult(`❌ ${data.error || "Directory not found"}`);
+                          }
+                        } catch (e: any) {
+                          setBooksScanResult(`❌ Error: ${e.message}`);
+                        } finally {
+                          setIsScanningBooks(false);
+                        }
+                      }}
+                      className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-blue-600 hover:bg-blue-500 text-white transition-all cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${isScanningBooks ? "animate-spin" : ""}`} />
+                      <span>Scan</span>
+                    </button>
+                  </div>
+
+                  {booksScanResult && (
+                    <div
+                      className={`text-xs font-medium ${
+                        booksScanResult.startsWith("✓") ? "text-blue-400" : "text-rose-400"
+                      }`}
+                    >
+                      {booksScanResult}
+                    </div>
+                  )}
+
+                  <p className="text-[11px] text-[var(--muted)] leading-relaxed">
+                    When configured, the Reader Library Shelf will automatically index and display covers for your local eBooks, Manga, and Comics from this directory.
                   </p>
                 </div>
 

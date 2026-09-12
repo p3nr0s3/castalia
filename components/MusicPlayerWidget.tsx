@@ -25,7 +25,7 @@ import {
 } from "lucide-react";
 import { publishMusicStatus, MusicActionEvent } from "@/lib/musicBridge";
 
-interface AmbientTrack {
+export interface AmbientTrack {
   id: string;
   name: string;
   category: string;
@@ -45,7 +45,7 @@ export interface LocalTrack {
   folder?: string;
 }
 
-const AMBIENT_TRACKS: AmbientTrack[] = [
+export const AMBIENT_TRACKS: AmbientTrack[] = [
   { id: "lofi", name: "Lofi Coffeehouse Chill", category: "Chillhop", synthType: "lofi" },
   { id: "rain", name: "Midnight Rain & Thunder", category: "Ambient", synthType: "rain" },
   { id: "space", name: "Deep Space Nebula", category: "Cosmic", synthType: "space" },

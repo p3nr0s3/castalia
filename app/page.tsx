@@ -50,6 +50,8 @@ import {
 import { MusicPlayerWidget, NowPlayingInfo } from "@/components/MusicPlayerWidget";
 import { CodespaceView } from "@/components/CodespaceView";
 import DocumentReaderView from "@/components/DocumentReaderView";
+import MusicFullView from "@/components/MusicFullView";
+import TaskManagerView from "@/components/TaskManagerView";
 import {
   buildOptimizedKnowledgeContextAsync,
   trimChatHistoryForBudget,
@@ -90,7 +92,7 @@ export default function HomePage() {
   const [isStreaming, setIsStreaming] = useState<boolean>(false);
   const [liveStats, setLiveStats] = useState<{ tokenCount: number; liveTps: number } | undefined>(undefined);
   const [thinkingMode, setThinkingMode] = useState<ThinkingMode>("default");
-  const [mainView, setMainView] = useState<"workspace" | "codespace" | "reader">("workspace");
+  const [mainView, setMainView] = useState<"workspace" | "codespace" | "reader" | "music" | "tasks">("workspace");
   const [workspaceView, setWorkspaceView] = useState<"chat" | "projects-gallery" | "project-detail">("chat");
   const [nowPlayingInfo, setNowPlayingInfo] = useState<{ isPlaying: boolean; title: string; onOpenPlayer: () => void } | null>(null);
   const [isArenaMode, setIsArenaMode] = useState<boolean>(false);
@@ -505,6 +507,13 @@ export default function HomePage() {
   const updateAgents = (newAgents: AgentTask[]) => {
     setAgents(newAgents);
     storage.saveAgents(newAgents);
+  };
+
+  // Update settings helper
+  const handleUpdateSettings = (partial: Partial<AppSettings>) => {
+    const next = { ...settings, ...partial };
+    setSettings(next);
+    storage.saveSettings(next, true, true);
   };
 
   // Execute Agent Automation
@@ -2431,7 +2440,8 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
         onOpenArtifacts={() => setIsArtifactsModalOpen(true)}
         onOpenCodespace={() => setMainView("codespace")}
         onOpenReader={() => setMainView("reader")}
-        onOpenMusic={() => dispatchMusicAction({ type: "open" })}
+        onOpenMusic={() => setMainView("music")}
+        onOpenTasks={() => setMainView("tasks")}
         nowPlayingInfo={nowPlayingInfo}
         onOpenWorkspace={() => {
           setMainView("workspace");
@@ -2468,12 +2478,44 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
             models={models}
             selectedModel={selectedModel}
             apiKeys={settings.apiKeys}
+            initialBooksDirectory={settings.booksDirectory}
+            onSaveBooksDirectory={(dir) => handleUpdateSettings({ booksDirectory: dir })}
             onSendToChat={(text) => {
               setInput(text);
               setMainView("workspace");
               setWorkspaceView("chat");
             }}
             onBackToChat={() => {
+              setMainView("workspace");
+              setWorkspaceView("chat");
+            }}
+          />
+        </div>
+      ) : mainView === "music" ? (
+        <div className="flex-1 flex flex-col h-[100dvh] overflow-hidden relative">
+          <MusicFullView
+            musicDirectory={settings.musicDirectory}
+            onSaveMusicDirectory={(dir) => handleUpdateSettings({ musicDirectory: dir })}
+            onBackToChat={() => {
+              setMainView("workspace");
+              setWorkspaceView("chat");
+            }}
+            nowPlayingInfo={nowPlayingInfo}
+          />
+        </div>
+      ) : mainView === "tasks" ? (
+        <div className="flex-1 flex flex-col h-[100dvh] overflow-hidden relative">
+          <TaskManagerView
+            projects={projects}
+            models={models}
+            selectedModel={selectedModel}
+            apiKeys={settings.apiKeys}
+            onBackToChat={() => {
+              setMainView("workspace");
+              setWorkspaceView("chat");
+            }}
+            onSendToChat={(text) => {
+              setInput(text);
               setMainView("workspace");
               setWorkspaceView("chat");
             }}

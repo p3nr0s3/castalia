@@ -1,13 +1,15 @@
 import fs from "fs";
 import path from "path";
 import type BetterSqlite3 from "better-sqlite3";
-import { AppSettings, Conversation, PersonaPreset, Project, AgentTask, PendingApproval } from "./types";
+import { AppSettings, Conversation, PersonaPreset, Project, AgentTask, PendingApproval, TaskItem, ReadingItem } from "./types";
 import { DEFAULT_SETTINGS, PRESET_PERSONAS } from "./constants";
 
 export interface ServerDatabase {
   conversations: Conversation[];
   projects: Project[];
   agents: AgentTask[];
+  tasks?: TaskItem[];
+  readingItems?: ReadingItem[];
   settings: AppSettings;
   personas: PersonaPreset[];
   pendingApprovals: PendingApproval[];
@@ -23,6 +25,8 @@ const DEFAULT_DB: ServerDatabase = {
   conversations: [],
   projects: [],
   agents: [],
+  tasks: [],
+  readingItems: [],
   settings: DEFAULT_SETTINGS,
   personas: PRESET_PERSONAS,
   pendingApprovals: [],
@@ -86,6 +90,26 @@ function mergePendingApprovals(serverList: PendingApproval[], clientList: Pendin
     }
   }
   return Array.from(map.values()).sort((a, b) => b.createdAt - a.createdAt);
+}
+
+function mergeTasks(serverList: TaskItem[] = [], clientList: TaskItem[] = []): TaskItem[] {
+  const map = new Map<string, TaskItem>();
+  for (const t of serverList) map.set(t.id, t);
+  for (const t of clientList) {
+    const existing = map.get(t.id);
+    if (!existing || (t.updatedAt || 0) >= (existing.updatedAt || 0)) map.set(t.id, t);
+  }
+  return Array.from(map.values()).sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
+}
+
+function mergeReadingItems(serverList: ReadingItem[] = [], clientList: ReadingItem[] = []): ReadingItem[] {
+  const map = new Map<string, ReadingItem>();
+  for (const r of serverList) map.set(r.id, r);
+  for (const r of clientList) {
+    const existing = map.get(r.id);
+    if (!existing || (r.lastReadAt || 0) >= (existing.lastReadAt || 0)) map.set(r.id, r);
+  }
+  return Array.from(map.values()).sort((a, b) => (b.lastReadAt || 0) - (a.lastReadAt || 0));
 }
 
 // =====================================================================
@@ -304,6 +328,8 @@ async function readServerDbJson(): Promise<ServerDatabase> {
       conversations: parsed.conversations || [],
       projects: parsed.projects || [],
       agents: parsed.agents || [],
+      tasks: parsed.tasks || [],
+      readingItems: parsed.readingItems || [],
       settings: parsed.settings ? { ...DEFAULT_SETTINGS, ...parsed.settings } : DEFAULT_SETTINGS,
       personas: parsed.personas || PRESET_PERSONAS,
       pendingApprovals: parsed.pendingApprovals || [],
@@ -342,6 +368,20 @@ async function writeServerDbJson(data: WriteServerDbInput): Promise<ServerDataba
         : mergeAgents(current.agents, data.agents)
       : current.agents;
 
+  const mergedTasks =
+    data.tasks !== undefined
+      ? data.overwrite
+        ? data.tasks
+        : mergeTasks(current.tasks, data.tasks)
+      : current.tasks || [];
+
+  const mergedReadingItems =
+    data.readingItems !== undefined
+      ? data.overwrite
+        ? data.readingItems
+        : mergeReadingItems(current.readingItems, data.readingItems)
+      : current.readingItems || [];
+
   const mergedPendingApprovals =
     data.pendingApprovals !== undefined
       ? data.overwrite
@@ -353,6 +393,8 @@ async function writeServerDbJson(data: WriteServerDbInput): Promise<ServerDataba
     conversations: mergedConversations,
     projects: mergedProjects,
     agents: mergedAgents,
+    tasks: mergedTasks,
+    readingItems: mergedReadingItems,
     settings: data.settings ? { ...current.settings, ...data.settings } : current.settings,
     personas: data.personas || current.personas,
     pendingApprovals: mergedPendingApprovals,
@@ -374,6 +416,8 @@ interface WriteServerDbInput {
   conversations?: Conversation[];
   projects?: Project[];
   agents?: AgentTask[];
+  tasks?: TaskItem[];
+  readingItems?: ReadingItem[];
   settings?: AppSettings;
   personas?: PersonaPreset[];
   pendingApprovals?: PendingApproval[];

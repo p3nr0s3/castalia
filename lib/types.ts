@@ -476,6 +476,7 @@ export interface AppSettings {
   plugins: PluginItem[];
   memory: MemoryConfig;
   musicDirectory: string;
+  booksDirectory?: string;
   /**
    * When true, preserves static system prompt prefix in VRAM and injects
    * per-turn RAG chunks/search context into the active user message block.
@@ -488,6 +489,47 @@ export interface AppSettings {
    */
   ollamaKeepAlive?: string;
   customTheme?: CustomThemePalette;
+}
+
+// ============================================================================
+// TASK MANAGEMENT
+// ============================================================================
+
+export type TaskPriority = "low" | "medium" | "high" | "urgent";
+export type TaskStatus = "todo" | "in_progress" | "review" | "done";
+
+export interface TaskItem {
+  id: string;
+  title: string;
+  description?: string;
+  status: TaskStatus;
+  priority: TaskPriority;
+  projectId?: string;
+  tags: string[];
+  dueDate?: string;
+  createdAt: number;
+  updatedAt: number;
+  assignedAgent?: string;
+  subtasks?: Array<{ id: string; title: string; completed: boolean }>;
+}
+
+// ============================================================================
+// READING LIBRARY & HISTORY
+// ============================================================================
+
+export interface ReadingItem {
+  id: string;
+  title: string;
+  format: "epub" | "comic" | "pdf" | "text";
+  filePath?: string;
+  filesize: number;
+  lastReadAt: number;
+  currentChapterIndex: number;
+  currentComicPageIndex: number;
+  totalChapters: number;
+  totalPages: number;
+  progressPercent: number;
+  coverUrl?: string;
 }
 
 // ============================================================================

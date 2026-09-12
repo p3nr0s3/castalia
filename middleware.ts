@@ -30,7 +30,7 @@ import { NextRequest, NextResponse } from "next/server";
  */
 
 const UNPROTECTED_METHODS = new Set(["OPTIONS"]);
-const QUERY_TOKEN_ROUTES = ["/api/audio", "/api/db/stream"];
+const QUERY_TOKEN_ROUTES = ["/api/audio", "/api/db/stream", "/api/books"];
 
 export function middleware(req: NextRequest) {
   if (UNPROTECTED_METHODS.has(req.method)) {
