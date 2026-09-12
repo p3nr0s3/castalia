@@ -32,6 +32,7 @@ import {
   XCircle,
   Loader2,
   FileEdit,
+  BookOpen,
 } from "lucide-react";
 import dynamic from "next/dynamic";
 import { Message } from "@/lib/types";
@@ -518,6 +519,55 @@ const ChatMessageComponent: React.FC<ChatMessageProps> = ({
             </div>
           )}
 
+          {/* RAG Knowledge Retrieval Transparency Panel */}
+          {!isUser && message.retrievedChunks && message.retrievedChunks.length > 0 && (
+            <div className="mt-2 mb-2">
+              <details className="rounded-xl border border-blue-500/25 bg-blue-500/5 text-xs overflow-hidden">
+                <summary className="flex items-center justify-between px-3 py-2 cursor-pointer select-none list-none">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <BookOpen className="w-3.5 h-3.5 text-blue-400 flex-shrink-0" />
+                    <span className="font-semibold text-blue-300">Project Knowledge Retrieved</span>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-blue-500/15 text-blue-400 border border-blue-500/30 font-mono">
+                      {message.retrievedChunks.length} chunk{message.retrievedChunks.length > 1 ? "s" : ""}
+                    </span>
+                  </div>
+                  <ChevronDown className="w-3.5 h-3.5 text-[var(--muted)] flex-shrink-0" />
+                </summary>
+                <div className="p-2.5 border-t border-blue-500/20 space-y-2 max-h-60 overflow-y-auto">
+                  {message.retrievedChunks.map((chunk, idx) => (
+                    <div
+                      key={chunk.id || idx}
+                      className="p-2 rounded-lg bg-[var(--card-bg)]/80 border border-[var(--card-border)] space-y-1 text-[11px]"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-semibold text-blue-400 truncate flex items-center gap-1">
+                          <FileText className="w-3 h-3 text-blue-400 flex-shrink-0" />
+                          <span className="truncate">{chunk.fileName}</span>
+                          {chunk.totalChunks > 1 && (
+                            <span className="text-[10px] text-[var(--muted)] font-mono">
+                              (Part {chunk.chunkIndex + 1}/{chunk.totalChunks})
+                            </span>
+                          )}
+                        </span>
+                        <div className="flex items-center gap-1.5 font-mono text-[10px] text-[var(--muted)] flex-shrink-0">
+                          {chunk.score !== undefined && (
+                            <span className="text-emerald-400 font-semibold">
+                              Score: {Math.round(chunk.score * 100)}%
+                            </span>
+                          )}
+                          <span>~{chunk.estimatedTokens} tok</span>
+                        </div>
+                      </div>
+                      <p className="text-[var(--muted)] font-mono whitespace-pre-wrap line-clamp-3 hover:line-clamp-none transition-all text-[10.5px]">
+                        {chunk.textSnippet}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </details>
+            </div>
+          )}
+
           {/* Clean Transparent Text & Markdown Flow */}
           {isEditing ? (
             <div className="space-y-2 mt-2">
@@ -737,9 +787,19 @@ const ChatMessageComponent: React.FC<ChatMessageProps> = ({
                     >
                       <Zap className="w-2.5 h-2.5 text-blue-400" />
                       <span>
-                        {metrics.evalTps ? `${metrics.evalTps.toFixed(1)} t/s` : "Tokens Engine"}
+                        {metrics.evalTps === 999 ? (
+                          <span className="text-amber-400 font-semibold">⚡ Instant Cached</span>
+                        ) : metrics.evalTps ? (
+                          `${metrics.evalTps.toFixed(1)} t/s`
+                        ) : (
+                          "Tokens Engine"
+                        )}
                         {metrics.evalCount ? ` • ${metrics.evalCount} tok` : ""}
-                        {metrics.totalSeconds ? ` • ${metrics.totalSeconds}s` : metrics.evalDuration ? ` • ${(metrics.evalDuration / 1e9).toFixed(1)}s` : ""}
+                        {metrics.evalTps !== 999 && metrics.totalSeconds
+                          ? ` • ${metrics.totalSeconds}s`
+                          : metrics.evalDuration
+                          ? ` • ${(metrics.evalDuration / 1e9).toFixed(1)}s`
+                          : ""}
                       </span>
                       <ChevronDown className={`w-2.5 h-2.5 text-[var(--muted)] transition-transform duration-150 ${showMetricsDetail ? "rotate-180" : ""}`} />
                     </button>

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { apiFetch, withAccessToken } from "../lib/apiClient";
 import {
   AppSettings,
@@ -16,6 +16,7 @@ import {
   ProjectFile,
   ThinkingMode,
   ToolCallExecution,
+  RetrievedChunkInfo,
 } from "@/lib/types";
 import { storage } from "@/lib/storage";
 import { DEFAULT_SETTINGS, PRESET_PERSONAS } from "@/lib/constants";
@@ -48,12 +49,22 @@ import {
 } from "@/lib/directoryData";
 import { MusicPlayerWidget, NowPlayingInfo } from "@/components/MusicPlayerWidget";
 import { CodespaceView } from "@/components/CodespaceView";
-import { buildOptimizedKnowledgeContextAsync, trimChatHistoryForBudget } from "@/lib/rag";
+import {
+  buildOptimizedKnowledgeContextAsync,
+  trimChatHistoryForBudget,
+  formatUserEphemeralContext,
+} from "@/lib/rag";
 import {
   buildMusicPromptDirective,
   executeMusicActionFromResponse,
   dispatchMusicAction,
 } from "@/lib/musicBridge";
+import { calculateContextBreakdown } from "@/lib/contextVisualizer";
+import {
+  computePromptCacheKey,
+  getCachedPromptResponse,
+  setCachedPromptResponse,
+} from "@/lib/responseCache";
 
 export default function HomePage() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -174,6 +185,17 @@ export default function HomePage() {
     (activeProjectId ? projects.find((p) => p.id === activeProjectId) : null) ||
     (activeConversation?.projectId ? projects.find((p) => p.id === activeConversation.projectId) : null) ||
     (projects.length > 0 && workspaceView === "project-detail" ? projects[0] : null);
+
+  // Live Token & Context Window Breakdown
+  const contextBreakdown = useMemo(() => {
+    return calculateContextBreakdown({
+      conversation: activeConversation,
+      project: currentProject,
+      settings,
+      currentInput: input,
+      diskToolsActive: Boolean(activeConversation?.diskToolsActive ?? diskToolsActive),
+    });
+  }, [activeConversation, currentProject, settings, input, diskToolsActive]);
 
   // Initialize theme & typography font
   useEffect(() => {
@@ -909,10 +931,18 @@ export default function HomePage() {
   const getEffectiveSystemPrompt = async (
     conv: Conversation,
     userQuery = ""
-  ): Promise<{ prompt: string; knowledgeNotice?: string }> => {
+  ): Promise<{
+    prompt: string;
+    staticPrompt: string;
+    dynamicContext: string;
+    knowledgeNotice?: string;
+    retrievedChunks?: RetrievedChunkInfo[];
+  }> => {
     const proj = conv.projectId ? projects.find((p) => p.id === conv.projectId) : null;
     let basePrompt = conv.systemPrompt || proj?.systemPrompt || settings.defaultSystemPrompt;
     let knowledgeNotice = "";
+    let retrievedChunks: RetrievedChunkInfo[] | undefined = undefined;
+    let dynamicContext = "";
 
     // 1. Inject Project Knowledge Base (BM25, or hybrid BM25+embeddings when
     // Settings > semanticRagEnabled is on) with 16K Context Guard budgeting.
@@ -923,21 +953,22 @@ export default function HomePage() {
         enabled: Boolean(settings.semanticRagEnabled),
       });
       if (knowledgeResult.contextText) {
-        basePrompt = `${basePrompt}${knowledgeResult.contextText}`;
+        dynamicContext = knowledgeResult.contextText;
+        retrievedChunks = knowledgeResult.retrievedChunks;
         if (knowledgeResult.isChunked) {
           knowledgeNotice = `⚡ *16K Context Guard: Retrieved ${knowledgeResult.matchedChunksCount} most relevant passages from ${knowledgeResult.matchedFiles.join(", ")} (~${knowledgeResult.totalEstimatedTokens} tokens)*\n\n`;
         }
       }
     }
 
-    // 2. Inject Active Agentic Skills
+    // 2. Inject Active Agentic Skills (Static)
     const activeSkills = settings.skills || DEFAULT_SKILLS;
     const skillsPrompt = composeSkillsPrompt(activeSkills, conv.activeSkillIds);
     if (skillsPrompt) {
       basePrompt = `${basePrompt}${skillsPrompt}`;
     }
 
-    // 3. Inject Thinking / Reasoning Mode Directive
+    // 3. Inject Thinking / Reasoning Mode Directive (Static)
     const currentMode = conv.thinkingMode || thinkingMode || settings.thinkingMode || "default";
     if (currentMode === "think") {
       basePrompt += "\n\n=== DEEP THINKING & REASONING MODE: ACTIVE ===\nYou MUST think through this step-by-step and write out your detailed analytical reasoning before providing your final answer. Wrap your internal thoughts in <think>...</think> tags.\n";
@@ -945,7 +976,7 @@ export default function HomePage() {
       basePrompt += "\n\n=== FAST / DIRECT MODE: ACTIVE ===\nDo NOT output internal thoughts or verbose reasoning. Provide the direct, concise solution immediately.\n";
     }
 
-    // 4. Inject Persistent User Memory & Personalization
+    // 4. Inject Persistent User Memory & Personalization (Static)
     const memoryConfig = settings.memory || DEFAULT_MEMORY_CONFIG;
     if (memoryConfig && memoryConfig.items && memoryConfig.items.length > 0) {
       const activeMemories = memoryConfig.items.filter((m) => m.enabled);
@@ -960,7 +991,7 @@ export default function HomePage() {
       }
     }
 
-    // 5. Inject Active Suite Plugins
+    // 5. Inject Active Suite Plugins (Static)
     const activePlugins = (settings.plugins || DEFAULT_PLUGINS).filter((p) => p.installed);
     if (activePlugins.length > 0) {
       let pluginsSection = "\n\n=== ACTIVE WORKSPACE SUITE PLUGINS ===\n";
@@ -974,7 +1005,7 @@ export default function HomePage() {
       basePrompt = `${basePrompt}${pluginsSection}`;
     }
 
-    // 6. Inject Connected Live Services & Tools
+    // 6. Inject Connected Live Services & Tools (Static)
     const activeConnectors = (settings.connectors || DEFAULT_CONNECTORS).filter((c) => c.installed);
     if (activeConnectors.length > 0) {
       let connectorsSection = "\n\n=== CONNECTED WORKSPACE SERVICES & TOOLS ===\n";
@@ -987,11 +1018,20 @@ export default function HomePage() {
       basePrompt = `${basePrompt}${connectorsSection}`;
     }
 
-    // 7. Inject Live Music Player Awareness & Recall Capability
+    // 7. Inject Live Music Player Awareness & Recall Capability (Static)
     const musicDirective = buildMusicPromptDirective();
     basePrompt = `${basePrompt}${musicDirective}`;
 
-    return { prompt: basePrompt, knowledgeNotice };
+    const staticPrompt = basePrompt;
+    const legacyCombinedPrompt = dynamicContext ? `${basePrompt}${dynamicContext}` : basePrompt;
+
+    return {
+      prompt: legacyCombinedPrompt,
+      staticPrompt,
+      dynamicContext,
+      knowledgeNotice,
+      retrievedChunks,
+    };
   };
 
   // Send Message Logic
@@ -1283,32 +1323,120 @@ export default function HomePage() {
     abortControllerRef.current = abortController;
 
     try {
-      const { prompt: baseEffectivePrompt, knowledgeNotice } = await getEffectiveSystemPrompt(convWithNewMessages, trimmedInput);
+      const {
+        prompt: baseEffectivePrompt,
+        staticPrompt,
+        dynamicContext: ragDynamicContext,
+        knowledgeNotice,
+        retrievedChunks,
+      } = await getEffectiveSystemPrompt(convWithNewMessages, trimmedInput);
       const effectiveDiskToolsActive =
         diskToolsActive || skillsRequireDiskTools(settings.skills || DEFAULT_SKILLS, convWithNewMessages.activeSkillIds);
       let accumulatedText = connectorNotice || knowledgeNotice || "";
-      let effectiveSystemPrompt = baseEffectivePrompt;
+
+      // Dynamic contexts for this turn (RAG + search + connector)
+      let combinedDynamicContext = ragDynamicContext || "";
       if (searchContextText) {
-        effectiveSystemPrompt = `${effectiveSystemPrompt}${searchContextText}`;
+        combinedDynamicContext = combinedDynamicContext
+          ? `${combinedDynamicContext}\n\n${searchContextText}`
+          : searchContextText;
       }
       if (connectorContextText) {
-        effectiveSystemPrompt = `${effectiveSystemPrompt}${connectorContextText}`;
+        combinedDynamicContext = combinedDynamicContext
+          ? `${combinedDynamicContext}\n\n${connectorContextText}`
+          : connectorContextText;
       }
-      if (effectiveDiskToolsActive) {
-        effectiveSystemPrompt = `${effectiveSystemPrompt}\n\n${buildToolDirectivePrompt()}`;
+
+      // Check Smart Context mode (default: true)
+      const isSmartContext = settings.smartContextEnabled ?? true;
+
+      // In Smart Context mode:
+      // - systemPrompt is pure STATIC (basePrompt + directives + tool directive)
+      // - dynamic context is injected into the active user turn
+      let effectiveSystemPrompt = baseEffectivePrompt;
+      if (isSmartContext) {
+        effectiveSystemPrompt = effectiveDiskToolsActive
+          ? `${staticPrompt}\n\n${buildToolDirectivePrompt()}`
+          : staticPrompt;
+      } else {
+        if (searchContextText) {
+          effectiveSystemPrompt = `${effectiveSystemPrompt}${searchContextText}`;
+        }
+        if (connectorContextText) {
+          effectiveSystemPrompt = `${effectiveSystemPrompt}${connectorContextText}`;
+        }
+        if (effectiveDiskToolsActive) {
+          effectiveSystemPrompt = `${effectiveSystemPrompt}\n\n${buildToolDirectivePrompt()}`;
+        }
       }
 
       // Enforce 16K Context Window Budget: trim chat history so (system + knowledge + history + predict) never overflows
       const targetCtx = targetConv.numCtx ?? proj?.numCtx ?? settings.numCtx ?? 16384;
       const historyBudget = Math.max(2000, Math.floor(targetCtx * 0.45));
       const rawMessagesToSend = newMessages.slice(0, modelBPlaceholder ? -2 : -1);
-      const budgetedMessages = trimChatHistoryForBudget(rawMessagesToSend, historyBudget);
+      const budgetedMessages = trimChatHistoryForBudget(rawMessagesToSend, historyBudget, { smartShift: isSmartContext });
+
+      // If smart context is enabled and there is dynamic context, inject into the active user turn message
+      let finalMessagesToSend = budgetedMessages;
+      if (isSmartContext && combinedDynamicContext && finalMessagesToSend.length > 0) {
+        finalMessagesToSend = finalMessagesToSend.map((m, idx) => {
+          if (idx === finalMessagesToSend.length - 1 && m.role === "user") {
+            return {
+              ...m,
+              content: formatUserEphemeralContext(m.content, combinedDynamicContext),
+            };
+          }
+          return m;
+        });
+      }
+
+      // Compute deterministic cache key for identical prompt detection
+      const cacheKey = computePromptCacheKey({
+        model: selectedModel,
+        prompt: trimmedInput,
+        systemPrompt: effectiveSystemPrompt,
+        temperature: targetConv.temperature ?? settings.temperature,
+        topP: targetConv.topP ?? settings.topP,
+        numCtx: targetCtx,
+        seed: targetConv.seed ?? proj?.seed,
+        diskToolsActive: effectiveDiskToolsActive,
+      });
+
+      // Skip re-generation if exact identical response is cached
+      if (!isBlenderCommand && !searchContextText && !modelBPlaceholder) {
+        const cached = getCachedPromptResponse(cacheKey);
+        if (cached) {
+          setConversations((prev) => {
+            const finished = prev.map((c) => {
+              if (c.id !== targetId) return c;
+              const msgs = c.messages.map((m) =>
+                m.id === assistantMessageId
+                  ? {
+                      ...m,
+                      content: cached.content,
+                      reasoning: cached.reasoning,
+                      metrics: cached.metrics,
+                      sources: cached.sources,
+                      retrievedChunks: cached.retrievedChunks || retrievedChunks,
+                      toolExecutions: cached.toolExecutions,
+                    }
+                  : m
+              );
+              return { ...c, messages: msgs, updatedAt: Date.now() };
+            });
+            storage.saveConversations(finished);
+            return finished;
+          });
+          setIsStreaming(false);
+          return;
+        }
+      }
 
       let accumulatedReasoning = "";
       await streamChatCompletion({
         hostUrl: settings.ollamaUrl,
         model: selectedModel,
-        messages: budgetedMessages,
+        messages: finalMessagesToSend,
         systemPrompt: effectiveSystemPrompt,
         temperature: targetConv.temperature ?? settings.temperature,
         topP: targetConv.topP ?? settings.topP,
@@ -1320,6 +1448,7 @@ export default function HomePage() {
         frequencyPenalty: targetConv.frequencyPenalty ?? proj?.frequencyPenalty,
         seed: targetConv.seed ?? proj?.seed,
         stop: targetConv.stopSequences ?? proj?.stopSequences,
+        keepAlive: settings.ollamaKeepAlive || "60m",
         apiKeys: settings.apiKeys,
         signal: abortController.signal,
         onReasoning: (rChunk) => {
@@ -1552,7 +1681,15 @@ export default function HomePage() {
               if (c.id !== targetId) return c;
               const msgs = c.messages.map((m) =>
                 m.id === assistantMessageId
-                  ? { ...m, content: finalFullText, reasoning: finalReasoning, metrics, sources: searchSources.length > 0 ? searchSources : undefined, toolExecutions: toolExecutions.length > 0 ? toolExecutions : undefined }
+                  ? {
+                      ...m,
+                      content: finalFullText,
+                      reasoning: finalReasoning,
+                      metrics,
+                      sources: searchSources.length > 0 ? searchSources : undefined,
+                      toolExecutions: toolExecutions.length > 0 ? toolExecutions : undefined,
+                      retrievedChunks: retrievedChunks && retrievedChunks.length > 0 ? retrievedChunks : undefined,
+                    }
                   : m
               );
               return { ...c, messages: msgs, updatedAt: Date.now() };
@@ -1560,6 +1697,18 @@ export default function HomePage() {
             storage.saveConversations(finished);
             return finished;
           });
+
+          // Cache successful response for identical prompt repeats
+          if (!isBlenderCommand && !searchContextText && !modelBPlaceholder) {
+            setCachedPromptResponse(cacheKey, {
+              content: finalFullText,
+              reasoning: finalReasoning,
+              sources: searchSources.length > 0 ? searchSources : undefined,
+              toolExecutions: toolExecutions.length > 0 ? toolExecutions : undefined,
+              retrievedChunks: retrievedChunks && retrievedChunks.length > 0 ? retrievedChunks : undefined,
+              metrics,
+            });
+          }
 
           // If Arena Mode is enabled, now stream Model B
           if (modelBMessageId && arenaModelB) {
@@ -1774,6 +1923,7 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
           systemPrompt: voiceSystemDirective,
           temperature: targetConv.temperature ?? settings.temperature,
           topP: targetConv.topP ?? settings.topP,
+          keepAlive: settings.ollamaKeepAlive || "60m",
           apiKeys: settings.apiKeys,
           onToken: (chunk) => {
             accumulated += chunk;
@@ -1856,18 +2006,38 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
 
     try {
       let accumulatedText = "";
-      const { prompt: effectiveSystemPrompt } = await getEffectiveSystemPrompt(updatedConv, lastUserMessage.content);
+      const {
+        prompt: baseEffectivePrompt,
+        staticPrompt,
+        dynamicContext,
+      } = await getEffectiveSystemPrompt(updatedConv, lastUserMessage.content);
+
+      const isSmartContext = settings.smartContextEnabled ?? true;
+      const effectiveSystemPrompt = isSmartContext ? staticPrompt : baseEffectivePrompt;
 
       // Enforce 16K Context Window Budget on regenerated chat
       const targetCtx = activeConversation.numCtx ?? currentProject?.numCtx ?? settings.numCtx ?? 16384;
       const historyBudget = Math.max(2000, Math.floor(targetCtx * 0.45));
-      const budgetedMessages = trimChatHistoryForBudget(trimmedHistory, historyBudget);
+      const budgetedMessages = trimChatHistoryForBudget(trimmedHistory, historyBudget, { smartShift: isSmartContext });
+
+      let finalMessagesToSend = budgetedMessages;
+      if (isSmartContext && dynamicContext && finalMessagesToSend.length > 0) {
+        finalMessagesToSend = finalMessagesToSend.map((m, idx) => {
+          if (idx === finalMessagesToSend.length - 1 && m.role === "user") {
+            return {
+              ...m,
+              content: formatUserEphemeralContext(m.content, dynamicContext),
+            };
+          }
+          return m;
+        });
+      }
 
       let accumulatedReasoning = "";
       await streamChatCompletion({
         hostUrl: settings.ollamaUrl,
         model: selectedModel,
-        messages: budgetedMessages,
+        messages: finalMessagesToSend,
         systemPrompt: effectiveSystemPrompt,
         temperature: activeConversation.temperature ?? settings.temperature,
         topP: activeConversation.topP ?? settings.topP,
@@ -1879,6 +2049,7 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
         frequencyPenalty: activeConversation.frequencyPenalty ?? currentProject?.frequencyPenalty,
         seed: activeConversation.seed ?? currentProject?.seed,
         stop: activeConversation.stopSequences ?? currentProject?.stopSequences,
+        keepAlive: settings.ollamaKeepAlive || "60m",
         apiKeys: settings.apiKeys,
         signal: abortController.signal,
         onReasoning: (rChunk) => {
@@ -2027,17 +2198,37 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
     abortControllerRef.current = abortController;
 
     let accumulatedText = "";
-    const { prompt: effectiveSystemPrompt } = await getEffectiveSystemPrompt(convWithPlaceholder, newContent);
+    const {
+      prompt: baseEffectivePrompt,
+      staticPrompt,
+      dynamicContext,
+    } = await getEffectiveSystemPrompt(convWithPlaceholder, newContent);
+
+    const isSmartContext = settings.smartContextEnabled ?? true;
+    const effectiveSystemPrompt = isSmartContext ? staticPrompt : baseEffectivePrompt;
 
     // Enforce 16K Context Window Budget on edited chat
     const targetCtx = activeConversation.numCtx ?? currentProject?.numCtx ?? settings.numCtx ?? 16384;
     const historyBudget = Math.max(2000, Math.floor(targetCtx * 0.45));
-    const budgetedMessages = trimChatHistoryForBudget(updatedMessages, historyBudget);
+    const budgetedMessages = trimChatHistoryForBudget(updatedMessages, historyBudget, { smartShift: isSmartContext });
+
+    let finalMessagesToSend = budgetedMessages;
+    if (isSmartContext && dynamicContext && finalMessagesToSend.length > 0) {
+      finalMessagesToSend = finalMessagesToSend.map((m, idx) => {
+        if (idx === finalMessagesToSend.length - 1 && m.role === "user") {
+          return {
+            ...m,
+            content: formatUserEphemeralContext(m.content, dynamicContext),
+          };
+        }
+        return m;
+      });
+    }
 
     streamChatCompletion({
       hostUrl: settings.ollamaUrl,
       model: selectedModel,
-      messages: budgetedMessages,
+      messages: finalMessagesToSend,
       systemPrompt: effectiveSystemPrompt,
       temperature: activeConversation.temperature ?? settings.temperature,
       topP: activeConversation.topP ?? settings.topP,
@@ -2049,6 +2240,7 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
       frequencyPenalty: activeConversation.frequencyPenalty ?? currentProject?.frequencyPenalty,
       seed: activeConversation.seed ?? currentProject?.seed,
       stop: activeConversation.stopSequences ?? currentProject?.stopSequences,
+      keepAlive: settings.ollamaKeepAlive || "60m",
       apiKeys: settings.apiKeys,
       signal: abortController.signal,
       onToken: (chunk, stats) => {
@@ -2283,6 +2475,10 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
           arenaModelB={arenaModelB}
           onSelectArenaModelB={setArenaModelB}
           onOpenVoiceCall={() => setIsVoiceCallOpen(true)}
+          contextBreakdown={contextBreakdown}
+          onSelectNumCtx={(val) => handleUpdateSessionParameters({ numCtx: val })}
+          isConnected={isConnected}
+          ollamaUrl={settings.ollamaUrl}
         />
       )}
 
@@ -2427,6 +2623,7 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
             numCtx: currentProject?.numCtx ?? settings.numCtx,
           })
         }
+        contextBreakdown={contextBreakdown}
       />
 
       {/* Directory Modal (Skills, Connectors, Plugins & GitHub Importer) */}

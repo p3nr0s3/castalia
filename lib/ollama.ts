@@ -19,6 +19,7 @@ export interface ChatStreamOptions {
   stopSequences?: string[];
   stop?: string[];
   seed?: number;
+  keepAlive?: string;
   apiKeys?: ApiKeysConfig;
   signal?: AbortSignal;
   onToken: (chunk: string, liveStats?: { tokenCount: number; liveTps: number }) => void;
@@ -110,6 +111,7 @@ export async function streamChatCompletion({
   stopSequences,
   stop,
   seed,
+  keepAlive,
   apiKeys,
   signal,
   onToken,
@@ -289,12 +291,15 @@ export async function streamChatCompletion({
     const effectiveStop = stopSequences || stop;
     if (effectiveStop && effectiveStop.length > 0) optionsPayload.stop = effectiveStop;
 
-    const payload = {
+    const payload: Record<string, any> = {
       model,
       messages: formattedMessages,
       stream: true,
       options: optionsPayload,
     };
+    if (keepAlive) {
+      payload.keep_alive = keepAlive;
+    }
 
     const res = await apiFetch(`/api/ollama/api/chat?host=${encodeURIComponent(hostUrl)}`, {
       method: "POST",

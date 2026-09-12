@@ -88,7 +88,25 @@ export const DEFAULT_SETTINGS: AppSettings = {
   plugins: DEFAULT_PLUGINS,
   memory: DEFAULT_MEMORY_CONFIG,
   musicDirectory: "",
+  smartContextEnabled: true,
+  ollamaKeepAlive: "60m",
 };
+
+export interface KeepAlivePreset {
+  value: string;
+  label: string;
+  description: string;
+}
+
+export const KEEP_ALIVE_PRESETS: KeepAlivePreset[] = [
+  { value: "5m", label: "5 Menit (Default Ollama)", description: "Unload model jika idle 5 menit untuk membebaskan VRAM" },
+  { value: "15m", label: "15 Menit", description: "Menjaga model tetap hangat untuk jeda membaca singkat" },
+  { value: "30m", label: "30 Menit", description: "Keseimbangan ideal antara penggunaan memori & respons cepat" },
+  { value: "60m", label: "1 Jam (Rekomendasi)", description: "Sangat optimal untuk sesi kerja/coding tanpa re-load" },
+  { value: "2h", label: "2 Jam", description: "Menjaga model dan KV-cache aktif selama sesi panjang" },
+  { value: "24h", label: "24 Jam", description: "Tetap standby seharian penuh untuk workstation lokal" },
+  { value: "-1", label: "Permanen di VRAM (-1)", description: "Jangan pernah unload model kecuali aplikasi dimatikan" },
+];
 
 export interface ContextPreset {
   value: number;

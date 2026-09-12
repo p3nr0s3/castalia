@@ -3,6 +3,7 @@
 import React from "react";
 import { X, Sliders, Sparkles, RotateCcw, Database } from "lucide-react";
 import { PersonaPreset } from "@/lib/types";
+import { ContextBreakdown } from "@/lib/contextVisualizer";
 
 interface ParametersDrawerProps {
   isOpen: boolean;
@@ -18,6 +19,7 @@ interface ParametersDrawerProps {
   personas: PersonaPreset[];
   onSelectPersona: (persona: PersonaPreset) => void;
   onReset: () => void;
+  contextBreakdown?: ContextBreakdown;
 }
 
 export const ParametersDrawer: React.FC<ParametersDrawerProps> = ({
@@ -34,6 +36,7 @@ export const ParametersDrawer: React.FC<ParametersDrawerProps> = ({
   personas,
   onSelectPersona,
   onReset,
+  contextBreakdown,
 }) => {
   if (!isOpen) return null;
 
@@ -192,6 +195,70 @@ export const ParametersDrawer: React.FC<ParametersDrawerProps> = ({
                 <span className="text-cyan-400 font-medium">16K (Optimal)</span>
                 <span>64K (Max)</span>
               </div>
+
+              {/* Live Context Breakdown */}
+              {contextBreakdown && (
+                <div className="mt-3 p-3 rounded-2xl bg-[var(--sidebar-bg)] border border-[var(--card-border)] space-y-2">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-[var(--muted)] font-medium">Live Budget Breakdown</span>
+                    <span className="font-mono text-cyan-400 font-semibold">
+                      {contextBreakdown.totalUsedTokens.toLocaleString()} / {contextBreakdown.totalMaxTokens.toLocaleString()} ({contextBreakdown.usagePercentage}%)
+                    </span>
+                  </div>
+
+                  {/* Multi-segmented bar */}
+                  <div className="w-full h-2.5 bg-[var(--card-bg)] rounded-full overflow-hidden flex border border-[var(--card-border)] gap-0.5 p-0.5">
+                    {contextBreakdown.systemPromptTokens > 0 && (
+                      <div
+                        style={{ width: `${Math.max(0, (contextBreakdown.systemPromptTokens / contextBreakdown.totalMaxTokens) * 100)}%` }}
+                        className="h-full bg-purple-500 rounded-xs"
+                        title={`System Prompt: ${contextBreakdown.systemPromptTokens} tokens`}
+                      />
+                    )}
+                    {contextBreakdown.ragTokens > 0 && (
+                      <div
+                        style={{ width: `${Math.max(0, (contextBreakdown.ragTokens / contextBreakdown.totalMaxTokens) * 100)}%` }}
+                        className="h-full bg-blue-500 rounded-xs"
+                        title={`RAG Knowledge: ${contextBreakdown.ragTokens} tokens`}
+                      />
+                    )}
+                    {contextBreakdown.historyTokens > 0 && (
+                      <div
+                        style={{ width: `${Math.max(0, (contextBreakdown.historyTokens / contextBreakdown.totalMaxTokens) * 100)}%` }}
+                        className="h-full bg-emerald-500 rounded-xs"
+                        title={`History: ${contextBreakdown.historyTokens} tokens`}
+                      />
+                    )}
+                    {contextBreakdown.inputTokens > 0 && (
+                      <div
+                        style={{ width: `${Math.max(0, (contextBreakdown.inputTokens / contextBreakdown.totalMaxTokens) * 100)}%` }}
+                        className="h-full bg-amber-400 rounded-xs"
+                        title={`Draft Input: ${contextBreakdown.inputTokens} tokens`}
+                      />
+                    )}
+                  </div>
+
+                  {/* Micro Legend */}
+                  <div className="grid grid-cols-2 gap-1.5 pt-1 text-[10px] text-[var(--muted)] font-mono">
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-purple-500" />
+                      <span>System: {contextBreakdown.systemPromptTokens}</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-blue-500" />
+                      <span>RAG: {contextBreakdown.ragTokens}</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                      <span>History: {contextBreakdown.historyTokens}</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full border border-dashed border-[var(--muted)]" />
+                      <span className="text-emerald-400 font-semibold">Free: {contextBreakdown.remainingTokens}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 

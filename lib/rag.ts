@@ -2,7 +2,7 @@
 // Designed for local LLMs (e.g. Gemma 4, Llama 3) with 8K-16K context windows.
 // Runs 100% in-memory with ZERO GPU VRAM usage and sub-millisecond retrieval.
 
-import { ProjectFile, Message } from "./types";
+import { ProjectFile, Message, RetrievedChunkInfo } from "./types";
 import { embedTexts, cosineSimilarity } from "./embeddings";
 
 export interface DocumentChunk {
@@ -28,6 +28,7 @@ export interface OptimizedKnowledgeResult {
   matchedFiles: string[];
   totalEstimatedTokens: number;
   isChunked: boolean;
+  retrievedChunks?: RetrievedChunkInfo[];
 }
 
 // Token estimation: 1 token is approximately 3.8 to 4 characters in English/code,
@@ -264,7 +265,15 @@ function assembleContextFromRanked(
     contextText += `\n--- [Document: ${chunk.fileName} (Part ${chunk.chunkIndex + 1}/${chunk.totalChunks})] ---\n`;
     contextText += `${chunk.text}\n`;
   }
-  contextText += "=== END OF RETRIEVED KNOWLEDGE ===\n\n";
+  const retrievedChunks: RetrievedChunkInfo[] = selectedChunks.map((c) => ({
+    id: c.id,
+    fileName: c.fileName,
+    chunkIndex: c.chunkIndex,
+    totalChunks: c.totalChunks,
+    score: c.score !== undefined ? Math.round(c.score * 100) / 100 : undefined,
+    textSnippet: c.text.slice(0, 300),
+    estimatedTokens: c.estimatedTokens,
+  }));
 
   return {
     contextText,
@@ -273,6 +282,7 @@ function assembleContextFromRanked(
     matchedFiles: Array.from(matchedFileSet),
     totalEstimatedTokens: accumulatedTokens,
     isChunked: true,
+    retrievedChunks,
   };
 }
 
@@ -398,6 +408,15 @@ export function buildOptimizedKnowledgeContext(
     }
     contextText += "=== END OF PROJECT KNOWLEDGE BASE ===\n\n";
 
+    const retrievedChunks: RetrievedChunkInfo[] = files.map((f, i) => ({
+      id: `file_${f.id || i}`,
+      fileName: f.name,
+      chunkIndex: 0,
+      totalChunks: 1,
+      textSnippet: (f.textContent || "").slice(0, 300),
+      estimatedTokens: estimateTokens(f.textContent || ""),
+    }));
+
     return {
       contextText,
       matchedChunksCount: files.length,
@@ -405,6 +424,7 @@ export function buildOptimizedKnowledgeContext(
       matchedFiles: files.map((f) => f.name),
       totalEstimatedTokens: totalTokens,
       isChunked: false,
+      retrievedChunks,
     };
   }
 
@@ -422,29 +442,120 @@ export function buildOptimizedKnowledgeContext(
 }
 
 /**
- * Trims conversation history (sliding window) to strictly fit inside the allocated
- * chat history budget, ensuring Gemma 4 never hits a context overflow.
+ * Trims conversation history to strictly fit inside the allocated chat history budget.
+ * Supports Smart Context Shift (Anchor + Tail window):
+ * - If smartShift is enabled (default true) and messages exceed budget:
+ *   - Preserves Turn 0 (Anchor: initial user message + first assistant response) so the model never forgets the original objective/instructions.
+ *   - Fills remaining budget with the most recent messages (Tail Window).
+ *   - If middle messages are omitted, inserts a lightweight context shift notice so the model is aware of the gap.
  */
 export function trimChatHistoryForBudget(
   messages: Message[],
-  maxHistoryTokens = 6000
+  maxHistoryTokens = 6000,
+  options?: { smartShift?: boolean }
 ): Message[] {
   if (!messages || messages.length <= 1) return messages;
 
-  let accumulated = 0;
-  const kept: Message[] = [];
+  const smartShift = options?.smartShift ?? true;
 
-  // Always keep from newest to oldest
-  for (let i = messages.length - 1; i >= 0; i--) {
+  // Calculate total tokens of all messages
+  let totalTokens = 0;
+  for (const msg of messages) {
+    totalTokens += estimateTokens(msg.content) + 50;
+  }
+
+  // If already within budget, return as is
+  if (totalTokens <= maxHistoryTokens) {
+    return messages;
+  }
+
+  // If smartShift is disabled or messages length is small, use legacy newest-to-oldest sliding window
+  if (!smartShift || messages.length <= 3) {
+    let accumulated = 0;
+    const kept: Message[] = [];
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const msg = messages[i];
+      const msgTokens = estimateTokens(msg.content) + 50;
+      if (accumulated + msgTokens <= maxHistoryTokens || kept.length === 0) {
+        kept.unshift(msg);
+        accumulated += msgTokens;
+      } else {
+        break;
+      }
+    }
+    return kept;
+  }
+
+  // Smart Context Shift: Anchor (Turn 0) + Tail Window
+  // Reserve up to 25% of maxHistoryTokens for Anchor turn (first user + assistant)
+  const anchorBudget = Math.floor(maxHistoryTokens * 0.25);
+  const anchorMessages: Message[] = [];
+  let anchorTokens = 0;
+
+  // Check first message (user prompt)
+  const firstMsg = messages[0];
+  const firstMsgTokens = estimateTokens(firstMsg.content) + 50;
+  if (firstMsgTokens <= anchorBudget) {
+    anchorMessages.push(firstMsg);
+    anchorTokens += firstMsgTokens;
+
+    // Check if second message (first assistant reply) also fits inside anchor budget
+    if (messages.length > 1 && messages[1].role === "assistant") {
+      const secondMsg = messages[1];
+      const secondMsgTokens = estimateTokens(secondMsg.content) + 50;
+      if (anchorTokens + secondMsgTokens <= anchorBudget) {
+        anchorMessages.push(secondMsg);
+        anchorTokens += secondMsgTokens;
+      }
+    }
+  }
+
+  // The remaining budget is for the Tail Window (recent messages)
+  const tailBudget = maxHistoryTokens - anchorTokens;
+  let tailTokens = 0;
+  const tailMessages: Message[] = [];
+
+  const anchorCount = anchorMessages.length;
+  // Pick from newest backwards, stopping before anchorCount
+  for (let i = messages.length - 1; i >= anchorCount; i--) {
     const msg = messages[i];
-    const msgTokens = estimateTokens(msg.content) + 50; // buffer for role formatting
-    if (accumulated + msgTokens <= maxHistoryTokens || kept.length === 0) {
-      kept.unshift(msg);
-      accumulated += msgTokens;
+    const msgTokens = estimateTokens(msg.content) + 50;
+    if (tailTokens + msgTokens <= tailBudget || tailMessages.length === 0) {
+      tailMessages.unshift(msg);
+      tailTokens += msgTokens;
     } else {
       break;
     }
   }
 
-  return kept;
+  // Check if any middle messages were skipped
+  const firstTailIndex = messages.indexOf(tailMessages[0]);
+  const omittedCount = firstTailIndex > anchorCount ? firstTailIndex - anchorCount : 0;
+
+  if (omittedCount > 0) {
+    const shiftNoticeMessage: Message = {
+      id: "context_shift_notice",
+      role: "system",
+      content: `[Context Shift: ${omittedCount} earlier dialogue turns were condensed to fit context window. Retaining initial objective anchor above and recent context below.]`,
+      timestamp: Date.now(),
+    };
+    return [...anchorMessages, shiftNoticeMessage, ...tailMessages];
+  }
+
+  return [...anchorMessages, ...tailMessages];
+}
+
+/**
+ * Wraps user input with ephemeral dynamic context (RAG chunks, web search, or connector text)
+ * to be injected into the user turn rather than polluting the static system prompt.
+ */
+export function formatUserEphemeralContext(
+  userQuery: string,
+  dynamicContext?: string
+): string {
+  if (!dynamicContext || !dynamicContext.trim()) {
+    return userQuery;
+  }
+
+  return `${dynamicContext.trim()}\n\n---\n[User Query]:\n${userQuery}`;
 }

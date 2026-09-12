@@ -36,6 +36,8 @@ import { processSelectedFiles } from "@/lib/fileUtils";
 import { ChatMessage } from "./ChatMessage";
 import { ChatInput } from "./ChatInput";
 import { NowPlayingInfo } from "./MusicPlayerWidget";
+import { ContextVisualizer } from "./ContextVisualizer";
+import { ContextBreakdown } from "@/lib/contextVisualizer";
 
 interface ChatAreaProps {
   conversation: Conversation | null;
@@ -91,6 +93,10 @@ interface ChatAreaProps {
   arenaModelB?: string;
   onSelectArenaModelB?: (model: string) => void;
   onOpenVoiceCall?: () => void;
+  contextBreakdown?: ContextBreakdown;
+  onSelectNumCtx?: (tokens: number) => void;
+  isConnected?: boolean;
+  ollamaUrl?: string;
 }
 
 export const ChatArea: React.FC<ChatAreaProps> = ({
@@ -147,6 +153,10 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   onOpenCodespace,
   nowPlayingInfo,
   onOpenVoiceCall,
+  contextBreakdown,
+  onSelectNumCtx,
+  isConnected,
+  ollamaUrl,
 }) => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -490,6 +500,26 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
             </button>
           )}
 
+          {/* Context Window Live Visualizer Pill */}
+          {contextBreakdown && (
+            <ContextVisualizer
+              breakdown={contextBreakdown}
+              onOpenParameters={onOpenParameters}
+              onSelectNumCtx={onSelectNumCtx}
+            />
+          )}
+
+          {/* Parameters Drawer Toggle */}
+          {onOpenParameters && (
+            <button
+              onClick={onOpenParameters}
+              className="p-1.5 sm:p-2 rounded-xl text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--sidebar-hover)] transition-colors cursor-pointer flex-shrink-0"
+              title="Session Parameters (Temperature, Context Size, Persona)"
+            >
+              <Sliders className="w-4 h-4" />
+            </button>
+          )}
+
           {/* Settings Button */}
           {onOpenSettings && (
             <button
@@ -677,6 +707,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
         onClearChat={onNewChat}
         onOpenVoiceCall={onOpenVoiceCall}
         skills={skills}
+        isConnected={isConnected}
+        ollamaUrl={ollamaUrl}
       />
     </div>
   );

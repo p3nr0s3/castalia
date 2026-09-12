@@ -116,6 +116,16 @@ export interface ToolCallExecution {
   approvalId?: string;
 }
 
+export interface RetrievedChunkInfo {
+  id: string;
+  fileName: string;
+  chunkIndex: number;
+  totalChunks: number;
+  score?: number;
+  textSnippet: string;
+  estimatedTokens: number;
+}
+
 export interface Message {
   id: string;
   role: MessageRole;
@@ -128,6 +138,7 @@ export interface Message {
   reasoning?: string;
   isError?: boolean;
   toolExecutions?: ToolCallExecution[];
+  retrievedChunks?: RetrievedChunkInfo[];
 }
 
 // ============================================================================
@@ -437,6 +448,17 @@ export interface AppSettings {
   plugins: PluginItem[];
   memory: MemoryConfig;
   musicDirectory: string;
+  /**
+   * When true, preserves static system prompt prefix in VRAM and injects
+   * per-turn RAG chunks/search context into the active user message block.
+   * Enables 100% KV cache reuse on preceding turns in Ollama.
+   */
+  smartContextEnabled?: boolean;
+  /**
+   * Keep-alive duration for models in Ollama VRAM/RAM (e.g. "30m", "60m", "24h", "-1" for indefinite).
+   * Prevents model unloading and KV-cache flushing during pauses in chat.
+   */
+  ollamaKeepAlive?: string;
 }
 
 // ============================================================================

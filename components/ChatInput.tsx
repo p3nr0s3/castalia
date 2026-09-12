@@ -29,9 +29,10 @@ import {
   Box,
   Headphones,
   PhoneCall,
+  AlertTriangle,
 } from "lucide-react";
 import { Attachment, ThinkingMode, OllamaModel, ApiKeysConfig, Skill } from "@/lib/types";
-import { formatBytes } from "@/lib/ollama";
+import { formatBytes, detectModelProvider, getApiKeyForProvider } from "@/lib/ollama";
 import { processSelectedFiles } from "@/lib/fileUtils";
 import { ModelSelector } from "./ModelSelector";
 
@@ -72,6 +73,8 @@ interface ChatInputProps {
   onClearChat?: () => void;
   onOpenVoiceCall?: () => void;
   skills?: Skill[];
+  isConnected?: boolean;
+  ollamaUrl?: string;
 }
 
 export const ChatInput: React.FC<ChatInputProps> = ({
@@ -103,6 +106,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   onClearChat,
   onOpenVoiceCall,
   skills = [],
+  isConnected,
+  ollamaUrl,
 }) => {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -113,6 +118,56 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   const recognitionRef = useRef<any>(null);
   const inputRef = useRef(input);
   const baseTextRef = useRef("");
+
+  // Model Health Check: Verify Ollama reachability, local model pulled status, and cloud API keys
+  const modelHealth = React.useMemo<{
+    isHealthy: boolean;
+    warning?: string;
+    actionType?: "reconnect" | "pull" | "api_key";
+  }>(() => {
+    if (!selectedModel) {
+      return { isHealthy: false, warning: "Belum ada model yang dipilih. Silakan pilih model." };
+    }
+
+    const provider = detectModelProvider(selectedModel);
+
+    if (provider === "ollama") {
+      if (isConnected === false) {
+        return {
+          isHealthy: false,
+          warning: `Server Ollama offline/tidak terhubung di ${ollamaUrl || "http://localhost:11434"}. Pastikan Ollama aktif ('ollama serve').`,
+          actionType: "reconnect",
+        };
+      }
+
+      if (models && models.length > 0) {
+        const isPulled = models.some(
+          (m) =>
+            m.name === selectedModel ||
+            m.name === `${selectedModel}:latest` ||
+            m.name.split(":")[0] === selectedModel.split(":")[0]
+        );
+        if (!isPulled) {
+          return {
+            isHealthy: false,
+            warning: `Model "${selectedModel}" belum terpasang di mesin lokal. Jalankan "ollama pull ${selectedModel}" atau pilih model lain.`,
+            actionType: "pull",
+          };
+        }
+      }
+    } else {
+      const apiKey = getApiKeyForProvider(provider, apiKeys);
+      if (!apiKey && provider !== "custom") {
+        return {
+          isHealthy: false,
+          warning: `API Key untuk provider ${provider.toUpperCase()} belum diisi. Masukkan API Key di Pengaturan.`,
+          actionType: "api_key",
+        };
+      }
+    }
+
+    return { isHealthy: true };
+  }, [selectedModel, isConnected, models, ollamaUrl, apiKeys]);
 
   useEffect(() => {
     inputRef.current = input;
@@ -456,7 +511,11 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     setAttachments((prev) => prev.filter((a) => a.id !== id));
   };
 
-  const canSend = (input.trim().length > 0 || attachments.length > 0) && !isStreaming && !disabled;
+  const canSend =
+    (input.trim().length > 0 || attachments.length > 0) &&
+    !isStreaming &&
+    !disabled &&
+    modelHealth.isHealthy;
 
   return (
     <div className="flex-shrink-0 p-2 sm:p-3 max-w-4xl mx-auto w-full relative">
@@ -536,6 +595,36 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           </div>
         )}
 
+        {/* Model Health Inline Warning Banner */}
+        {!modelHealth.isHealthy && modelHealth.warning && (
+          <div className="flex items-center justify-between gap-2 px-3.5 py-2 bg-amber-500/10 border-b border-amber-500/20 text-xs text-amber-300">
+            <div className="flex items-center gap-2 min-w-0">
+              <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0" />
+              <span className="truncate">{modelHealth.warning}</span>
+            </div>
+            <div className="flex items-center gap-1.5 flex-shrink-0">
+              {modelHealth.actionType === "reconnect" && onRefreshModels && (
+                <button
+                  type="button"
+                  onClick={onRefreshModels}
+                  className="px-2 py-0.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 text-[11px] font-semibold border border-amber-500/30 cursor-pointer transition-colors"
+                >
+                  Coba Hubungkan
+                </button>
+              )}
+              {modelHealth.actionType === "api_key" && onOpenSettings && (
+                <button
+                  type="button"
+                  onClick={onOpenSettings}
+                  className="px-2 py-0.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 text-[11px] font-semibold border border-amber-500/30 cursor-pointer transition-colors"
+                >
+                  Buka Pengaturan
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Text Area */}
         <textarea
           ref={textareaRef}
@@ -544,7 +633,9 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
           placeholder={
-            isListening
+            !modelHealth.isHealthy
+              ? `⚠️ ${modelHealth.warning}`
+              : isListening
               ? "🎙️ Listening to your voice..."
               : webSearchActive
               ? "Ask with live Web Search (SearXNG)..."

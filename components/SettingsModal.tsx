@@ -40,7 +40,7 @@ import { AppSettings, OllamaModel, ThemeType, FontFamilyType, ThinkingMode, Skil
 import { checkOllamaHealth } from "@/lib/ollama";
 import { storage } from "@/lib/storage";
 import { DEFAULT_SKILLS } from "@/lib/skills";
-import { CONTEXT_SIZE_PRESETS } from "@/lib/constants";
+import { CONTEXT_SIZE_PRESETS, KEEP_ALIVE_PRESETS } from "@/lib/constants";
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -869,6 +869,69 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       <strong className="font-semibold text-emerald-300">Penyimpanan Permanen Aktif:</strong> Nilai Context Window disimpan langsung ke file database lokal (<code className="font-mono text-emerald-200">data/db.json</code>) dan disinkronkan ke client. Pengaturan ini akan tetap bertahan dan tidak akan reset ke 4K saat web dimuat ulang atau server npm di-restart.
                     </div>
                   </div>
+                </div>
+
+                {/* Smart Context & Static Prompt Cache */}
+                <div className="p-3.5 rounded-2xl bg-[var(--sidebar-bg)] border border-[var(--card-border)] space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="p-1.5 rounded-lg bg-cyan-500/10 text-cyan-400">
+                        <Zap className="w-4 h-4" />
+                      </div>
+                      <div className="pr-4">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold text-[var(--foreground)]">
+                            Smart Context & Static Prompt Cache
+                          </span>
+                          <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
+                            KV-Cache Reuse
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-[var(--muted)] leading-relaxed mt-0.5">
+                          Menjaga System Prompt statis di VRAM dan menyuntikkan dokumen RAG ke turn aktif. AI tidak perlu membaca ulang seluruh riwayat percakapan dari awal setiap kali pesan baru dikirim.
+                        </p>
+                      </div>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={formData.smartContextEnabled ?? true}
+                      onChange={(e) => setFormData({ ...formData, smartContextEnabled: e.target.checked })}
+                      className="w-4 h-4 rounded border-[var(--card-border)] text-cyan-500 focus:ring-cyan-500 bg-[var(--card-bg)] cursor-pointer"
+                    />
+                  </div>
+                </div>
+
+                {/* VRAM / RAM Keep-Alive */}
+                <div className="p-3.5 rounded-2xl bg-[var(--sidebar-bg)] border border-[var(--card-border)] space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="p-1.5 rounded-lg bg-amber-500/10 text-amber-400">
+                        <HardDrive className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <span className="text-xs font-bold text-[var(--foreground)]">
+                          VRAM / RAM Model Keep-Alive (Ollama)
+                        </span>
+                        <p className="text-[10px] text-[var(--muted)] leading-relaxed mt-0.5">
+                          Menentukan berapa lama model dan KV-Cache tetap bertahan di memori GPU/RAM sebelum di-unload otomatis.
+                        </p>
+                      </div>
+                    </div>
+                    <span className="text-xs font-mono font-semibold text-amber-400">
+                      {KEEP_ALIVE_PRESETS.find((p) => p.value === (formData.ollamaKeepAlive || "60m"))?.label || formData.ollamaKeepAlive || "60m"}
+                    </span>
+                  </div>
+                  <select
+                    value={formData.ollamaKeepAlive || "60m"}
+                    onChange={(e) => setFormData({ ...formData, ollamaKeepAlive: e.target.value })}
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-[var(--card-border)] bg-[var(--card-bg)] text-[var(--foreground)] focus:outline-none focus:ring-1 focus:ring-amber-500"
+                  >
+                    {KEEP_ALIVE_PRESETS.map((preset) => (
+                      <option key={preset.value} value={preset.value}>
+                        {preset.label} — {preset.description}
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
                 {/* Max Output Tokens (num_predict) */}
