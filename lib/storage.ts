@@ -1,4 +1,4 @@
-import { AppSettings, Conversation, PersonaPreset, Project, AgentTask, PendingApproval, TaskItem, ReadingItem } from "./types";
+import { AppSettings, Conversation, PersonaPreset, Project, AgentTask, PendingApproval, JournalEntry } from "./types";
 import { apiFetch } from "./apiClient";
 import { DEFAULT_SETTINGS, PRESET_PERSONAS } from "./constants";
 import { DEFAULT_CONNECTORS } from "./directoryData";
@@ -10,8 +10,7 @@ const STORAGE_KEYS = {
   PERSONAS: "ollama_chat_custom_personas",
   PROJECTS: "ollama_chat_projects",
   AGENTS: "ollama_chat_agents",
-  TASKS: "ollama_chat_tasks",
-  READING_ITEMS: "ollama_chat_reading_items",
+  JOURNAL: "ollama_chat_journal",
   PENDING_APPROVALS: "ollama_chat_pending_approvals",
   LAST_SYNC: "ollama_chat_last_sync",
 };
@@ -24,8 +23,7 @@ export const storage = {
     conversations: Conversation[];
     projects: Project[];
     agents: AgentTask[];
-    tasks?: TaskItem[];
-    readingItems?: ReadingItem[];
+    journalEntries?: JournalEntry[];
     settings: AppSettings;
     personas: PersonaPreset[];
     lastUpdated: number;
@@ -44,8 +42,7 @@ export const storage = {
     conversations?: Conversation[];
     projects?: Project[];
     agents?: AgentTask[];
-    tasks?: TaskItem[];
-    readingItems?: ReadingItem[];
+    journalEntries?: JournalEntry[];
     settings?: AppSettings;
     personas?: PersonaPreset[];
     pendingApprovals?: PendingApproval[];
@@ -67,8 +64,7 @@ export const storage = {
     conversations?: Conversation[];
     projects?: Project[];
     agents?: AgentTask[];
-    tasks?: TaskItem[];
-    readingItems?: ReadingItem[];
+    journalEntries?: JournalEntry[];
     settings?: AppSettings;
     personas?: PersonaPreset[];
     pendingApprovals?: PendingApproval[];
@@ -163,49 +159,51 @@ export const storage = {
     }
   },
 
-  getTasks(): TaskItem[] {
+  getJournalEntries(): JournalEntry[] {
     if (typeof window === "undefined") return [];
     try {
-      const data = localStorage.getItem(STORAGE_KEYS.TASKS);
-      return data ? JSON.parse(data) : [];
+      const data = localStorage.getItem(STORAGE_KEYS.JOURNAL);
+      if (data) return JSON.parse(data);
+      // Migrate legacy tasks if journal is empty
+      const legacyTasks = localStorage.getItem("ollama_chat_tasks");
+      if (legacyTasks) {
+        const parsed = JSON.parse(legacyTasks);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const migrated: JournalEntry[] = parsed.map((t: any) => ({
+            id: t.id,
+            title: t.title,
+            content: t.description || "",
+            icon: "🎯",
+            category: "task" as const,
+            status: t.status === "todo" ? "draft" : t.status === "in_progress" ? "in_progress" : t.status === "done" ? "done" : "draft",
+            priority: t.priority || "medium",
+            projectId: t.projectId,
+            tags: t.tags || [],
+            checklists: t.subtasks || [],
+            date: t.dueDate,
+            createdAt: t.createdAt || Date.now(),
+            updatedAt: t.updatedAt || Date.now(),
+          }));
+          this.saveJournalEntries(migrated);
+          return migrated;
+        }
+      }
+      return [];
     } catch (e) {
-      console.error("Failed to load tasks:", e);
+      console.error("Failed to load journal entries:", e);
       return [];
     }
   },
 
-  saveTasks(tasks: TaskItem[], syncServer = true): void {
+  saveJournalEntries(entries: JournalEntry[], syncServer = true): void {
     if (typeof window === "undefined") return;
     try {
-      localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(tasks));
+      localStorage.setItem(STORAGE_KEYS.JOURNAL, JSON.stringify(entries));
       if (syncServer) {
-        this.debouncedSyncToServer({ tasks });
+        this.debouncedSyncToServer({ journalEntries: entries });
       }
     } catch (e) {
-      console.error("Failed to save tasks:", e);
-    }
-  },
-
-  getReadingItems(): ReadingItem[] {
-    if (typeof window === "undefined") return [];
-    try {
-      const data = localStorage.getItem(STORAGE_KEYS.READING_ITEMS);
-      return data ? JSON.parse(data) : [];
-    } catch (e) {
-      console.error("Failed to load reading items:", e);
-      return [];
-    }
-  },
-
-  saveReadingItems(items: ReadingItem[], syncServer = true): void {
-    if (typeof window === "undefined") return;
-    try {
-      localStorage.setItem(STORAGE_KEYS.READING_ITEMS, JSON.stringify(items));
-      if (syncServer) {
-        this.debouncedSyncToServer({ readingItems: items });
-      }
-    } catch (e) {
-      console.error("Failed to save reading items:", e);
+      console.error("Failed to save journal entries:", e);
     }
   },
 
@@ -323,8 +321,7 @@ export const storage = {
       conversations: this.getConversations(),
       projects: this.getProjects(),
       agents: this.getAgents(),
-      tasks: this.getTasks(),
-      readingItems: this.getReadingItems(),
+      journalEntries: this.getJournalEntries(),
       settings: this.getSettings(),
       personas: this.getPersonas(),
       exportDate: new Date().toISOString(),
@@ -345,11 +342,25 @@ export const storage = {
       if (data.agents && Array.isArray(data.agents)) {
         this.saveAgents(data.agents);
       }
-      if (data.tasks && Array.isArray(data.tasks)) {
-        this.saveTasks(data.tasks);
-      }
-      if (data.readingItems && Array.isArray(data.readingItems)) {
-        this.saveReadingItems(data.readingItems);
+      if (data.journalEntries && Array.isArray(data.journalEntries)) {
+        this.saveJournalEntries(data.journalEntries);
+      } else if (data.tasks && Array.isArray(data.tasks)) {
+        const migrated: JournalEntry[] = data.tasks.map((t: any) => ({
+          id: t.id,
+          title: t.title,
+          content: t.description || "",
+          icon: "🎯",
+          category: "task" as const,
+          status: t.status === "todo" ? "draft" : t.status === "in_progress" ? "in_progress" : t.status === "done" ? "done" : "draft",
+          priority: t.priority || "medium",
+          projectId: t.projectId,
+          tags: t.tags || [],
+          checklists: t.subtasks || [],
+          date: t.dueDate,
+          createdAt: t.createdAt || Date.now(),
+          updatedAt: t.updatedAt || Date.now(),
+        }));
+        this.saveJournalEntries(migrated);
       }
       if (data.settings) {
         this.saveSettings(data.settings);
@@ -362,8 +373,7 @@ export const storage = {
         conversations: data.conversations,
         projects: data.projects,
         agents: data.agents,
-        tasks: data.tasks,
-        readingItems: data.readingItems,
+        journalEntries: data.journalEntries,
         settings: data.settings,
         personas: data.personas,
       });

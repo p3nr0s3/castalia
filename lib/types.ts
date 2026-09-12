@@ -475,8 +475,6 @@ export interface AppSettings {
   connectors: ConnectorItem[];
   plugins: PluginItem[];
   memory: MemoryConfig;
-  musicDirectory: string;
-  booksDirectory?: string;
   /**
    * When true, preserves static system prompt prefix in VRAM and injects
    * per-turn RAG chunks/search context into the active user message block.
@@ -492,44 +490,34 @@ export interface AppSettings {
 }
 
 // ============================================================================
-// TASK MANAGEMENT
+// NOTION-STYLE WORKSPACE JOURNAL & NOTEBOOK
 // ============================================================================
 
-export type TaskPriority = "low" | "medium" | "high" | "urgent";
-export type TaskStatus = "todo" | "in_progress" | "review" | "done";
+export type JournalCategory = "daily" | "task" | "idea" | "project" | "quick";
+export type JournalStatus = "draft" | "in_progress" | "done" | "archived";
+export type JournalPriority = "low" | "medium" | "high" | "urgent";
 
-export interface TaskItem {
+export interface JournalChecklistItem {
   id: string;
   title: string;
-  description?: string;
-  status: TaskStatus;
-  priority: TaskPriority;
-  projectId?: string;
-  tags: string[];
-  dueDate?: string;
-  createdAt: number;
-  updatedAt: number;
-  assignedAgent?: string;
-  subtasks?: Array<{ id: string; title: string; completed: boolean }>;
+  completed: boolean;
 }
 
-// ============================================================================
-// READING LIBRARY & HISTORY
-// ============================================================================
-
-export interface ReadingItem {
+export interface JournalEntry {
   id: string;
   title: string;
-  format: "epub" | "comic" | "pdf" | "text";
-  filePath?: string;
-  filesize: number;
-  lastReadAt: number;
-  currentChapterIndex: number;
-  currentComicPageIndex: number;
-  totalChapters: number;
-  totalPages: number;
-  progressPercent: number;
-  coverUrl?: string;
+  content: string;
+  icon?: string;
+  coverGradient?: string;
+  category: JournalCategory;
+  status: JournalStatus;
+  priority?: JournalPriority;
+  projectId?: string;
+  tags: string[];
+  checklists?: JournalChecklistItem[];
+  date?: string;
+  createdAt: number;
+  updatedAt: number;
 }
 
 // ============================================================================

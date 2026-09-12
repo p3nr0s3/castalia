@@ -1,15 +1,14 @@
 import fs from "fs";
 import path from "path";
 import type BetterSqlite3 from "better-sqlite3";
-import { AppSettings, Conversation, PersonaPreset, Project, AgentTask, PendingApproval, TaskItem, ReadingItem } from "./types";
+import { AppSettings, Conversation, PersonaPreset, Project, AgentTask, PendingApproval, JournalEntry } from "./types";
 import { DEFAULT_SETTINGS, PRESET_PERSONAS } from "./constants";
 
 export interface ServerDatabase {
   conversations: Conversation[];
   projects: Project[];
   agents: AgentTask[];
-  tasks?: TaskItem[];
-  readingItems?: ReadingItem[];
+  journalEntries?: JournalEntry[];
   settings: AppSettings;
   personas: PersonaPreset[];
   pendingApprovals: PendingApproval[];
@@ -25,8 +24,7 @@ const DEFAULT_DB: ServerDatabase = {
   conversations: [],
   projects: [],
   agents: [],
-  tasks: [],
-  readingItems: [],
+  journalEntries: [],
   settings: DEFAULT_SETTINGS,
   personas: PRESET_PERSONAS,
   pendingApprovals: [],
@@ -92,24 +90,14 @@ function mergePendingApprovals(serverList: PendingApproval[], clientList: Pendin
   return Array.from(map.values()).sort((a, b) => b.createdAt - a.createdAt);
 }
 
-function mergeTasks(serverList: TaskItem[] = [], clientList: TaskItem[] = []): TaskItem[] {
-  const map = new Map<string, TaskItem>();
-  for (const t of serverList) map.set(t.id, t);
-  for (const t of clientList) {
-    const existing = map.get(t.id);
-    if (!existing || (t.updatedAt || 0) >= (existing.updatedAt || 0)) map.set(t.id, t);
+export function mergeJournalEntries(serverList: JournalEntry[] = [], clientList: JournalEntry[] = []): JournalEntry[] {
+  const map = new Map<string, JournalEntry>();
+  for (const j of serverList) map.set(j.id, j);
+  for (const j of clientList) {
+    const existing = map.get(j.id);
+    if (!existing || (j.updatedAt || 0) >= (existing.updatedAt || 0)) map.set(j.id, j);
   }
   return Array.from(map.values()).sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
-}
-
-function mergeReadingItems(serverList: ReadingItem[] = [], clientList: ReadingItem[] = []): ReadingItem[] {
-  const map = new Map<string, ReadingItem>();
-  for (const r of serverList) map.set(r.id, r);
-  for (const r of clientList) {
-    const existing = map.get(r.id);
-    if (!existing || (r.lastReadAt || 0) >= (existing.lastReadAt || 0)) map.set(r.id, r);
-  }
-  return Array.from(map.values()).sort((a, b) => (b.lastReadAt || 0) - (a.lastReadAt || 0));
 }
 
 // =====================================================================
@@ -157,6 +145,9 @@ function getSqliteDb(): BetterSqlite3.Database {
     CREATE TABLE IF NOT EXISTS pending_approvals (
       id TEXT PRIMARY KEY, createdAt INTEGER NOT NULL DEFAULT 0, data TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS journal_entries (
+      id TEXT PRIMARY KEY, updatedAt INTEGER NOT NULL DEFAULT 0, data TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT NOT NULL);
   `);
 
@@ -188,6 +179,7 @@ function migrateJsonIntoSqlite(database: BetterSqlite3.Database) {
     insertRows("projects", "updatedAt", parsed.projects || []);
     insertRows("agents", "updatedAt", parsed.agents || []);
     insertRows("pending_approvals", "createdAt", parsed.pendingApprovals || []);
+    insertRows("journal_entries", "updatedAt", parsed.journalEntries || []);
 
     const kv = database.prepare(`INSERT OR REPLACE INTO kv (key, value) VALUES (?, ?)`);
     kv.run("settings", JSON.stringify(parsed.settings || DEFAULT_SETTINGS));
@@ -248,13 +240,14 @@ async function readServerDbSqlite(): Promise<ServerDatabase> {
   const projects = sqliteReadAll<Project>("projects").sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
   const agents = sqliteReadAll<AgentTask>("agents").sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
   const pendingApprovals = sqliteReadAll<PendingApproval>("pending_approvals").sort((a, b) => b.createdAt - a.createdAt);
+  const journalEntries = sqliteReadAll<JournalEntry>("journal_entries").sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
 
   const settings = { ...DEFAULT_SETTINGS, ...sqliteGetKv<Partial<AppSettings>>("settings", DEFAULT_SETTINGS) };
   const personas = sqliteGetKv<PersonaPreset[]>("personas", PRESET_PERSONAS);
   const version = sqliteGetKv<number>("version", 1);
   const lastUpdated = sqliteGetKv<number>("lastUpdated", Date.now());
 
-  return { conversations, projects, agents, settings, personas, pendingApprovals, lastUpdated, version };
+  return { conversations, projects, agents, journalEntries, settings, personas, pendingApprovals, lastUpdated, version };
 }
 
 async function writeServerDbSqlite(data: WriteServerDbInput): Promise<ServerDatabase> {
@@ -275,6 +268,10 @@ async function writeServerDbSqlite(data: WriteServerDbInput): Promise<ServerData
   if (data.pendingApprovals !== undefined) {
     const merged = data.overwrite ? data.pendingApprovals : mergePendingApprovals(current.pendingApprovals, data.pendingApprovals);
     (data.overwrite ? sqliteReplaceCollection : sqliteUpsertCollection)("pending_approvals", "createdAt", merged);
+  }
+  if (data.journalEntries !== undefined) {
+    const merged = data.overwrite ? data.journalEntries : mergeJournalEntries(current.journalEntries || [], data.journalEntries);
+    (data.overwrite ? sqliteReplaceCollection : sqliteUpsertCollection)("journal_entries", "updatedAt", merged);
   }
 
   if (data.settings) sqliteSetKv("settings", { ...current.settings, ...data.settings });
@@ -324,12 +321,31 @@ async function readServerDbJson(): Promise<ServerDatabase> {
     await fs.promises.mkdir(DATA_DIR, { recursive: true });
     const content = await fs.promises.readFile(JSON_FILE, "utf-8");
     const parsed = JSON.parse(content);
+    const rawJournal: JournalEntry[] = parsed.journalEntries || [];
+    const journalEntries: JournalEntry[] =
+      rawJournal.length > 0
+        ? rawJournal
+        : (parsed.tasks || []).map((t: any) => ({
+            id: t.id,
+            title: t.title,
+            content: t.description || "",
+            icon: "🎯",
+            category: "task" as const,
+            status: t.status === "todo" ? "draft" : t.status === "in_progress" ? "in_progress" : t.status === "done" ? "done" : "draft",
+            priority: t.priority || "medium",
+            projectId: t.projectId,
+            tags: t.tags || [],
+            checklists: t.subtasks || [],
+            date: t.dueDate,
+            createdAt: t.createdAt || Date.now(),
+            updatedAt: t.updatedAt || Date.now(),
+          }));
+
     jsonCache = {
       conversations: parsed.conversations || [],
       projects: parsed.projects || [],
       agents: parsed.agents || [],
-      tasks: parsed.tasks || [],
-      readingItems: parsed.readingItems || [],
+      journalEntries,
       settings: parsed.settings ? { ...DEFAULT_SETTINGS, ...parsed.settings } : DEFAULT_SETTINGS,
       personas: parsed.personas || PRESET_PERSONAS,
       pendingApprovals: parsed.pendingApprovals || [],
@@ -368,19 +384,12 @@ async function writeServerDbJson(data: WriteServerDbInput): Promise<ServerDataba
         : mergeAgents(current.agents, data.agents)
       : current.agents;
 
-  const mergedTasks =
-    data.tasks !== undefined
+  const mergedJournalEntries =
+    data.journalEntries !== undefined
       ? data.overwrite
-        ? data.tasks
-        : mergeTasks(current.tasks, data.tasks)
-      : current.tasks || [];
-
-  const mergedReadingItems =
-    data.readingItems !== undefined
-      ? data.overwrite
-        ? data.readingItems
-        : mergeReadingItems(current.readingItems, data.readingItems)
-      : current.readingItems || [];
+        ? data.journalEntries
+        : mergeJournalEntries(current.journalEntries, data.journalEntries)
+      : current.journalEntries || [];
 
   const mergedPendingApprovals =
     data.pendingApprovals !== undefined
@@ -393,8 +402,7 @@ async function writeServerDbJson(data: WriteServerDbInput): Promise<ServerDataba
     conversations: mergedConversations,
     projects: mergedProjects,
     agents: mergedAgents,
-    tasks: mergedTasks,
-    readingItems: mergedReadingItems,
+    journalEntries: mergedJournalEntries,
     settings: data.settings ? { ...current.settings, ...data.settings } : current.settings,
     personas: data.personas || current.personas,
     pendingApprovals: mergedPendingApprovals,
@@ -416,8 +424,7 @@ interface WriteServerDbInput {
   conversations?: Conversation[];
   projects?: Project[];
   agents?: AgentTask[];
-  tasks?: TaskItem[];
-  readingItems?: ReadingItem[];
+  journalEntries?: JournalEntry[];
   settings?: AppSettings;
   personas?: PersonaPreset[];
   pendingApprovals?: PendingApproval[];

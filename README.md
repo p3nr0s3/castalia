@@ -7,7 +7,7 @@
 <p align="center">
   <strong>Modern, Local-First, Privacy-Focused AI Workspace, Autonomous Agent Hub & Productivity Suite.</strong>
   <br />
-  <em>Dirancang untuk model lokal (Ollama / GGUF) dan Cloud AI (Gemini, Claude, GPT, DeepSeek, Groq, OpenRouter). Dilengkapi Smart Context, Hybrid RAG, In-Browser Codespace, Document & Comic Reader, Offline Music Sanctuary, Kanban Task Manager, serta Human-in-the-Loop Security Sandbox.</em>
+  <em>Dirancang untuk model lokal (Ollama / GGUF) dan Cloud AI (Gemini, Claude, GPT, DeepSeek, Groq, OpenRouter). Dilengkapi Smart Context, Hybrid RAG, In-Browser Codespace, Notion-Style Workspace Journal, serta Human-in-the-Loop Security Sandbox.</em>
 </p>
 
 <p align="center">
@@ -16,7 +16,7 @@
   <img src="https://img.shields.io/badge/Tailwind_CSS-3.4-38bdf8?style=flat-square&logo=tailwind-css" alt="Tailwind" />
   <img src="https://img.shields.io/badge/Ollama-Local_LLMs-teal?style=flat-square&logo=ollama" alt="Ollama" />
   <img src="https://img.shields.io/badge/SQLite-WAL_Mode-003B57?style=flat-square&logo=sqlite" alt="SQLite" />
-  <img src="https://img.shields.io/badge/Tests-46%20Passed-brightgreen?style=flat-square" alt="Tests" />
+  <img src="https://img.shields.io/badge/Tests-49%20Passed-brightgreen?style=flat-square" alt="Tests" />
   <img src="https://img.shields.io/badge/License-MIT-green?style=flat-square" alt="License" />
 </p>
 
@@ -29,17 +29,15 @@
   - [1. Arsitektur Viewport & Navigasi Utama](#1-arsitektur-viewport--navigasi-utama)
   - [2. Alur Prompt Engine, Smart Context & Hybrid RAG](#2-alur-prompt-engine-smart-context--hybrid-rag)
   - [3. Alur Agen Otonom & Human-in-the-Loop Tool Approval](#3-alur-agen-otonom--human-in-the-loop-tool-approval)
-  - [4. Alur Rak Buku & Document Reader](#4-alur-rak-buku--document-reader)
+  - [4. Alur Workspace Journal & Notion-Style Notebook](#4-alur-workspace-journal--notion-style-notebook)
 - [✨ Rincian Fitur Komprehensif](#-rincian-fitur-komprehensif)
   - [1. Smart Context, Context Shift & Visualizer](#1-smart-context-context-shift--visualizer)
   - [2. Autonomous Agents, Scheduler & Approval Queue](#2-autonomous-agents-scheduler--approval-queue)
   - [3. Full-Screen Codespace & Live Preview](#3-full-screen-codespace--live-preview)
-  - [4. Document & Comic Reader (Rak Buku & AI Slider)](#4-document--comic-reader-rak-buku--ai-slider)
-  - [5. Dedicated Music Sanctuary & Focus Soundscapes](#5-dedicated-music-sanctuary--focus-soundscapes)
-  - [6. Manajemen Task Kanban & AI Copilot](#6-manajemen-task-kanban--ai-copilot)
-  - [7. Disk Tools Sandbox & Diff Preview](#7-disk-tools-sandbox--diff-preview)
-  - [8. Claude-Style Projects & Custom Personas](#8-claude-style-projects--custom-personas)
-  - [9. Penyimpanan Ganda (SQLite WAL + JSON Fallback + SSE)](#9-penyimpanan-ganda-sqlite-wal--json-fallback--sse)
+  - [4. Workspace Journal & Notion-Style Notebook (Multi-View & AI Copilot)](#4-workspace-journal--notion-style-notebook-multi-view--ai-copilot)
+  - [5. Disk Tools Sandbox & Diff Preview](#5-disk-tools-sandbox--diff-preview)
+  - [6. Claude-Style Projects & Custom Personas](#6-claude-style-projects--custom-personas)
+  - [7. Penyimpanan Ganda (SQLite WAL + JSON Fallback + SSE)](#7-penyimpanan-ganda-sqlite-wal--json-fallback--sse)
 - [🔐 Keamanan & Sandbox Akses](#-keamanan--sandbox-akses)
 - [🚀 Panduan Instalasi & Memulai](#-panduan-instalasi--memulai)
 - [⚙️ Variabel Lingkungan (.env.local)](#️-variabel-lingkungan-envlocal)
@@ -52,11 +50,9 @@
 
 ## 🌟 Sorotan Fitur Utama
 
-- 🔒 **100% Privat & Local-First**: Chat, e-book, musik, task, konfigurasi agen, dan berkas proyek tersimpan aman di mesin lokal Anda tanpa ketergantungan cloud.
+- 🔒 **100% Privat & Local-First**: Chat, dokumen jurnal, to-do list, konfigurasi agen, dan berkas proyek tersimpan aman di mesin lokal Anda tanpa ketergantungan cloud.
 - ⚡ **Smart Context & Zero-VRAM Hybrid RAG**: Alokasi konteks cerdas dengan BM25 keyword matching secepat kilat + semantic vector embeddings opsional, lengkap dengan sistem *Context Shift*, cache prompt statis, dan LRU response cache.
-- 📚 **Document & Comic Reader + Rak Buku**: Baca EPUB, PDF, Text/Markdown, serta Manga/Komik (CBZ & CBR) dengan panel asisten AI yang dapat digeser (`col-resize`), histori baca otomatis, dan fitur scan folder lokal tanpa perlu upload satu per satu.
-- 🎵 **Dedicated Music Sanctuary**: Stasiun musik layar penuh dengan *hero audio visualizer*, pemindai berkas lagu lokal (`.mp3`, `.flac`, `.wav`), dan 6 suara ambien offline (Lofi, Rain, Space, Synthwave, Forest, 432Hz Binaural) yang terus berputar saat Anda berpindah menu.
-- ✅ **Task Management Kanban & AI Copilot**: Manajemen tugas gaya Kanban (*To Do*, *In Progress*, *Review*, *Done*) dan List View, lengkap dengan asisten AI untuk memecah subtask otomatis, membuat draft solusi kode, dan tombol langsung kirim ke chat.
+- 📓 **Notion-Style Workspace Journal & Notebook**: Kanvas dokumen fleksibel dengan banner cover pilihan, emoji picker, properti status/prioritas/kategori, daftar tugas interaktif (*checkable checklist*), multi-view (Halaman Dokumen, Daftar Tabel, dan Papan Kanban), serta AI Journal Copilot.
 - 💻 **In-Browser Codespace**: Editor multi-tab terintegrasi Monaco Editor, terminal emulator, dan sandbox eksekusi HTML/SVG live preview.
 - ⏰ **Autonomous Background Agents**: Penjadwal cron/interval otomatis untuk riset berkala dengan sistem verifikasi keamanan *Human-in-the-Loop* (diff viewer sebelum mengeksekusi penulisan berkas).
 - 🎨 **Kustomisasi Luas**: 13 tema warna (Claude Amber, OLED Black, Midnight, Dracula, Cyberpunk, Custom Palette), kontrol ukuran font, dan modal pengaturan yang lapang (*max-w-6xl*).
@@ -77,24 +73,15 @@ graph TD
     
     Sidebar -->|Klik New / Chat / Proyek| WorkspaceView["Workspace Chat & Projects Area"]
     Sidebar -->|Klik Code| CodespaceView["Codespace (Monaco Editor & Terminal Sandbox)"]
-    Sidebar -->|Klik Reader| ReaderView["Document & Comic Reader (Rak Buku / Reader Mode)"]
-    Sidebar -->|Klik Music| MusicView["Music Sanctuary (Hero Visualizer & Ambient Audio)"]
-    Sidebar -->|Klik Tasks| TasksView["Task Manager (Kanban Board & AI Task Copilot)"]
-    Sidebar -->|Buka Settings| SettingsModal["Settings Modal (Kustomisasi, API Keys, Folder Scan)"]
+    Sidebar -->|Klik Journal| JournalView["Workspace Journal (Notion Canvas, Kanban & Copilot)"]
+    Sidebar -->|Buka Settings| SettingsModal["Settings Modal (Kustomisasi, API Keys, Model Setup)"]
 
-    subgraph BackgroundPersistence ["Background Audio & Sync Engine"]
-        MusicAudioEngine["Web Audio API / Native Audio Streamer"]
+    subgraph BackgroundPersistence ["Background Sync Engine"]
         SseWatcher["SSE Live Database Stream (/api/db/stream)"]
     end
 
-    MusicView -.->|Playback Berkelanjutan| MusicAudioEngine
-    WorkspaceView -.->|Audio Tetap Berjalan| MusicAudioEngine
-    CodespaceView -.->|Audio Tetap Berjalan| MusicAudioEngine
-    TasksView -.->|Audio Tetap Berjalan| MusicAudioEngine
-    ReaderView -.->|Audio Tetap Berjalan| MusicAudioEngine
-
     SseWatcher -.->|Auto-Refresh State| WorkspaceView
-    SseWatcher -.->|Auto-Refresh State| TasksView
+    SseWatcher -.->|Auto-Refresh State| JournalView
 ```
 
 ---
@@ -177,25 +164,25 @@ sequenceDiagram
 
 ---
 
-### 4. Alur Rak Buku & Document Reader
+### 4. Alur Workspace Journal & Notion-Style Notebook
 
 ```mermaid
 flowchart LR
-    A["Pilih Menu Reader"] --> B{"Tampilan Aktif"}
+    A["Pilih Menu Journal"] --> B{"Pilihan View Mode"}
     
-    B -->|viewMode = library| C["Rak Buku (Library Shelf)"]
-    C --> C1["Scan Otomatis Direktori Lokal (C:\\Books) via /api/books"]
-    C1 --> C2["Tampilkan Cover, Format EPUB/COMIC/PDF/TXT, & File Size"]
-    C --> C3["Histori Baca & Tombol 'Lanjutkan Membaca'"]
+    B -->|viewMode = page| C["Kanvas Dokumen Notion (Cover, Emoji, Properti, Markdown & Checklist)"]
+    B -->|viewMode = list| D["Daftar / Tabel Ringkas (Filter Kategori & Status)"]
+    B -->|viewMode = board| E["Papan Kanban Status (Draft, In Progress, Done, Archived)"]
     
-    C3 & C2 -->|Klik Item / Lanjut| D["Reader Mode (viewMode = reader)"]
-    B -->|viewMode = reader| D
+    C --> F["Daftar To-Do Interaktif (Checkable Subtask)"]
+    C --> G["AI Journal Copilot"]
     
-    D --> E["Viewport Konten Buku / Halaman Komik (Single/Continuous)"]
-    D --> F["Draggable Resize Slider Handle (col-resize: 280px - 760px)"]
-    F --> G["Panel Asisten AI (Tanya Buku, Ringkas Bab, Analisis Karakter)"]
+    G --> G1["Auto-Draft Konten / Solusi"]
+    G --> G2["Ekstrak Checklist To-Do"]
+    G --> G3["Rapikan Format Markdown Notion"]
+    G --> G4["Kirim Dokumen / To-Do ke Chat Studio"]
     
-    D -.->|Update Progress Otomatis| H["Simpan ReadingItem ke LocalStorage & Server DB"]
+    C & D & E -.->|Auto-Sync & Migrasi Otomatis| H["Simpan ke LocalStorage & SQLite WAL"]
 ```
 
 ---
@@ -218,36 +205,30 @@ flowchart LR
 - **Virtual Terminal Emulator**: Uji logika JavaScript dan perintah konsol secara lokal.
 - **Sandboxed Live Preview**: Pratinjau komponen UI (HTML5 Canvas, SVG, Tailwind, dan animasi CSS) secara real-time di dalam iframe berpasir (*sandboxed*).
 
-### 4. Document & Comic Reader (Rak Buku & AI Slider)
-- **Multi-Format Reader**: Mendukung format `.epub` (buku teks & novel), `.cbz` & `.cbr` (komik dan manga Jepang dengan mode halaman ganda/kontinyu), `.pdf`, serta `.txt`/`.md`.
-- **Rak Buku & Histori Baca**: Cover kartu visual, persentase progres membaca, waktu baca terakhir, dan tombol *Lanjutkan Membaca*.
-- **Auto-Scan Folder Lokal**: Cukup daftarkan folder lokal Anda (misal `C:\Books`), aplikasi otomatis mengindeks seluruh koleksi tanpa repot upload manual.
-- **Slider Asisten AI**: Panel asisten AI dapat diubah lebarnya secara bebas (280px hingga 760px) menggunakan mouse slider handle.
+### 4. Workspace Journal & Notion-Style Notebook (Multi-View & AI Copilot)
+- **Kanvas Dokumen Elegan**: Dilengkapi banner cover gradien yang dapat disesuaikan, picker emoji ikon dokumen, serta tag kategori (*Catatan Harian*, *Task / To-Do*, *Ide & Brainstorm*, *Proyek*, *Quick Note*).
+- **To-Do Checklist Interaktif**: Setiap dokumen jurnal memiliki daftar tugas interaktif (*checkable checklist*) dengan indikator persentase progres dinamis.
+- **Tiga Tampilan Sekaligus (Multi-View)**:
+  - *Tampilan Halaman (Page Editor)*: Pengalaman menulis bersih seperti Notion dengan toolbar format teks kaya.
+  - *Tampilan Daftar (List/Table View)*: Tinjauan padat seluruh entri dengan filter kategori, status, dan prioritas.
+  - *Papan Kanban (Status Board)*: Menggeser dan memantau status pengerjaan entri (*Draft*, *In Progress*, *Done*, *Archived*).
+- **AI Journal Copilot**:
+  - *Auto-Draft*: AI menyusun dokumen lengkap berdasarkan topik Anda.
+  - *Ekstrak To-Do*: AI membedah isi teks dokumen menjadi poin-poin checklist secara otomatis.
+  - *Poles & Format Notion*: Memformat tulisan ke standar markdown terstruktur elegan.
+  - *Kirim ke Chat*: Menyalin isi catatan atau daftar to-do ke ruang obrolan AI utama hanya dengan satu klik.
+- **Auto-Migration Legacy Task**: Secara otomatis memigrasikan data tugas lama ke dalam entri jurnal tanpa kehilangan riwayat.
 
-### 5. Dedicated Music Sanctuary & Focus Soundscapes
-- **Stasiun Musik Layar Penuh**: Hero visualizer dengan piringan hitam animasi, pemutar musik offline, dan pengatur volume master.
-- **Suara Ambien Web Audio API**: 6 soundscape sintetis 100% offline (Lofi Coffeehouse, Midnight Rain & Thunder, Deep Space Drone, Cyberpunk City Nights, Forest Birds, 432Hz Alpha Waves).
-- **Pemindai Musik Disk**: Scan berkas lagu di direktori komputer (`.mp3`, `.flac`, `.wav`, `.m4a`) dengan streaming audio berlatensi rendah.
-- **Background Playback**: Musik terus mengalun saat berpindah ke menu lain (Chat, Codespace, Reader, Tasks).
-
-### 6. Manajemen Task Kanban & AI Copilot
-- **Papan Kanban Visual**: 4 status kolom (*To Do*, *In Progress*, *Review*, *Done*) dengan warna prioritas (*Urgent*, *High*, *Medium*, *Low*).
-- **Tampilan Daftar (List View)**: Tabel padat untuk menyortir task berdasarkan tenggat waktu, proyek, atau tag.
-- **AI Task Copilot**:
-  - *Auto-Breakdown*: Mengurai judul task kompleks menjadi daftar checklist subtask secara otomatis.
-  - *Draft Solusi & Kode*: Menyusun rencana teknis dan kode implementasi dengan 1 klik.
-  - *Kirim ke Chat*: Langsung menyalin solusi yang dibuat agen ke area chat utama.
-
-### 7. Disk Tools Sandbox & Diff Preview
+### 5. Disk Tools Sandbox & Diff Preview
 - Mengizinkan model AI membaca dan memodifikasi file di mesin pengguna dengan batasan keamanan ketat di direktori pengguna (`$HOME`).
 - Tool yang tersedia: `read_file`, `write_file`, `list_directory`, `search_files`, `delete_file`.
 - Menampilkan visual diff per baris sebelum modifikasi file dijalankan.
 
-### 8. Claude-Style Projects & Custom Personas
+### 6. Claude-Style Projects & Custom Personas
 - **Proyek Terisolasi**: Pisahkan instruksi sistem, berkas pengetahuan, hyperparameter (`temperature`, `top_p`, `num_ctx`), dan riwayat obrolan per proyek.
 - **Direktori Skill & Plugin**: Aktifkan persona spesialis (Staff Software Architect, Cybersecurity Analyst, Data Scientist, Technical Writer) yang secara otomatis menyalakan disk tool yang relevan.
 
-### 9. Penyimpanan Ganda (SQLite WAL + JSON Fallback + SSE)
+### 7. Penyimpanan Ganda (SQLite WAL + JSON Fallback + SSE)
 - Menggunakan database **SQLite** berperforma tinggi dengan mode WAL (`better-sqlite3`).
 - Jika mesin pengguna belum memiliki kompiler C++/Python untuk SQLite natif, sistem otomatis beralih ke fallback **JSON Flat File** (`data/db.json`) dengan API identik tanpa error.
 - **Server-Sent Events (SSE)** via `/api/db/stream` memperbarui perubahan data secara instan di semua tab peramban.
@@ -259,8 +240,7 @@ flowchart LR
 | Route API | Kemampuan & Batasan Keamanan |
 | :--- | :--- |
 | `/api/fs`, `/api/tools/execute*` | Operasi berkas disk dibatasi ketat di direktori `$HOME` pengguna via sandbox `pathSandbox.ts`. Tindakan `write_file` dan `delete_file` dari agen wajib menyertakan token persetujuan pengguna. |
-| `/api/books` | Mengindeks dan melakukan streaming berkas buku lokal secara aman dengan validasi whitelist ekstensi berkas. |
-| `/api/audio` | Streaming berkas lagu lokal dari folder yang dikonfigurasi dengan whitelist ekstensi audio. |
+| `/api/db`, `/api/db/stream` | Akses basis data SQLite / JSON terisolasi dengan otentikasi token untuk multi-klien / local tunnel. |
 | `/api/cloud/chat` | Masking otomatis data rahasia (`lib/redaction.ts`) sebelum data dikirim ke penyedia cloud (OpenAI/Anthropic/Gemini). |
 | `/api/ollama/[...path]` | Rate-limiting proxy untuk mencegah looping berlebih pada instance Ollama lokal. |
 
@@ -364,8 +344,6 @@ SEARXNG_URL=
 ollama-chat-web/
 ├── app/
 │   ├── api/
-│   │   ├── audio/route.ts               # Streaming audio & scan direktori musik lokal
-│   │   ├── books/route.ts               # Streaming biner & scan folder e-book/komik lokal
 │   │   ├── cloud/chat/route.ts          # Streaming proxy API Gemini/Claude/OpenAI/Groq/DeepSeek
 │   │   ├── connectors/route.ts          # Dispatcher MCP (GitHub, Slack, Discord, Blender)
 │   │   ├── db/route.ts                  # Endpoint CRUD database SQLite / JSON
@@ -377,17 +355,13 @@ ollama-chat-web/
 │   ├── globals.css                      # Tailwind, KaTeX, font typography & definisi tema CSS
 │   ├── layout.tsx                       # Root layout & penyedia konteks tema
 │   └── page.tsx                         # Controller utama, pengatur viewport, & state sentral
-├── components/                          # Koleksi komponen UI modular (~28 komponen)
+├── components/                          # Koleksi komponen UI modular
 │   ├── CodespaceView.tsx                # Layar penuh Codespace editor & terminal
-│   ├── DocumentReaderView.tsx           # Layar penuh Reader, Rak Buku, & slider asisten AI
-│   ├── MusicFullView.tsx                # Layar penuh Music Sanctuary & visualizer hero
-│   ├── MusicPlayerWidget.tsx            # Floating widget pemutar suara ambien offline
-│   ├── TaskManagerView.tsx              # Layar penuh Kanban board & AI Task Copilot
+│   ├── JournalView.tsx                  # Layar penuh Notion-style Workspace Journal, Kanban & Copilot
 │   ├── SettingsModal.tsx                # Dialog pengaturan komprehensif (lebar 6xl)
 │   ├── Sidebar.tsx                      # Sidebar navigasi vertikal responsif
 │   └── ...
 ├── lib/                                 # Logika bisnis, algoritma, ranker, & adaptor penyimpanan
-│   ├── bookUtils.ts                     # Parser tipe & MIME berkas buku/komik
 │   ├── contextVisualizer.ts             # Algoritma pembagi alokasi token konteks
 │   ├── diskToolOps.ts                   # Implementasi operasi sandboxed berkas disk
 │   ├── rag.ts                           # BM25 token ranker + hybrid semantic retrieval
@@ -395,7 +369,7 @@ ollama-chat-web/
 │   ├── serverDb.ts                      # Abstraksi database SQLite WAL dengan JSON fallback
 │   ├── storage.ts                       # Adapter sinkronisasi localStorage & server DB
 │   └── types.ts                         # Definisi TypeScript komprehensif
-└── tests/                               # 10 test suite Vitest (Sandbox, RAG, Parser, DB, Task, Books)
+└── tests/                               # 9 test suite Vitest (49 unit tests)
 ```
 
 ---
@@ -415,14 +389,14 @@ npx tsc --noEmit
 npm run build
 ```
 
-Semua 10 file pengujian mencakup:
+Semua 9 file pengujian (49 tests) mencakup:
 - Validasi sandbox keamanan jalur berkas (*Path Traversal Protection*).
 - Algoritma pemeringkat hibrida RAG (BM25 + Cosine Similarity).
-- Parser e-book (EPUB, PDF, CBZ/CBR Comic).
+- Parser dokumen (PDF, Markdown, Text).
 - Smart Context trimming & alokasi anggaran token.
 - LRU Response Cache hit/miss.
 - Text diff generator untuk persetujuan tool modifikasi berkas.
-- Logika Task Manager (Kanban filtering, status transitions, subtask progress) & Reading Library.
+- Logika Workspace Journal (Notion data model, checklist progress, multi-source merge, & auto-migration).
 
 ---
 

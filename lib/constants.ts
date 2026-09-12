@@ -88,8 +88,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
   connectors: DEFAULT_CONNECTORS,
   plugins: DEFAULT_PLUGINS,
   memory: DEFAULT_MEMORY_CONFIG,
-  musicDirectory: "",
-  booksDirectory: "",
   smartContextEnabled: true,
   ollamaKeepAlive: "60m",
   customTheme: {

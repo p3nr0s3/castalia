@@ -32,10 +32,8 @@ import {
   Wand2,
   Plus,
   Search,
-  Music,
   Folder,
   HardDrive,
-  BookOpen,
 } from "lucide-react";
 import { AppSettings, OllamaModel, ThemeType, FontFamilyType, ThinkingMode, Skill } from "@/lib/types";
 import { checkOllamaHealth } from "@/lib/ollama";
@@ -59,7 +57,6 @@ export type SettingsSection =
   | "personalization"
   | "chat"
   | "skills"
-  | "music"
   | "cloud"
   | "server"
   | "data"
@@ -226,14 +223,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [newSkillDesc, setNewSkillDesc] = useState("");
   const [newSkillPrompt, setNewSkillPrompt] = useState("");
 
-  // Music state in settings
-  const [isScanningMusic, setIsScanningMusic] = useState(false);
-  const [musicScanResult, setMusicScanResult] = useState<string | null>(null);
-
-  // Books / Reader state in settings
-  const [isScanningBooks, setIsScanningBooks] = useState(false);
-  const [booksScanResult, setBooksScanResult] = useState<string | null>(null);
-
   if (!isOpen) return null;
 
   const toggleKeyVisibility = (provider: string) => {
@@ -364,14 +353,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       icon: Zap,
       color: "text-amber-400",
       badgeBg: "bg-amber-500/15 text-amber-400",
-    },
-    {
-      id: "music",
-      label: "Offline Music & Ambient",
-      sublabel: formData.musicDirectory ? "Folder Configured" : "Default / Synthscapes",
-      icon: Music,
-      color: "text-emerald-400",
-      badgeBg: "bg-emerald-500/15 text-emerald-400",
     },
     {
       id: "cloud",
@@ -1401,145 +1382,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         </div>
                       </div>
                     ))}
-                </div>
-              </div>
-            )}
-
-            {/* 4. OFFLINE MUSIC & AMBIENT AUDIO SECTION */}
-            {activeSection === "music" && (
-              <div className="space-y-4 animate-in fade-in duration-150">
-                <div>
-                  <h3 className="text-sm font-bold text-[var(--foreground)]">Offline Music & Ambient Soundscapes</h3>
-                  <p className="text-xs text-[var(--muted)] mt-0.5">
-                    Configure your local music directory on disk and default audio settings.
-                  </p>
-                </div>
-
-                {/* Local Music Directory on Disk */}
-                <div className="p-4 rounded-2xl bg-[var(--sidebar-bg)] border border-[var(--card-border)] space-y-3">
-                  <div className="flex items-center gap-2 text-xs font-bold text-[var(--foreground)]">
-                    <HardDrive className="w-4 h-4 text-emerald-400" />
-                    <span>Default Offline Music Directory Path</span>
-                  </div>
-
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      placeholder="e.g. C:\Users\Rei\Music or D:\Songs or /Users/.../Music"
-                      value={formData.musicDirectory || ""}
-                      onChange={(e) => setFormData({ ...formData, musicDirectory: e.target.value })}
-                      className="flex-1 px-3 py-2 text-xs font-mono rounded-xl border border-[var(--card-border)] bg-[var(--card-bg)] text-[var(--foreground)] focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                    />
-                    <button
-                      type="button"
-                      disabled={isScanningMusic || !formData.musicDirectory?.trim()}
-                      onClick={async () => {
-                        if (!formData.musicDirectory?.trim()) return;
-                        setIsScanningMusic(true);
-                        setMusicScanResult(null);
-                        try {
-                          const res = await apiFetch(`/api/audio?dir=${encodeURIComponent(formData.musicDirectory.trim())}`);
-                          const data = await res.json();
-                          if (data.files && Array.isArray(data.files)) {
-                            setMusicScanResult(`✓ Found ${data.files.length} songs (.mp3, .flac, .wav, .m4a) in directory!`);
-                          } else {
-                            setMusicScanResult(`❌ ${data.error || "Directory not found"}`);
-                          }
-                        } catch (e: any) {
-                          setMusicScanResult(`❌ Error: ${e.message}`);
-                        } finally {
-                          setIsScanningMusic(false);
-                        }
-                      }}
-                      className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white transition-all cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
-                    >
-                      <RefreshCw className={`w-3.5 h-3.5 ${isScanningMusic ? "animate-spin" : ""}`} />
-                      <span>Scan</span>
-                    </button>
-                  </div>
-
-                  {musicScanResult && (
-                    <div
-                      className={`text-xs font-medium ${
-                        musicScanResult.startsWith("✓") ? "text-emerald-400" : "text-rose-400"
-                      }`}
-                    >
-                      {musicScanResult}
-                    </div>
-                  )}
-
-                  <p className="text-[11px] text-[var(--muted)] leading-relaxed">
-                    When configured, the offline music player will automatically load and stream your songs directly using the local backend streaming engine with instant seeking support.
-                  </p>
-                </div>
-
-                {/* Local Books & Comics Directory on Disk */}
-                <div className="p-4 rounded-2xl bg-[var(--sidebar-bg)] border border-[var(--card-border)] space-y-3">
-                  <div className="flex items-center gap-2 text-xs font-bold text-[var(--foreground)]">
-                    <BookOpen className="w-4 h-4 text-blue-400" />
-                    <span>Default Offline Books & Comics Directory Path</span>
-                  </div>
-
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      placeholder="e.g. C:\Users\Rei\Books or D:\Comics or /Users/.../Books"
-                      value={formData.booksDirectory || ""}
-                      onChange={(e) => setFormData({ ...formData, booksDirectory: e.target.value })}
-                      className="flex-1 px-3 py-2 text-xs font-mono rounded-xl border border-[var(--card-border)] bg-[var(--card-bg)] text-[var(--foreground)] focus:outline-none focus:ring-1 focus:ring-blue-500"
-                    />
-                    <button
-                      type="button"
-                      disabled={isScanningBooks || !formData.booksDirectory?.trim()}
-                      onClick={async () => {
-                        if (!formData.booksDirectory?.trim()) return;
-                        setIsScanningBooks(true);
-                        setBooksScanResult(null);
-                        try {
-                          const res = await apiFetch(`/api/books?scanDir=${encodeURIComponent(formData.booksDirectory.trim())}`);
-                          const data = await res.json();
-                          if (data.files && Array.isArray(data.files)) {
-                            setBooksScanResult(`✓ Found ${data.files.length} items (.epub, .cbz, .cbr, .pdf, .txt, .md) in directory!`);
-                          } else {
-                            setBooksScanResult(`❌ ${data.error || "Directory not found"}`);
-                          }
-                        } catch (e: any) {
-                          setBooksScanResult(`❌ Error: ${e.message}`);
-                        } finally {
-                          setIsScanningBooks(false);
-                        }
-                      }}
-                      className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-blue-600 hover:bg-blue-500 text-white transition-all cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
-                    >
-                      <RefreshCw className={`w-3.5 h-3.5 ${isScanningBooks ? "animate-spin" : ""}`} />
-                      <span>Scan</span>
-                    </button>
-                  </div>
-
-                  {booksScanResult && (
-                    <div
-                      className={`text-xs font-medium ${
-                        booksScanResult.startsWith("✓") ? "text-blue-400" : "text-rose-400"
-                      }`}
-                    >
-                      {booksScanResult}
-                    </div>
-                  )}
-
-                  <p className="text-[11px] text-[var(--muted)] leading-relaxed">
-                    When configured, the Reader Library Shelf will automatically index and display covers for your local eBooks, Manga, and Comics from this directory.
-                  </p>
-                </div>
-
-                {/* Built-in Focus Soundscapes Info */}
-                <div className="p-4 rounded-2xl bg-[var(--sidebar-bg)] border border-[var(--card-border)] space-y-2">
-                  <div className="text-xs font-bold text-[var(--foreground)] flex items-center gap-1.5">
-                    <Sparkles className="w-4 h-4 text-purple-400" />
-                    <span>Built-in Synthesizer Soundscapes</span>
-                  </div>
-                  <p className="text-xs text-[var(--muted)] leading-relaxed">
-                    The floating widget also includes 6 offline synthesized ambient soundscapes (Lofi Coffeehouse, Midnight Rain & Thunder, Deep Space Drone, 432Hz Binaural Waves) running 100% offline via real-time Web Audio API.
-                  </p>
                 </div>
               </div>
             )}

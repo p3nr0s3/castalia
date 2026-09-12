@@ -47,21 +47,13 @@ import {
   DEFAULT_PLUGINS,
   DEFAULT_MEMORY_CONFIG,
 } from "@/lib/directoryData";
-import { MusicPlayerWidget, NowPlayingInfo } from "@/components/MusicPlayerWidget";
 import { CodespaceView } from "@/components/CodespaceView";
-import DocumentReaderView from "@/components/DocumentReaderView";
-import MusicFullView from "@/components/MusicFullView";
-import TaskManagerView from "@/components/TaskManagerView";
+import { JournalView } from "@/components/JournalView";
 import {
   buildOptimizedKnowledgeContextAsync,
   trimChatHistoryForBudget,
   formatUserEphemeralContext,
 } from "@/lib/rag";
-import {
-  buildMusicPromptDirective,
-  executeMusicActionFromResponse,
-  dispatchMusicAction,
-} from "@/lib/musicBridge";
 import { calculateContextBreakdown } from "@/lib/contextVisualizer";
 import {
   computePromptCacheKey,
@@ -92,9 +84,8 @@ export default function HomePage() {
   const [isStreaming, setIsStreaming] = useState<boolean>(false);
   const [liveStats, setLiveStats] = useState<{ tokenCount: number; liveTps: number } | undefined>(undefined);
   const [thinkingMode, setThinkingMode] = useState<ThinkingMode>("default");
-  const [mainView, setMainView] = useState<"workspace" | "codespace" | "reader" | "music" | "tasks">("workspace");
+  const [mainView, setMainView] = useState<"workspace" | "codespace" | "journal">("workspace");
   const [workspaceView, setWorkspaceView] = useState<"chat" | "projects-gallery" | "project-detail">("chat");
-  const [nowPlayingInfo, setNowPlayingInfo] = useState<{ isPlaying: boolean; title: string; onOpenPlayer: () => void } | null>(null);
   const [isArenaMode, setIsArenaMode] = useState<boolean>(false);
   const [arenaModelB, setArenaModelB] = useState<string>("gemini-2.5-flash");
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -1089,10 +1080,6 @@ export default function HomePage() {
       basePrompt = `${basePrompt}${connectorsSection}`;
     }
 
-    // 7. Inject Live Music Player Awareness & Recall Capability (Static)
-    const musicDirective = buildMusicPromptDirective();
-    basePrompt = `${basePrompt}${musicDirective}`;
-
     const staticPrompt = basePrompt;
     const legacyCombinedPrompt = dynamicContext ? `${basePrompt}${dynamicContext}` : basePrompt;
 
@@ -1312,29 +1299,6 @@ export default function HomePage() {
       connectorContextText += `=== END OF BLENDER DIRECTIVE ===\n\n`;
 
       connectorNotice = `🧊 *Blender 3D Procedural Engine: Generating & auto-injecting \`bpy\` Python script for: "${blenderPrompt || "3D Scene"}"* (Bridge: \`${blenderBridgeUrl}\`)\n\n`;
-    } else if (trimmedInput.startsWith("/music")) {
-      const musicArgs = trimmedInput.replace(/^\/music\s*/, "").trim();
-      const lowerArgs = musicArgs.toLowerCase();
-      if (!lowerArgs || lowerArgs === "toggle") {
-        dispatchMusicAction({ type: "toggle" });
-        connectorNotice = `🎵 *Toggled Music Player Play/Pause*\n\n`;
-      } else if (lowerArgs === "pause" || lowerArgs === "stop") {
-        dispatchMusicAction({ type: "pause" });
-        connectorNotice = `⏸️ *Music playback paused*\n\n`;
-      } else if (lowerArgs === "open" || lowerArgs === "recall" || lowerArgs === "show") {
-        dispatchMusicAction({ type: "open" });
-        connectorNotice = `🎧 *Music Player widget recalled and opened*\n\n`;
-      } else if (lowerArgs === "next") {
-        dispatchMusicAction({ type: "next" });
-        connectorNotice = `⏭️ *Skipped to next track*\n\n`;
-      } else if (lowerArgs === "prev") {
-        dispatchMusicAction({ type: "prev" });
-        connectorNotice = `⏮️ *Skipped to previous track*\n\n`;
-      } else {
-        const trackTarget = lowerArgs.replace(/^play\s*/, "").trim();
-        dispatchMusicAction({ type: "play", trackId: trackTarget || undefined });
-        connectorNotice = `🎶 *Music Player: Playing ${trackTarget ? `"${trackTarget}"` : "track"}*\n\n`;
-      }
     }
 
     const assistantMessageId = `msg_ast_${Date.now() + 1}`;
@@ -1581,13 +1545,6 @@ export default function HomePage() {
                 finalFullText += `\n\n> ⚠️ **Blender MCP**: *Gagal menghubungi bridge Blender: ${bErr.message}*`;
               }
             }
-          }
-
-          // Scan and execute any music player actions from AI response
-          const musicResult = executeMusicActionFromResponse(finalFullText);
-          finalFullText = musicResult.cleanedText;
-          if (musicResult.actionExecuted) {
-            finalFullText += "\n\n> 🎶 *Web UI Music Player: Aksi musik berhasil dieksekusi.*";
           }
 
           // Disk Tools: jalankan directive [TOOL_CALL:...] kalau toggle aktif.
@@ -2022,14 +1979,13 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
           },
           onFinish: (full, metrics, fullReasoning) => {
             const finalFull = full || accumulated;
-            const { cleanedText } = executeMusicActionFromResponse(finalFull);
 
             setConversations((prev) => {
               const finished = prev.map((c) => {
                 if (c.id !== targetId) return c;
                 const msgs = c.messages.map((m) =>
                   m.id === assistantMessageId
-                    ? { ...m, content: cleanedText, reasoning: fullReasoning, metrics }
+                    ? { ...m, content: finalFull, reasoning: fullReasoning, metrics }
                     : m
                 );
                 return { ...c, messages: msgs, updatedAt: Date.now() };
@@ -2037,7 +1993,7 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
               storage.saveConversations(finished);
               return finished;
             });
-            resolve(cleanedText);
+            resolve(finalFull);
           },
           onError: (err) => {
             reject(err);
@@ -2439,10 +2395,7 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
         pendingApprovalCount={pendingApprovals.filter((a) => a.status === "pending").length}
         onOpenArtifacts={() => setIsArtifactsModalOpen(true)}
         onOpenCodespace={() => setMainView("codespace")}
-        onOpenReader={() => setMainView("reader")}
-        onOpenMusic={() => setMainView("music")}
-        onOpenTasks={() => setMainView("tasks")}
-        nowPlayingInfo={nowPlayingInfo}
+        onOpenJournal={() => setMainView("journal")}
         onOpenWorkspace={() => {
           setMainView("workspace");
           setWorkspaceView("chat");
@@ -2450,13 +2403,7 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
         mainView={mainView}
       />
 
-      {/* Floating Offline Music Player Action Widget */}
-      <MusicPlayerWidget
-        musicDirectory={settings.musicDirectory}
-        onTrackUpdate={setNowPlayingInfo}
-      />
-
-      {/* Main Viewport: Workspace (Chat) vs Projects Gallery vs Project Detail vs Codespace vs Reader */}
+      {/* Main Viewport: Workspace (Chat) vs Projects Gallery vs Project Detail vs Codespace vs Journal */}
       {mainView === "codespace" ? (
         <div className="flex-1 flex flex-col h-[100dvh] overflow-hidden relative">
           <CodespaceView
@@ -2472,40 +2419,9 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
             onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
           />
         </div>
-      ) : mainView === "reader" ? (
+      ) : mainView === "journal" ? (
         <div className="flex-1 flex flex-col h-[100dvh] overflow-hidden relative">
-          <DocumentReaderView
-            models={models}
-            selectedModel={selectedModel}
-            apiKeys={settings.apiKeys}
-            initialBooksDirectory={settings.booksDirectory}
-            onSaveBooksDirectory={(dir) => handleUpdateSettings({ booksDirectory: dir })}
-            onSendToChat={(text) => {
-              setInput(text);
-              setMainView("workspace");
-              setWorkspaceView("chat");
-            }}
-            onBackToChat={() => {
-              setMainView("workspace");
-              setWorkspaceView("chat");
-            }}
-          />
-        </div>
-      ) : mainView === "music" ? (
-        <div className="flex-1 flex flex-col h-[100dvh] overflow-hidden relative">
-          <MusicFullView
-            musicDirectory={settings.musicDirectory}
-            onSaveMusicDirectory={(dir) => handleUpdateSettings({ musicDirectory: dir })}
-            onBackToChat={() => {
-              setMainView("workspace");
-              setWorkspaceView("chat");
-            }}
-            nowPlayingInfo={nowPlayingInfo}
-          />
-        </div>
-      ) : mainView === "tasks" ? (
-        <div className="flex-1 flex flex-col h-[100dvh] overflow-hidden relative">
-          <TaskManagerView
+          <JournalView
             projects={projects}
             models={models}
             selectedModel={selectedModel}
@@ -2556,7 +2472,6 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
           currentProject={currentProject}
           onSelectProject={handleSelectProject}
           projects={projects}
-          nowPlayingInfo={nowPlayingInfo}
           chatFullWidth={settings.chatFullWidth}
           onOpenProjectSettings={() => {
             if (currentProject) {

@@ -21,21 +21,15 @@ import {
   Pin,
   Mail,
   Trash2,
-  Play,
-  Pause,
-  SkipForward,
-  SkipBack,
-  X,
+  Headphones,
   Swords,
   Settings,
-  Headphones,
 } from "lucide-react";
 import { Conversation, OllamaModel, Attachment, Project, ApiKeysConfig, ThinkingMode, Skill } from "@/lib/types";
 import { STARTER_PROMPTS } from "@/lib/constants";
 import { processSelectedFiles } from "@/lib/fileUtils";
 import { ChatMessage } from "./ChatMessage";
 import { ChatInput } from "./ChatInput";
-import { NowPlayingInfo } from "./MusicPlayerWidget";
 import { ContextVisualizer } from "./ContextVisualizer";
 import { ContextBreakdown } from "@/lib/contextVisualizer";
 
@@ -153,7 +147,6 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   thinkingMode = "default",
   setThinkingMode,
   onOpenCodespace,
-  nowPlayingInfo,
   onOpenVoiceCall,
   contextBreakdown,
   onSelectNumCtx,
@@ -460,24 +453,6 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
 
         {/* Right Action Toolbar with Compact Responsive Icons */}
         <div className="flex items-center gap-1 sm:gap-1.5 flex-shrink-0">
-          {/* Active Playing Music Top Bar Notification Pill */}
-          {nowPlayingInfo && nowPlayingInfo.isPlaying && (
-            <button
-              onClick={nowPlayingInfo.onOpenPlayer}
-              className="flex items-center gap-1.5 px-2 py-1 sm:px-2.5 sm:py-1.5 rounded-xl bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/30 text-purple-400 transition-all cursor-pointer shadow-xs max-w-[90px] xs:max-w-[140px] sm:max-w-[200px] truncate animate-in fade-in zoom-in-95"
-              title={`Now Playing: ${nowPlayingInfo.title}`}
-            >
-              <div className="flex items-end gap-0.5 h-3 w-3 flex-shrink-0">
-                <span className="w-0.5 h-3 bg-purple-400 rounded-full animate-pulse" />
-                <span className="w-0.5 h-2 bg-purple-300 rounded-full animate-pulse delay-75" />
-                <span className="w-0.5 h-3 bg-purple-400 rounded-full animate-pulse delay-150" />
-              </div>
-              <span className="text-[11px] sm:text-xs font-semibold truncate hidden xs:inline">
-                {nowPlayingInfo.title}
-              </span>
-            </button>
-          )}
-
           {/* Interactive Chat Button (Indonesian Female Voice Mode) */}
           {onOpenVoiceCall && (
             <button

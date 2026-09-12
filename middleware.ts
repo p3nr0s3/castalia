@@ -21,16 +21,15 @@ import { NextRequest, NextResponse } from "next/server";
  * back to open access — this keeps local dev friction-free without a token
  * configured, but means you MUST set it before ever running the tunnel.
  *
- * /api/audio and /api/db/stream are special cases: they're loaded by
- * native <audio>/<img> elements and EventSource respectively, neither of
- * which can attach an Authorization header. For these routes only, a
+ * /api/db/stream is a special case: it is loaded by
+ * EventSource, which cannot attach an Authorization header. For this route only, a
  * `?token=` query param is accepted as an equivalent credential
  * (lib/apiClient.ts's withAccessToken() appends it). Every other route
  * only accepts the header.
  */
 
 const UNPROTECTED_METHODS = new Set(["OPTIONS"]);
-const QUERY_TOKEN_ROUTES = ["/api/audio", "/api/db/stream", "/api/books"];
+const QUERY_TOKEN_ROUTES = ["/api/db/stream"];
 
 export function middleware(req: NextRequest) {
   if (UNPROTECTED_METHODS.has(req.method)) {

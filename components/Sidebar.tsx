@@ -31,13 +31,10 @@ import {
   Plug,
   RotateCcw,
   ShieldAlert,
-  BookOpen,
-  Music,
-  CheckSquare,
+  BookMarked,
 } from "lucide-react";
 import { Conversation, Project, AgentTask } from "@/lib/types";
 import { storage } from "@/lib/storage";
-import { dispatchMusicAction } from "@/lib/musicBridge";
 
 interface SidebarProps {
   conversations: Conversation[];
@@ -65,12 +62,9 @@ interface SidebarProps {
   workspaceView?: "chat" | "projects-gallery" | "project-detail";
   onOpenArtifacts?: () => void;
   onOpenCodespace?: () => void;
-  onOpenReader?: () => void;
-  onOpenMusic?: () => void;
-  onOpenTasks?: () => void;
+  onOpenJournal?: () => void;
   onOpenWorkspace?: () => void;
-  mainView?: "workspace" | "codespace" | "reader" | "music" | "tasks";
-  nowPlayingInfo?: { isPlaying: boolean; title: string } | null;
+  mainView?: "workspace" | "codespace" | "journal";
   agents?: AgentTask[];
   onOpenNewAgentModal?: () => void;
   onOpenAgentLogs?: (agent: AgentTask) => void;
@@ -113,12 +107,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   workspaceView = "chat",
   onOpenArtifacts,
   onOpenCodespace,
-  onOpenReader,
-  onOpenMusic,
-  onOpenTasks,
+  onOpenJournal,
   onOpenWorkspace,
   mainView = "workspace",
-  nowPlayingInfo = null,
   agents = [],
   onOpenNewAgentModal,
   onOpenAgentLogs,
@@ -378,79 +369,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </button>
           )}
 
-          {/* Reader (EPUB / Comic / PDF / Text) */}
-          {onOpenReader && (
+          {/* Journal (Notion-style Workspace Notebook) */}
+          {onOpenJournal && (
             <button
               onClick={() => {
-                onOpenReader();
+                onOpenJournal();
                 if (typeof window !== "undefined" && window.innerWidth < 768) setIsOpen(false);
               }}
               className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs transition-colors cursor-pointer ${
-                mainView === "reader"
+                mainView === "journal"
                   ? "bg-[var(--sidebar-hover)] text-[var(--foreground)] font-medium"
                   : "text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--sidebar-hover)]"
               }`}
+              title="Workspace Journal & Catatan Kerja"
             >
-              <BookOpen className="w-4 h-4 text-[var(--muted)]" />
-              <span>Reader</span>
-            </button>
-          )}
-
-          {/* Music Menu Item (Dedicated Primary Navigation) */}
-          <button
-            onClick={() => {
-              if (onOpenMusic) {
-                onOpenMusic();
-              } else {
-                dispatchMusicAction({ type: "open" });
-              }
-              if (typeof window !== "undefined" && window.innerWidth < 768) setIsOpen(false);
-            }}
-            className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs transition-colors cursor-pointer group ${
-              mainView === "music"
-                ? "bg-[var(--sidebar-hover)] text-[var(--foreground)] font-medium"
-                : "text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--sidebar-hover)]"
-            }`}
-            title="Buka Dedicated Music Sanctuary & Ambient Station"
-          >
-            <div className="flex items-center gap-3">
-              <Music
-                className={`w-4 h-4 transition-colors ${
-                  nowPlayingInfo?.isPlaying
-                    ? "text-emerald-400 animate-pulse"
-                    : mainView === "music"
-                    ? "text-[var(--foreground)]"
-                    : "text-[var(--muted)] group-hover:text-[var(--foreground)]"
-                }`}
-              />
-              <span>Music</span>
-            </div>
-            {nowPlayingInfo?.isPlaying && (
-              <span className="flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
-                <span className="text-[10px] text-emerald-400 font-mono truncate max-w-[70px]">
-                  Playing
-                </span>
-              </span>
-            )}
-          </button>
-
-          {/* Tasks Manager Item */}
-          {onOpenTasks && (
-            <button
-              onClick={() => {
-                onOpenTasks();
-                if (typeof window !== "undefined" && window.innerWidth < 768) setIsOpen(false);
-              }}
-              className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs transition-colors cursor-pointer ${
-                mainView === "tasks"
-                  ? "bg-[var(--sidebar-hover)] text-[var(--foreground)] font-medium"
-                  : "text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--sidebar-hover)]"
-              }`}
-              title="Manajemen Task & Kanban Board"
-            >
-              <CheckSquare className="w-4 h-4 text-[var(--muted)]" />
-              <span>Tasks</span>
+              <BookMarked className="w-4 h-4 text-[var(--muted)]" />
+              <span>Journal</span>
             </button>
           )}
 
