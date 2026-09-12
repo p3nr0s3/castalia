@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { apiFetch } from "../lib/apiClient";
+import { apiFetch, withAccessToken } from "../lib/apiClient";
 import {
   AppSettings,
   Conversation,
@@ -359,18 +359,54 @@ export default function HomePage() {
     // 3. Connect Ollama
     refreshOllama();
 
-    // 4. Background lightweight version poll (every 3 seconds) & health check
-    const syncInterval = setInterval(() => syncWithServer(false), 3000);
+    // 4. Live change notifications via SSE (replaces the old 3s polling
+    // interval — see app/api/db/stream/route.ts). syncWithServer(false) is
+    // still what actually fetches and merges data; this just tells us WHEN
+    // to call it instead of calling it on a fixed timer regardless of
+    // whether anything changed.
+    let eventSource: EventSource | null = null;
+    let reconnectTimer: NodeJS.Timeout | null = null;
+    let reconnectDelay = 2000;
+
+    const connectSse = () => {
+      if (typeof window === "undefined" || typeof EventSource === "undefined") return;
+
+      eventSource = new EventSource(withAccessToken(`/api/db/stream?v=${currentDbVersionRef.current}`));
+
+      eventSource.addEventListener("changed", () => {
+        reconnectDelay = 2000; // reset backoff on any successful message
+        syncWithServer(false);
+      });
+
+      eventSource.onerror = () => {
+        // EventSource auto-reconnects on its own for transient network
+        // blips, but if the connection is fully closed (e.g. server
+        // restarted), fall back to a manual reconnect with backoff so we
+        // don't hammer the server if it's actually down.
+        if (eventSource?.readyState === EventSource.CLOSED) {
+          eventSource?.close();
+          if (reconnectTimer) clearTimeout(reconnectTimer);
+          reconnectTimer = setTimeout(() => {
+            reconnectDelay = Math.min(reconnectDelay * 1.5, 30000);
+            connectSse();
+          }, reconnectDelay);
+        }
+      };
+    };
+
+    connectSse();
     const healthInterval = setInterval(refreshOllama, 30000);
 
-    // 5. Sync immediately when window/tab is focused
+    // 5. Sync immediately when window/tab is focused (covers the gap right
+    // after waking from sleep/background-tab-throttling before SSE catches up)
     const handleWindowFocus = () => {
       syncWithServer(false);
     };
     window.addEventListener("focus", handleWindowFocus);
 
     return () => {
-      clearInterval(syncInterval);
+      eventSource?.close();
+      if (reconnectTimer) clearTimeout(reconnectTimer);
       clearInterval(healthInterval);
       window.removeEventListener("focus", handleWindowFocus);
     };

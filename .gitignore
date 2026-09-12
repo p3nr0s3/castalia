@@ -41,3 +41,6 @@ Thumbs.db
 /data/db.json
 /data/db.json.migrated.bak
 /data/*.sqlite3-*
+
+# Secret generated at Blender bridge install time — must never be committed.
+/data/blender-bridge-token.json

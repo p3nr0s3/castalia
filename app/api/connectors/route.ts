@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
+import crypto from "crypto";
 import { assertPublicUrl, assertBlenderUrl, SsrfBlockedError } from "@/lib/ssrfGuard";
 
 export async function POST(req: NextRequest) {
@@ -368,12 +369,31 @@ export async function POST(req: NextRequest) {
         throw e;
       }
 
+      // Read the token generated at blender_install_startup time. If it's
+      // missing (bridge was never installed via this app, or predates this
+      // fix), fall back to sending no token — an older/manually-installed
+      // bridge script won't check for one anyway, and a newer one will
+      // correctly reject the request with 401 rather than silently running
+      // unauthenticated code.
+      let bridgeToken = "";
+      try {
+        const tokenPath = path.join(process.cwd(), "data", "blender-bridge-token.json");
+        if (fs.existsSync(tokenPath)) {
+          const parsed = JSON.parse(fs.readFileSync(tokenPath, "utf-8"));
+          bridgeToken = parsed?.token || "";
+        }
+      } catch {
+        // Non-fatal — proceed without a token, the bridge itself decides whether to accept.
+      }
+      const bridgeHeaders: Record<string, string> = { "Content-Type": "application/json" };
+      if (bridgeToken) bridgeHeaders["X-Bridge-Token"] = bridgeToken;
+
       try {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 4000);
         let res = await fetch(`${targetUrl}/execute`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: bridgeHeaders,
           body: JSON.stringify({ code: scriptCode }),
           signal: controller.signal,
         }).catch(() => null);
@@ -382,12 +402,19 @@ export async function POST(req: NextRequest) {
         if (!res || !res.ok) {
           res = await fetch(targetUrl, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: bridgeHeaders,
             body: JSON.stringify({ code: scriptCode }),
             signal: controller.signal,
           }).catch(() => null);
         }
         clearTimeout(timeoutId);
+
+        if (res && res.status === 401) {
+          return NextResponse.json({
+            success: false,
+            error: "Blender bridge rejected the request (401): missing or invalid bridge token. Reinstall the startup script (blender_install_startup) and restart Blender to refresh the token.",
+          });
+        }
 
         if (res && res.ok) {
           const data = await res.json().catch(() => ({}));
@@ -470,6 +497,15 @@ export async function POST(req: NextRequest) {
       }
 
       if (action === "blender_install_startup") {
+        // Generate a random token per install and require it on every POST.
+        // Without this, the bridge is an unauthenticated exec(code) endpoint
+        // that ANY local process (or, worse, any web page — see the CORS fix
+        // below) can reach on 127.0.0.1:9876. The token is written into the
+        // script itself (Blender has no separate secrets store to read from)
+        // and also returned to the caller so this app can send it on every
+        // blender_execute call.
+        const bridgeToken: string = crypto.randomBytes(24).toString("hex");
+
         const bridgeScript = `"""
 Ollama AI Workspace - Blender 3D MCP Bridge
 Auto-start bridge listener on port 9876.
@@ -489,7 +525,22 @@ bl_info = {
 import bpy
 import threading
 import json
+import hmac
 from http.server import HTTPServer, BaseHTTPRequestHandler
+
+# Generated once at install time by app/api/connectors/route.ts. Required on
+# every POST via the X-Bridge-Token header — without this, this HTTP server
+# is a bare, unauthenticated exec(code) endpoint reachable by any process
+# (or, without the CORS fix below, any web page) that can hit 127.0.0.1:9876.
+BRIDGE_TOKEN = "${bridgeToken}"
+
+# Only this app's own dev origin may call the bridge from a browser context.
+# The previous "*" wildcard meant ANY web page open in the user's browser
+# could POST arbitrary Python to Blender via a background fetch() — this is
+# the CORS half of the fix; the token above is the auth half, and both are
+# needed (CORS alone is bypassed by non-browser callers; token alone is
+# bypassed by a malicious page riding the user's own browser).
+ALLOWED_ORIGIN = "http://localhost:3000"
 
 # Stop previous server if active to prevent address collision
 if 'mcp_server' in bpy.app.driver_namespace:
@@ -508,9 +559,15 @@ class MCPHandler(BaseHTTPRequestHandler):
         pass
 
     def _cors(self):
-        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Origin', ALLOWED_ORIGIN)
         self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type, X-Bridge-Token')
+
+    def _check_token(self):
+        provided = self.headers.get('X-Bridge-Token', '')
+        # hmac.compare_digest instead of == to avoid a timing side-channel
+        # on the comparison (low practical risk on localhost, but free to add).
+        return hmac.compare_digest(provided, BRIDGE_TOKEN)
 
     def do_OPTIONS(self):
         self.send_response(200)
@@ -518,6 +575,9 @@ class MCPHandler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
+        # Status/health check stays token-free on purpose (no code execution,
+        # nothing sensitive returned beyond object count) so the app can poll
+        # "is Blender running" without needing the token round-tripped first.
         self.send_response(200)
         self.send_header('Content-Type', 'application/json')
         self._cors()
@@ -533,6 +593,14 @@ class MCPHandler(BaseHTTPRequestHandler):
         self.wfile.write(json.dumps(resp).encode('utf-8'))
 
     def do_POST(self):
+        if not self._check_token():
+            self.send_response(401)
+            self.send_header('Content-Type', 'application/json')
+            self._cors()
+            self.end_headers()
+            self.wfile.write(b'{"error": "Invalid or missing X-Bridge-Token"}')
+            return
+
         try:
             length = int(self.headers.get('Content-Length', 0))
             body = self.rfile.read(length).decode('utf-8')
@@ -592,9 +660,21 @@ start_server()
           }
         }
 
+        // Persist the token alongside the app's own config so blender_execute
+        // can send it on every call. Stored server-side only (never sent to
+        // the browser as part of a generic settings blob) — the client just
+        // triggers blender_execute and this route attaches the token itself.
+        try {
+          const tokenDir = path.join(process.cwd(), "data");
+          fs.mkdirSync(tokenDir, { recursive: true });
+          fs.writeFileSync(path.join(tokenDir, "blender-bridge-token.json"), JSON.stringify({ token: bridgeToken }), "utf-8");
+        } catch (err: any) {
+          console.error("Failed to persist Blender bridge token:", err);
+        }
+
         return NextResponse.json({
           success: installed.length > 0,
-          message: `Bridge auto-start installed for Blender (${versions.map((v) => v.version).join(", ")})!`,
+          message: `Bridge auto-start installed for Blender (${versions.map((v) => v.version).join(", ")})! Restart Blender for it to take effect.`,
           installedPaths: installed,
           versions,
         });
@@ -611,6 +691,11 @@ start_server()
             }
           } catch (err) {}
         }
+
+        try {
+          const tokenPath = path.join(process.cwd(), "data", "blender-bridge-token.json");
+          if (fs.existsSync(tokenPath)) fs.unlinkSync(tokenPath);
+        } catch {}
 
         return NextResponse.json({
           success: true,
