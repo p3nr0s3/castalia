@@ -1,13 +1,13 @@
 # 🦙 Ollama Studio: Autonomous AI Workspace & Agent Hub
 
 <p align="center">
-  <img src="https://ollama.com/public/ollama.png" width="80" height="80" alt="Ollama Studio Logo" />
+  <img src="https://ollama.com/public/ollama.png" width="85" height="85" alt="Ollama Studio Logo" />
 </p>
 
 <p align="center">
-  <strong>A modern, local-first, privacy-focused AI Workspace and Agent Hub built for Ollama & Cloud LLMs.</strong>
+  <strong>Modern, Local-First, Privacy-Focused AI Workspace, Autonomous Agent Hub & Productivity Suite.</strong>
   <br />
-  <em>Claude-style Projects, hybrid BM25 + semantic RAG, MCP Connectors (Blender 3D, GitHub, Slack, Discord), autonomous scheduled agents with an approval queue, and a live in-browser Codespace.</em>
+  <em>Dirancang untuk model lokal (Ollama / GGUF) dan Cloud AI (Gemini, Claude, GPT, DeepSeek, Groq, OpenRouter). Dilengkapi Smart Context, Hybrid RAG, In-Browser Codespace, Document & Comic Reader, Offline Music Sanctuary, Kanban Task Manager, serta Human-in-the-Loop Security Sandbox.</em>
 </p>
 
 <p align="center">
@@ -15,209 +15,423 @@
   <img src="https://img.shields.io/badge/TypeScript-5.6-blue?style=flat-square&logo=typescript" alt="TypeScript" />
   <img src="https://img.shields.io/badge/Tailwind_CSS-3.4-38bdf8?style=flat-square&logo=tailwind-css" alt="Tailwind" />
   <img src="https://img.shields.io/badge/Ollama-Local_LLMs-teal?style=flat-square&logo=ollama" alt="Ollama" />
+  <img src="https://img.shields.io/badge/SQLite-WAL_Mode-003B57?style=flat-square&logo=sqlite" alt="SQLite" />
+  <img src="https://img.shields.io/badge/Tests-46%20Passed-brightgreen?style=flat-square" alt="Tests" />
   <img src="https://img.shields.io/badge/License-MIT-green?style=flat-square" alt="License" />
 </p>
 
 ---
 
-## 🌟 Key Highlights
+## 📑 Daftar Isi
 
-- 🔒 **100% Private & Local-First**: Run entirely on your machine. Chats, documents, agent configurations, and project knowledge stay on your local disk (SQLite when available, JSON file as an automatic fallback — see [Storage](#-storage) below).
-- ⚡ **Hybrid Retrieval & 16K Context Guard**: In-memory BM25 keyword ranking by default; optionally blended with cosine similarity over local Ollama embeddings (e.g. `nomic-embed-text`) for semantic matches BM25 alone would miss. Upload thick multi-page documents without VRAM crashes or model-swapping latency.
-- 📁 **Claude-Style Projects**: Isolated project workspaces, persistent knowledge files, granular hyperparameter tuning, and custom system prompts per project.
-- 🧩 **MCP & Ecosystem Connectors**:
-  - **Blender 3D (MCP)**: 1-click Python daemon bridge script with `/blender` procedural 3D generation.
-  - **GitHub**: Fetch live issues and repository metrics with `/github`.
-  - **Slack & Discord**: Real-time webhook dispatching via `/slack` and `/discord`.
-  - **16 connector definitions total**, including NocoDB, PostgreSQL, Notion, Supabase, and more.
-- 🛠️ **8 Agentic Skills & 12 Suite Plugins**: Specialized system-prompt personas (Staff Software Architect, Data Analyst, Security Auditor, Technical Writer, and more). Skills that need file access (code, data, security, docs) automatically enable disk tools for that conversation instead of only changing tone.
-- ⏰ **Autonomous Background Agents**: Cron and interval scheduler for periodic research, monitoring, and briefing tasks, with execution logs and an **approval queue** — any agent action that writes or deletes a file waits for your explicit sign-off before it runs.
-- ⚔️ **Model Arena**: Real-time side-by-side battle mode comparing your local Ollama models with cloud models (Gemini, Claude, GPT, DeepSeek, Groq, OpenRouter).
-- 💻 **Live Sandbox & Codespace**: In-browser JavaScript execution console and a sandboxed HTML/SVG live-preview iframe.
-- 🎨 **13 Themes & 6 Fonts**: Claude Amber, Catppuccin Mocha, Tokyo Night, Dracula, Rosé Pine, and more.
-- 🎧 **Ambient Focus Music Player**: Built-in Lofi, Rain, Coffee Shop, and Forest soundscapes.
-
----
-
-## 🏗️ Architecture & 16K Context Guard
-
-Local 9B-class models typically run with an 8K–16K context window (`num_ctx: 16384`). Dumping large documents directly into the prompt exhausts VRAM and triggers token truncation.
-
-```
-┌────────────────────────────────────────────────────────────────────────┐
-│                        16K CONTEXT WINDOW BUDGET                       │
-├─────────────┬───────────────────┬──────────────────────┬───────────────┤
-│ System Core │  Retrieved RAG    │ Rolling Chat History │ Output Space  │
-│  (~800 tok) │ Chunks (~3.5K tok)│     (~6.0K tok)      │  (~4.0K tok)  │
-└─────────────┴───────────────────┴──────────────────────┴───────────────┘
-```
-
-- **Zero GPU VRAM Retrieval**: The in-memory **BM25 / TF-IDF ranker** runs in Node.js in a few milliseconds — no embedding model required.
-- **Optional Semantic Layer**: Turn on **Settings → Semantic RAG** to blend in cosine similarity over a local Ollama embedding model (default `nomic-embed-text`, `ollama pull nomic-embed-text` first). Off by default; if the embedding call fails or times out for any reason, retrieval silently falls back to pure BM25 — it can only add matches, never remove or block them.
-- **Dynamic Context Budgeting**: Only the top-K relevant document fragments are injected, reserving the rest of the context window for chat history and output.
+- [🌟 Sorotan Fitur Utama](#-sorotan-fitur-utama)
+- [🔄 Alur Kerja Web UI (Workflow Diagrams)](#-alur-kerja-web-ui-workflow-diagrams)
+  - [1. Arsitektur Viewport & Navigasi Utama](#1-arsitektur-viewport--navigasi-utama)
+  - [2. Alur Prompt Engine, Smart Context & Hybrid RAG](#2-alur-prompt-engine-smart-context--hybrid-rag)
+  - [3. Alur Agen Otonom & Human-in-the-Loop Tool Approval](#3-alur-agen-otonom--human-in-the-loop-tool-approval)
+  - [4. Alur Rak Buku & Document Reader](#4-alur-rak-buku--document-reader)
+- [✨ Rincian Fitur Komprehensif](#-rincian-fitur-komprehensif)
+  - [1. Smart Context, Context Shift & Visualizer](#1-smart-context-context-shift--visualizer)
+  - [2. Autonomous Agents, Scheduler & Approval Queue](#2-autonomous-agents-scheduler--approval-queue)
+  - [3. Full-Screen Codespace & Live Preview](#3-full-screen-codespace--live-preview)
+  - [4. Document & Comic Reader (Rak Buku & AI Slider)](#4-document--comic-reader-rak-buku--ai-slider)
+  - [5. Dedicated Music Sanctuary & Focus Soundscapes](#5-dedicated-music-sanctuary--focus-soundscapes)
+  - [6. Manajemen Task Kanban & AI Copilot](#6-manajemen-task-kanban--ai-copilot)
+  - [7. Disk Tools Sandbox & Diff Preview](#7-disk-tools-sandbox--diff-preview)
+  - [8. Claude-Style Projects & Custom Personas](#8-claude-style-projects--custom-personas)
+  - [9. Penyimpanan Ganda (SQLite WAL + JSON Fallback + SSE)](#9-penyimpanan-ganda-sqlite-wal--json-fallback--sse)
+- [🔐 Keamanan & Sandbox Akses](#-keamanan--sandbox-akses)
+- [🚀 Panduan Instalasi & Memulai](#-panduan-instalasi--memulai)
+- [⚙️ Variabel Lingkungan (.env.local)](#️-variabel-lingkungan-envlocal)
+- [⌨️ Pintasan & Perintah Slash (/slash)](#️-pintasan--perintah-slash-slash)
+- [📁 Struktur Direktori](#-struktur-direktori)
+- [🧪 Pengujian (Testing)](#-pengujian-testing)
+- [📄 Lisensi](#-lisensi)
 
 ---
 
-## 🔐 Security & Access Control
+## 🌟 Sorotan Fitur Utama
 
-This is a single-user local tool, but several routes are powerful enough to matter if this machine is ever reachable by anyone else (shared Wi-Fi, a coworking space, or `npm run tunnel`):
+- 🔒 **100% Privat & Local-First**: Chat, e-book, musik, task, konfigurasi agen, dan berkas proyek tersimpan aman di mesin lokal Anda tanpa ketergantungan cloud.
+- ⚡ **Smart Context & Zero-VRAM Hybrid RAG**: Alokasi konteks cerdas dengan BM25 keyword matching secepat kilat + semantic vector embeddings opsional, lengkap dengan sistem *Context Shift*, cache prompt statis, dan LRU response cache.
+- 📚 **Document & Comic Reader + Rak Buku**: Baca EPUB, PDF, Text/Markdown, serta Manga/Komik (CBZ & CBR) dengan panel asisten AI yang dapat digeser (`col-resize`), histori baca otomatis, dan fitur scan folder lokal tanpa perlu upload satu per satu.
+- 🎵 **Dedicated Music Sanctuary**: Stasiun musik layar penuh dengan *hero audio visualizer*, pemindai berkas lagu lokal (`.mp3`, `.flac`, `.wav`), dan 6 suara ambien offline (Lofi, Rain, Space, Synthwave, Forest, 432Hz Binaural) yang terus berputar saat Anda berpindah menu.
+- ✅ **Task Management Kanban & AI Copilot**: Manajemen tugas gaya Kanban (*To Do*, *In Progress*, *Review*, *Done*) dan List View, lengkap dengan asisten AI untuk memecah subtask otomatis, membuat draft solusi kode, dan tombol langsung kirim ke chat.
+- 💻 **In-Browser Codespace**: Editor multi-tab terintegrasi Monaco Editor, terminal emulator, dan sandbox eksekusi HTML/SVG live preview.
+- ⏰ **Autonomous Background Agents**: Penjadwal cron/interval otomatis untuk riset berkala dengan sistem verifikasi keamanan *Human-in-the-Loop* (diff viewer sebelum mengeksekusi penulisan berkas).
+- 🎨 **Kustomisasi Luas**: 13 tema warna (Claude Amber, OLED Black, Midnight, Dracula, Cyberpunk, Custom Palette), kontrol ukuran font, dan modal pengaturan yang lapang (*max-w-6xl*).
 
-| Route | What it can do |
+---
+
+## 🔄 Alur Kerja Web UI (Workflow Diagrams)
+
+Berikut adalah diagram alur kerja utama aplikasi dari sisi navigasi antarmuka, pemrosesan konteks AI, hingga eksekusi alat dan agen.
+
+### 1. Arsitektur Viewport & Navigasi Utama
+
+Aplikasi menggunakan sistem navigasi multi-viewport responsif yang beroperasi di atas satu tab browser:
+
+```mermaid
+graph TD
+    User([Pengguna / User]) --> Sidebar["Sidebar Navigasi Utama"]
+    
+    Sidebar -->|Klik New / Chat / Proyek| WorkspaceView["Workspace Chat & Projects Area"]
+    Sidebar -->|Klik Code| CodespaceView["Codespace (Monaco Editor & Terminal Sandbox)"]
+    Sidebar -->|Klik Reader| ReaderView["Document & Comic Reader (Rak Buku / Reader Mode)"]
+    Sidebar -->|Klik Music| MusicView["Music Sanctuary (Hero Visualizer & Ambient Audio)"]
+    Sidebar -->|Klik Tasks| TasksView["Task Manager (Kanban Board & AI Task Copilot)"]
+    Sidebar -->|Buka Settings| SettingsModal["Settings Modal (Kustomisasi, API Keys, Folder Scan)"]
+
+    subgraph BackgroundPersistence ["Background Audio & Sync Engine"]
+        MusicAudioEngine["Web Audio API / Native Audio Streamer"]
+        SseWatcher["SSE Live Database Stream (/api/db/stream)"]
+    end
+
+    MusicView -.->|Playback Berkelanjutan| MusicAudioEngine
+    WorkspaceView -.->|Audio Tetap Berjalan| MusicAudioEngine
+    CodespaceView -.->|Audio Tetap Berjalan| MusicAudioEngine
+    TasksView -.->|Audio Tetap Berjalan| MusicAudioEngine
+    ReaderView -.->|Audio Tetap Berjalan| MusicAudioEngine
+
+    SseWatcher -.->|Auto-Refresh State| WorkspaceView
+    SseWatcher -.->|Auto-Refresh State| TasksView
+```
+
+---
+
+### 2. Alur Prompt Engine, Smart Context & Hybrid RAG
+
+Setiap kali pesan dikirim, sistem menjalankan evaluasi multi-layer sebelum meneruskan permintaan ke runtime LLM (Ollama atau Cloud):
+
+```mermaid
+flowchart TD
+    A([Input Pengguna + Lampiran]) --> B{"Periksa Cache Respons (LRU)?"}
+    B -- "Cache Hit (Tepat Sama)" --> B1["Kembalikan Respons Instan (0 ms, 0 Token)"]
+    B -- "Cache Miss" --> C["Analisis Anggaran Token (Context Breakdown)"]
+    
+    C --> D["Ambil System Prompt Statis (Instruksi Inti & Persona)"]
+    C --> E{"RAG Pengetahuan Aktif?"}
+    
+    E -- "Ya" --> F["Hybrid Search Engine"]
+    F --> F1["BM25 Lexical Keyword Ranking (In-Memory, 0 VRAM)"]
+    F --> F2["Ollama Vector Embedding Cosine Similarity (Opsional)"]
+    F1 & F2 --> F3["Top-K Chunks Re-ranking & Deduplication"]
+    F3 --> G["Konteks RAG Terpilih (~3.5K token)"]
+    
+    E -- "Tidak" --> H["Skip RAG"]
+    
+    D & G & H --> I["Smart Context Trimming (Rolling History Window)"]
+    I --> J{"Pre-Flight Safety Check"}
+    
+    J -- "Melebihi Batas Konteks" --> J1["Pangkas Pesan Lama Secara Otomatis"]
+    J -- "Aman Sesuai Batas" --> K["Bangun Payload Akhir (Prompt Buffer)"]
+    
+    J1 --> K
+    K --> L{"Model Lokal atau Cloud?"}
+    L -- "Lokal" --> M["Proxy Streaming Ollama (/api/ollama/api/chat)"]
+    L -- "Cloud" --> N["Proxy Streaming Cloud (/api/cloud/chat via Gemini/Claude/GPT)"]
+    
+    M & N --> O["Streaming Output Markdown & KaTeX ke Chat UI"]
+    O --> P["Simpan Entri Baru ke Cache Respons & SQLite/JSON DB"]
+```
+
+---
+
+### 3. Alur Agen Otonom & Human-in-the-Loop Tool Approval
+
+Agen otonom berjalan di background untuk tugas terjadwal atau otomatisasi berantai. Tindakan sensitif disk diproteksi dengan antrean persetujuan pengguna:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as Pengguna
+    participant Scheduler as Agent Engine (Cron/Interval)
+    participant LLM as Model LLM (Ollama/Cloud)
+    participant Approval as Approval Queue Modal
+    participant Sandbox as Disk Sandbox Engine (/api/tools/execute-agent)
+
+    Scheduler->>LLM: Kirim Instruksi Tugas + Riwayat
+    LLM-->>Scheduler: Rencana Eksekusi + Panggilan Tool (write_file / delete_file)
+    
+    alt Tool Aman (read_file, list_dir, search)
+        Scheduler->>Sandbox: Eksekusi Langsung dalam Sandbox $HOME
+        Sandbox-->>Scheduler: Hasil Bacaan / Daftar Berkas
+        Scheduler->>LLM: Umpan Balik Hasil Tool
+    else Tool Modifikasi (write_file, delete_file)
+        Scheduler->>Approval: Pause Loop & Terbitkan Pending Approval (Diff Preview)
+        Approval->>User: Munculkan Notifikasi Badge & Modal Diff Perubahan
+        
+        alt Pengguna Klik Approve
+            User->>Approval: Konfirmasi Persetujuan
+            Approval->>Sandbox: Eksekusi dengan Token Persetujuan Valid
+            Sandbox-->>Scheduler: File Berhasil Ditulis / Diperbarui
+            Scheduler->>LLM: Lanjutkan Loop Eksekusi hingga Selesai
+            LLM-->>User: Ringkasan Laporan Tugas Selesai
+        else Pengguna Klik Reject
+            User->>Approval: Batalkan / Tolak Aksi
+            Approval-->>Scheduler: Batalkan Eksekusi Berkas
+            Scheduler->>LLM: Umpan Balik Penolakan oleh Pengguna
+        end
+    end
+```
+
+---
+
+### 4. Alur Rak Buku & Document Reader
+
+```mermaid
+flowchart LR
+    A["Pilih Menu Reader"] --> B{"Tampilan Aktif"}
+    
+    B -->|viewMode = library| C["Rak Buku (Library Shelf)"]
+    C --> C1["Scan Otomatis Direktori Lokal (C:\\Books) via /api/books"]
+    C1 --> C2["Tampilkan Cover, Format EPUB/COMIC/PDF/TXT, & File Size"]
+    C --> C3["Histori Baca & Tombol 'Lanjutkan Membaca'"]
+    
+    C3 & C2 -->|Klik Item / Lanjut| D["Reader Mode (viewMode = reader)"]
+    B -->|viewMode = reader| D
+    
+    D --> E["Viewport Konten Buku / Halaman Komik (Single/Continuous)"]
+    D --> F["Draggable Resize Slider Handle (col-resize: 280px - 760px)"]
+    F --> G["Panel Asisten AI (Tanya Buku, Ringkas Bab, Analisis Karakter)"]
+    
+    D -.->|Update Progress Otomatis| H["Simpan ReadingItem ke LocalStorage & Server DB"]
+```
+
+---
+
+## ✨ Rincian Fitur Komprehensif
+
+### 1. Smart Context, Context Shift & Visualizer
+- **Visualizer Konteks Real-Time**: Widget interaktif yang memperlihatkan alokasi token secara transparan (System Core, Ephemeral RAG, Disk Tools Schema, Riwayat Chat, dan Ruang Output).
+- **Context Shift / KV Memory Retention**: Menghindari pembacaan ulang history dari awal saat percakapan berlanjut.
+- **Static System Prompt Caching**: Kontrak aturan sistem di-cache pada tingkat memori untuk menghemat kuota konteks harian.
+- **LRU Response Cache**: Pertanyaan umum atau query berulang dijawab seketika (0 ms) tanpa membebani GPU atau token cloud.
+
+### 2. Autonomous Agents, Scheduler & Approval Queue
+- **Penjadwal Fleksibel**: Jalankan agen secara periodik (setiap X menit/jam) atau ekspresi Cron.
+- **Multi-Step Tool Orchestration**: Agen mampu mencari file di disk, membaca konten, merangkum, dan mengusulkan modifikasi kode.
+- **Diff Preview Approval Modal**: Setiap aksi `write_file` menampilkan visual diff sebelum disetujui, memastikan berkas proyek Anda tetap aman dari kesalahan agen.
+
+### 3. Full-Screen Codespace & Live Preview
+- **Monaco Code Editor**: Editor kode tingkat industri langsung di peramban dengan penyorotan sintaks TypeScript, Python, HTML/CSS, JSON, dan Markdown.
+- **Virtual Terminal Emulator**: Uji logika JavaScript dan perintah konsol secara lokal.
+- **Sandboxed Live Preview**: Pratinjau komponen UI (HTML5 Canvas, SVG, Tailwind, dan animasi CSS) secara real-time di dalam iframe berpasir (*sandboxed*).
+
+### 4. Document & Comic Reader (Rak Buku & AI Slider)
+- **Multi-Format Reader**: Mendukung format `.epub` (buku teks & novel), `.cbz` & `.cbr` (komik dan manga Jepang dengan mode halaman ganda/kontinyu), `.pdf`, serta `.txt`/`.md`.
+- **Rak Buku & Histori Baca**: Cover kartu visual, persentase progres membaca, waktu baca terakhir, dan tombol *Lanjutkan Membaca*.
+- **Auto-Scan Folder Lokal**: Cukup daftarkan folder lokal Anda (misal `C:\Books`), aplikasi otomatis mengindeks seluruh koleksi tanpa repot upload manual.
+- **Slider Asisten AI**: Panel asisten AI dapat diubah lebarnya secara bebas (280px hingga 760px) menggunakan mouse slider handle.
+
+### 5. Dedicated Music Sanctuary & Focus Soundscapes
+- **Stasiun Musik Layar Penuh**: Hero visualizer dengan piringan hitam animasi, pemutar musik offline, dan pengatur volume master.
+- **Suara Ambien Web Audio API**: 6 soundscape sintetis 100% offline (Lofi Coffeehouse, Midnight Rain & Thunder, Deep Space Drone, Cyberpunk City Nights, Forest Birds, 432Hz Alpha Waves).
+- **Pemindai Musik Disk**: Scan berkas lagu di direktori komputer (`.mp3`, `.flac`, `.wav`, `.m4a`) dengan streaming audio berlatensi rendah.
+- **Background Playback**: Musik terus mengalun saat berpindah ke menu lain (Chat, Codespace, Reader, Tasks).
+
+### 6. Manajemen Task Kanban & AI Copilot
+- **Papan Kanban Visual**: 4 status kolom (*To Do*, *In Progress*, *Review*, *Done*) dengan warna prioritas (*Urgent*, *High*, *Medium*, *Low*).
+- **Tampilan Daftar (List View)**: Tabel padat untuk menyortir task berdasarkan tenggat waktu, proyek, atau tag.
+- **AI Task Copilot**:
+  - *Auto-Breakdown*: Mengurai judul task kompleks menjadi daftar checklist subtask secara otomatis.
+  - *Draft Solusi & Kode*: Menyusun rencana teknis dan kode implementasi dengan 1 klik.
+  - *Kirim ke Chat*: Langsung menyalin solusi yang dibuat agen ke area chat utama.
+
+### 7. Disk Tools Sandbox & Diff Preview
+- Mengizinkan model AI membaca dan memodifikasi file di mesin pengguna dengan batasan keamanan ketat di direktori pengguna (`$HOME`).
+- Tool yang tersedia: `read_file`, `write_file`, `list_directory`, `search_files`, `delete_file`.
+- Menampilkan visual diff per baris sebelum modifikasi file dijalankan.
+
+### 8. Claude-Style Projects & Custom Personas
+- **Proyek Terisolasi**: Pisahkan instruksi sistem, berkas pengetahuan, hyperparameter (`temperature`, `top_p`, `num_ctx`), dan riwayat obrolan per proyek.
+- **Direktori Skill & Plugin**: Aktifkan persona spesialis (Staff Software Architect, Cybersecurity Analyst, Data Scientist, Technical Writer) yang secara otomatis menyalakan disk tool yang relevan.
+
+### 9. Penyimpanan Ganda (SQLite WAL + JSON Fallback + SSE)
+- Menggunakan database **SQLite** berperforma tinggi dengan mode WAL (`better-sqlite3`).
+- Jika mesin pengguna belum memiliki kompiler C++/Python untuk SQLite natif, sistem otomatis beralih ke fallback **JSON Flat File** (`data/db.json`) dengan API identik tanpa error.
+- **Server-Sent Events (SSE)** via `/api/db/stream` memperbarui perubahan data secara instan di semua tab peramban.
+
+---
+
+## 🔐 Keamanan & Sandbox Akses
+
+| Route API | Kemampuan & Batasan Keamanan |
 | :--- | :--- |
-| `/api/fs`, `/api/tools/execute*` | Read/write/delete files. Manual-chat tools are sandboxed to your home directory; autonomous agents use the same sandbox but require an approval token for any write or delete. |
-| `/api/cloud/chat` | Forwards your cloud provider API key (from `.env.local` or Settings) to Anthropic/OpenAI/Gemini/etc. |
-| `/api/connectors` | Can dispatch to Slack/Discord webhooks and execute Python in a connected Blender bridge. |
-| `/api/ollama/[...path]` | Proxies prompts to your local Ollama server. |
+| `/api/fs`, `/api/tools/execute*` | Operasi berkas disk dibatasi ketat di direktori `$HOME` pengguna via sandbox `pathSandbox.ts`. Tindakan `write_file` dan `delete_file` dari agen wajib menyertakan token persetujuan pengguna. |
+| `/api/books` | Mengindeks dan melakukan streaming berkas buku lokal secara aman dengan validasi whitelist ekstensi berkas. |
+| `/api/audio` | Streaming berkas lagu lokal dari folder yang dikonfigurasi dengan whitelist ekstensi audio. |
+| `/api/cloud/chat` | Masking otomatis data rahasia (`lib/redaction.ts`) sebelum data dikirim ke penyedia cloud (OpenAI/Anthropic/Gemini). |
+| `/api/ollama/[...path]` | Rate-limiting proxy untuk mencegah looping berlebih pada instance Ollama lokal. |
 
-**Access token.** `middleware.ts` gates every `/api/*` route behind a shared bearer token. With nothing configured, these routes are open — fine for `npm run dev` on `127.0.0.1` only (the default), **not fine** if you switch to `npm run dev:lan` / `npm run start:lan` (binds `0.0.0.0`) or run `npm run tunnel`. Set a token before doing either:
+Gunakan token keamanan jika membuka aplikasi ke jaringan lokal (LAN) atau tunnel publik:
 
 ```bash
 # .env.local
-APP_ACCESS_TOKEN=<openssl rand -hex 32>
-NEXT_PUBLIC_APP_ACCESS_TOKEN=<same value>
+APP_ACCESS_TOKEN=your_secure_generated_token_here
+NEXT_PUBLIC_APP_ACCESS_TOKEN=your_secure_generated_token_here
 ```
 
-`npm run tunnel` refuses to start at all without this set. See `.env.example` for the full list of variables, including optional server-side cloud provider keys (`ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `OPENAI_API_KEY`, `GROQ_API_KEY`, `DEEPSEEK_API_KEY`, `OPENROUTER_API_KEY`) so keys don't have to live in browser Settings/localStorage.
-
-**Other built-in protections:**
-- `lib/redaction.ts` masks high-confidence secrets (private keys, AWS/GitHub/Slack/Stripe tokens, bearer headers, private IPs) out of anything sent to a *cloud* provider — local Ollama requests are untouched.
-- `lib/ollamaRateLimit.ts` caps concurrent/burst requests to your local Ollama server so a runaway agent loop can't hammer it.
-- CORS on API routes is closed by default (`lib/corsHeaders.ts`); set `ALLOW_EXTERNAL_ORIGIN` only if you deliberately want another origin (e.g. a companion app) to call these routes cross-origin.
-
 ---
 
-## 💾 Storage
+## 🚀 Panduan Instalasi & Memulai
 
-Conversations, projects, agents, and settings are persisted server-side in **SQLite** (`better-sqlite3`, WAL mode) at `data/db.sqlite3`. If the native module can't be installed on your machine (no prebuilt binary for your Node version, no Python/C++ build tools — this can happen on very new Node releases), the app automatically falls back to a flat `data/db.json` file with identical behavior; you'll see one console warning explaining how to enable SQLite later if you want it. A pre-existing `data/db.json` is migrated into SQLite automatically the first time it's available, and the original file is kept as `data/db.json.migrated.bak`.
+### Prasyarat
+- **Node.js**: v18.0.0 atau lebih tinggi (disarankan Node LTS).
+- **Ollama**: Terpasang dan berjalan di komputer lokal ([Unduh Ollama](https://ollama.com/)).
 
----
+### Langkah Instalasi
 
-## 🚀 Quick Start
-
-### Prerequisites
-- [Node.js](https://nodejs.org/) v18+ (a Node LTS release is more likely to have a prebuilt SQLite binary available; see [Storage](#-storage))
-- [Ollama](https://ollama.com/) installed and running locally
-
-### Installation
-
-1. **Clone the repository**:
+1. **Clone Repository**:
    ```bash
    git clone https://github.com/p3nr0s3/ollama-chat-web.git
    cd ollama-chat-web
    ```
 
-2. **Install dependencies**:
+2. **Install Dependensi**:
    ```bash
    npm install
    ```
 
-3. **Configure environment variables**:
+3. **Siapkan Berkas Lingkungan**:
    ```bash
    cp .env.example .env.local
    ```
-   At minimum, set `APP_ACCESS_TOKEN` / `NEXT_PUBLIC_APP_ACCESS_TOKEN` if this machine is ever reachable by anyone else (see [Security & Access Control](#-security--access-control)).
 
-4. **Start Ollama** (in a separate terminal):
+4. **Jalankan Layanan Ollama**:
+   Buka terminal terpisah, lalu unduh model pilihan Anda:
    ```bash
    ollama serve
-   ollama pull gemma2:9b        # or your preferred model
-   ollama pull nomic-embed-text # optional, only if you'll enable Semantic RAG
+   ollama pull qwen2.5-coder:7b      # Contoh model koding
+   ollama pull gemma2:9b             # Contoh model percakapan
+   ollama pull nomic-embed-text      # Model embeddings untuk Semantic RAG
    ```
 
-5. **Launch the development server**:
+5. **Jalankan Aplikasi Web**:
    ```bash
    npm run dev
    ```
-   Binds to `127.0.0.1` by default. Use `npm run dev:lan` to bind `0.0.0.0` for access from other devices on your network — set `APP_ACCESS_TOKEN` first.
 
-6. **Open in browser**: [http://localhost:3000](http://localhost:3000)
-
-### Running tests
-
-```bash
-npm run test
-```
-
-Vitest suite covering the disk-tool path sandbox (including a regression test for a path-traversal bug that was found and fixed) and the hybrid RAG ranker.
-
-### Exposing this publicly
-
-```bash
-npm run tunnel
-```
-
-Opens a public HTTPS tunnel (via Pinggy). Refuses to start unless `APP_ACCESS_TOKEN` is set.
+6. **Buka di Browser**:
+   Kunjungi [http://localhost:3000](http://localhost:3000) pada peramban web Anda.
 
 ---
 
-## 🛠️ Slash Commands & Integrations
+## ⚙️ Variabel Lingkungan (.env.local)
 
-| Command | Description | Example |
+Berikut adalah variabel yang dapat Anda sesuaikan di `.env.local`:
+
+```ini
+# Port & URL Ollama Lokal
+OLLAMA_URL=http://127.0.0.1:11434
+
+# Token Akses Keamanan (Wajib jika menggunakan LAN / Tunnel)
+APP_ACCESS_TOKEN=
+NEXT_PUBLIC_APP_ACCESS_TOKEN=
+
+# Cloud AI API Keys (Opsional - dapat juga diatur via Settings UI)
+GEMINI_API_KEY=
+ANTHROPIC_API_KEY=
+OPENAI_API_KEY=
+GROQ_API_KEY=
+DEEPSEEK_API_KEY=
+OPENROUTER_API_KEY=
+
+# SearXNG Web Search Engine (Opsional untuk /search)
+SEARXNG_URL=
+```
+
+---
+
+## ⌨️ Pintasan & Perintah Slash (/slash)
+
+| Perintah | Deskripsi Aksi | Contoh Penggunaan |
 | :--- | :--- | :--- |
-| `/search` | Real-time web search via SearXNG | `/search latest news on AI agents` |
-| `/blender` | Procedural 3D Python script generation for Blender MCP | `/blender studio lighting with glass doughnut` |
-| `/github` | Fetch live GitHub issues or repo metrics | `/github issues facebook/react` |
-| `/slack` | Dispatch a notification to your Slack channel | `/slack Deploy successful to production` |
-| `/discord` | Dispatch a message to Discord via webhook | `/discord Agent finished morning briefing` |
-| `/think` | Force step-by-step chain-of-thought reasoning | `/think analyze security incident log` |
-| `/code` | Software architect clean code mode | `/code implement binary search tree in Rust` |
-| `/summarize` | Distill text into key bullet points | `/summarize <paste text>` |
+| `/search` | Pencarian web real-time melalui SearXNG | `/search dokumentasi terbaru Next.js 15` |
+| `/think` | Mengaktifkan mode penalaran berantai mendalam (Chain-of-Thought) | `/think analisis celah keamanan arsitektur ini` |
+| `/code` | Format output bersih berstandar clean-code arsitektur perangkat lunak | `/code buat algoritma A* pathfinding di TypeScript` |
+| `/summarize`| Merangkum teks panjang ke dalam poin-poin terstruktur | `/summarize <teks panjang>` |
+| `/blender` | Generator skrip 3D prosedural Python untuk Blender MCP | `/blender studio lighting dengan low-poly donut` |
+| `/github`  | Mengambil data issue dan metrik repository GitHub langsung | `/github issues facebook/react` |
+| `/slack`   | Mengirimkan payload notifikasi ke webhook channel Slack | `/slack deploy ke staging berhasil` |
+| `/discord` | Mengirimkan pesan webhook ke server Discord | `/discord briefing agen harian selesai` |
 
 ---
 
-## 📁 Repository Structure
+## 📁 Struktur Direktori
 
 ```
 ollama-chat-web/
 ├── app/
 │   ├── api/
-│   │   ├── audio/route.ts               # Voice/dictation audio handling
-│   │   ├── cloud/chat/route.ts          # Streaming proxy to Anthropic/OpenAI/Gemini/Groq/DeepSeek/OpenRouter
-│   │   ├── connectors/route.ts          # GitHub, Slack, Discord, Blender MCP dispatch
-│   │   ├── db/route.ts                  # Read/write the persistent database (SQLite or JSON, see lib/serverDb.ts)
-│   │   ├── fs/route.ts                  # Local disk explorer, sandboxed to $HOME
-│   │   ├── ollama/[...path]/            # Streaming proxy to Ollama (/api/chat, /api/tags, ...)
-│   │   ├── search/route.ts              # SearXNG web search
-│   │   └── tools/
-│   │       ├── execute/route.ts         # Disk tools for manual chat, sandboxed to $HOME
-│   │       └── execute-agent/route.ts   # Disk tools for autonomous agents; write/delete require an approval token
-│   ├── globals.css                      # Tailwind styles, KaTeX fonts & themes
-│   ├── layout.tsx                       # Root HTML & theme container
-│   └── page.tsx                         # Main controller, prompt engine & RAG injection
-├── components/                          # ~24 components: chat UI, modals for skills/agents/settings/approvals, codespace, etc.
-├── lib/
-│   ├── agentEngine.ts                   # Autonomous agent scheduling & tool-loop execution
-│   ├── corsHeaders.ts                   # Closed-by-default CORS for API routes
-│   ├── diskToolOps.ts                   # Shared list/read/write/search/delete file implementation
-│   ├── embeddings.ts                    # Local Ollama embeddings client for semantic RAG
-│   ├── ollamaRateLimit.ts               # Concurrency/burst guard for the Ollama proxy
-│   ├── pathSandbox.ts                   # Shared path-containment check used by fs/tools routes
-│   ├── rag.ts                           # BM25 chunking/ranking + hybrid semantic retrieval
-│   ├── redaction.ts                     # Secret-masking before any cloud provider call
-│   ├── serverDb.ts                      # SQLite storage with automatic JSON-file fallback
-│   ├── skills.ts                        # Agentic skill definitions (some auto-enable disk tools)
-│   ├── storage.ts                       # Client-side localStorage cache + server sync
-│   └── types.ts                         # TypeScript data interfaces
-├── tests/                               # Vitest: path sandbox, disk tools, hybrid RAG
-├── scripts/
-│   ├── tunnel.mjs                       # Public tunnel, refuses to run without APP_ACCESS_TOKEN
-│   └── warnOpenAccess.mjs               # Warns on `npm run dev`/`start` if no access token is set
-└── middleware.ts                        # Bearer-token gate for every /api/* route
+│   │   ├── audio/route.ts               # Streaming audio & scan direktori musik lokal
+│   │   ├── books/route.ts               # Streaming biner & scan folder e-book/komik lokal
+│   │   ├── cloud/chat/route.ts          # Streaming proxy API Gemini/Claude/OpenAI/Groq/DeepSeek
+│   │   ├── connectors/route.ts          # Dispatcher MCP (GitHub, Slack, Discord, Blender)
+│   │   ├── db/route.ts                  # Endpoint CRUD database SQLite / JSON
+│   │   ├── db/stream/route.ts           # Server-Sent Events (SSE) live database watcher
+│   │   ├── fs/route.ts                  # Sandboxed file explorer untuk sistem lokal
+│   │   ├── ollama/[...path]/            # Proxy streaming transmisi Ollama lokal
+│   │   ├── search/route.ts              # Integrasi mesin pencari SearXNG
+│   │   └── tools/                       # Eksekutor disk tools (manual chat & background agent)
+│   ├── globals.css                      # Tailwind, KaTeX, font typography & definisi tema CSS
+│   ├── layout.tsx                       # Root layout & penyedia konteks tema
+│   └── page.tsx                         # Controller utama, pengatur viewport, & state sentral
+├── components/                          # Koleksi komponen UI modular (~28 komponen)
+│   ├── CodespaceView.tsx                # Layar penuh Codespace editor & terminal
+│   ├── DocumentReaderView.tsx           # Layar penuh Reader, Rak Buku, & slider asisten AI
+│   ├── MusicFullView.tsx                # Layar penuh Music Sanctuary & visualizer hero
+│   ├── MusicPlayerWidget.tsx            # Floating widget pemutar suara ambien offline
+│   ├── TaskManagerView.tsx              # Layar penuh Kanban board & AI Task Copilot
+│   ├── SettingsModal.tsx                # Dialog pengaturan komprehensif (lebar 6xl)
+│   ├── Sidebar.tsx                      # Sidebar navigasi vertikal responsif
+│   └── ...
+├── lib/                                 # Logika bisnis, algoritma, ranker, & adaptor penyimpanan
+│   ├── bookUtils.ts                     # Parser tipe & MIME berkas buku/komik
+│   ├── contextVisualizer.ts             # Algoritma pembagi alokasi token konteks
+│   ├── diskToolOps.ts                   # Implementasi operasi sandboxed berkas disk
+│   ├── rag.ts                           # BM25 token ranker + hybrid semantic retrieval
+│   ├── responseCache.ts                 # Cache respons cerdas LRU (0 ms latency)
+│   ├── serverDb.ts                      # Abstraksi database SQLite WAL dengan JSON fallback
+│   ├── storage.ts                       # Adapter sinkronisasi localStorage & server DB
+│   └── types.ts                         # Definisi TypeScript komprehensif
+└── tests/                               # 10 test suite Vitest (Sandbox, RAG, Parser, DB, Task, Books)
 ```
 
 ---
 
-## 🤝 Contributing
+## 🧪 Pengujian (Testing)
 
-Contributions, feature ideas, and pull requests are warmly welcome!
-1. Fork the Project
-2. Create your Feature Branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your Changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the Branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
+Proyek ini dilengkapi dengan suite pengujian otomatis menyeluruh berbasis **Vitest**:
+
+```bash
+# Menjalankan seluruh pengujian unit
+npm run test
+
+# Menjalankan pemeriksaan tipe TypeScript tanpa kompilasi
+npx tsc --noEmit
+
+# Memeriksa build produksi Next.js
+npm run build
+```
+
+Semua 10 file pengujian mencakup:
+- Validasi sandbox keamanan jalur berkas (*Path Traversal Protection*).
+- Algoritma pemeringkat hibrida RAG (BM25 + Cosine Similarity).
+- Parser e-book (EPUB, PDF, CBZ/CBR Comic).
+- Smart Context trimming & alokasi anggaran token.
+- LRU Response Cache hit/miss.
+- Text diff generator untuk persetujuan tool modifikasi berkas.
+- Logika Task Manager (Kanban filtering, status transitions, subtask progress) & Reading Library.
 
 ---
 
-## 📄 License
+## 📄 Lisensi
 
-Distributed under the **MIT License**. See `LICENSE` for more information.
+Didistribusikan di bawah **Lisensi MIT**. Silakan lihat berkas `LICENSE` untuk informasi selengkapnya.
+
+---
+
+<p align="center">
+  Dibuat untuk kedaulatan data dan produktivitas komputasi AI lokal terbaik. 🚀
+</p>
