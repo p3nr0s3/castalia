@@ -100,6 +100,25 @@ export function mergeJournalEntries(serverList: JournalEntry[] = [], clientList:
   return Array.from(map.values()).sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
 }
 
+export function mergeSettings(serverSettings: AppSettings, clientSettings?: Partial<AppSettings>): AppSettings {
+  if (!clientSettings) return serverSettings;
+  return {
+    ...serverSettings,
+    ...clientSettings,
+    apiKeys: {
+      ...serverSettings.apiKeys,
+      ...(clientSettings.apiKeys || {}),
+    },
+    customTheme: clientSettings.customTheme || serverSettings.customTheme,
+    skills: clientSettings.skills || serverSettings.skills,
+    connectors: clientSettings.connectors || serverSettings.connectors,
+    plugins: clientSettings.plugins || serverSettings.plugins,
+    memory: clientSettings.memory
+      ? { ...serverSettings.memory, ...clientSettings.memory }
+      : serverSettings.memory,
+  };
+}
+
 // =====================================================================
 // Backend 1: SQLite (better-sqlite3). Preferred when the native module is
 // available. Indexed, transactional, WAL-mode — no full-file rewrite on
@@ -274,7 +293,7 @@ async function writeServerDbSqlite(data: WriteServerDbInput): Promise<ServerData
     (data.overwrite ? sqliteReplaceCollection : sqliteUpsertCollection)("journal_entries", "updatedAt", merged);
   }
 
-  if (data.settings) sqliteSetKv("settings", { ...current.settings, ...data.settings });
+  if (data.settings) sqliteSetKv("settings", mergeSettings(current.settings, data.settings));
   if (data.personas) sqliteSetKv("personas", data.personas);
   sqliteSetKv("version", (current.version || 1) + 1);
   sqliteSetKv("lastUpdated", Date.now());
@@ -403,7 +422,7 @@ async function writeServerDbJson(data: WriteServerDbInput): Promise<ServerDataba
     projects: mergedProjects,
     agents: mergedAgents,
     journalEntries: mergedJournalEntries,
-    settings: data.settings ? { ...current.settings, ...data.settings } : current.settings,
+    settings: data.settings ? mergeSettings(current.settings, data.settings) : current.settings,
     personas: data.personas || current.personas,
     pendingApprovals: mergedPendingApprovals,
     lastUpdated: Date.now(),

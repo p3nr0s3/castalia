@@ -206,6 +206,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [activeSection, setActiveSection] = useState<SettingsSection>(initialSection);
 
   React.useEffect(() => {
+    if (isOpen) {
+      setFormData(settings);
+    }
+  }, [isOpen, settings]);
+
+  React.useEffect(() => {
     if (isOpen && initialSection) {
       setActiveSection(initialSection);
     }
@@ -248,8 +254,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     onClose();
   };
 
-  // 3. Exit without applying unsaved changes
+  // 3. Exit (always saves current changes so user never loses their edits)
   const handleExit = () => {
+    onSaveSettings(formData);
     onClose();
   };
 
@@ -421,12 +428,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       {/* Backdrop */}
       <div
         className="fixed inset-0 bg-black/65 backdrop-blur-xs transition-opacity animate-in fade-in"
-        onClick={onClose}
+        onClick={handleExit}
       />
 
       {/* iOS-Style Modal Container */}
       <div className="relative w-full max-w-5xl xl:max-w-6xl bg-[var(--card-bg)] text-[var(--foreground)] rounded-t-3xl sm:rounded-3xl border-t sm:border border-[var(--card-border)] shadow-2xl overflow-hidden flex flex-col z-10 h-[94dvh] sm:h-[90vh] animate-in slide-in-from-bottom sm:zoom-in-95 duration-200">
-        {/* Top Header Bar (No Save Button Above) */}
+        {/* Top Header Bar */}
         <div className="px-5 py-3.5 border-b border-[var(--sidebar-border)] flex items-center justify-between flex-shrink-0 bg-[var(--sidebar-bg)]">
           <div className="flex items-center gap-2">
             {mobileShowDetail && (
@@ -445,13 +452,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </h2>
           </div>
 
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-xl text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--sidebar-hover)] transition-colors cursor-pointer"
-            title="Close"
-          >
-            <X className="w-4 h-4" />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleApply}
+              type="button"
+              className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/40 text-emerald-400 transition-all flex items-center gap-1.5 cursor-pointer active:scale-95"
+              title="Simpan Pengaturan Sekarang"
+            >
+              <Check className="w-3.5 h-3.5" />
+              <span>Simpan</span>
+            </button>
+            <button
+              onClick={handleExit}
+              className="p-1.5 rounded-xl text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--sidebar-hover)] transition-colors cursor-pointer"
+              title="Tutup (Simpan otomatis)"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
         {/* Master-Detail Body Layout */}
@@ -529,7 +547,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       <button
                         key={th.id}
                         type="button"
-                        onClick={() => setFormData({ ...formData, theme: th.id })}
+                        onClick={() => {
+                          const updated = { ...formData, theme: th.id };
+                          setFormData(updated);
+                          onSaveSettings(updated);
+                        }}
                         className={`p-3 rounded-2xl border text-left flex flex-col justify-between transition-all cursor-pointer ${
                           isSelected
                             ? "border-purple-500 bg-purple-500/10 ring-2 ring-purple-500/20"
@@ -804,7 +826,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       return (
                         <div
                           key={font.id}
-                          onClick={() => setFormData({ ...formData, fontFamily: font.id })}
+                          onClick={() => {
+                            const updated = { ...formData, fontFamily: font.id };
+                            setFormData(updated);
+                            onSaveSettings(updated);
+                          }}
                           className={`p-3 rounded-2xl border text-left flex items-center justify-between transition-all cursor-pointer ${
                             isSelected
                               ? "border-blue-500 bg-blue-500/10 ring-2 ring-blue-500/20"

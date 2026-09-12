@@ -291,8 +291,6 @@ export default function HomePage() {
         const localConvs = storage.getConversations();
         const localProjects = storage.getProjects();
         const localAgents = storage.getAgents();
-        const localSettings = storage.getSettings();
-
         const res = await apiFetch("/api/db", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -300,7 +298,6 @@ export default function HomePage() {
             conversations: localConvs,
             projects: localProjects,
             agents: localAgents,
-            settings: localSettings,
           }),
         });
 
@@ -2435,6 +2432,8 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
               setMainView("workspace");
               setWorkspaceView("chat");
             }}
+            sidebarOpen={sidebarOpen}
+            onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
           />
         </div>
       ) : workspaceView === "projects-gallery" ? (

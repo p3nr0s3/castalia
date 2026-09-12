@@ -35,6 +35,10 @@ import {
   Target,
   Rocket,
   Coffee,
+  PanelLeft,
+  PanelLeftClose,
+  Maximize2,
+  Minimize2,
   FileText,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
@@ -59,6 +63,8 @@ interface JournalViewProps {
   apiKeys?: ApiKeysConfig;
   onBackToChat: () => void;
   onSendToChat?: (text: string) => void;
+  sidebarOpen?: boolean;
+  onToggleSidebar?: () => void;
 }
 
 const CATEGORY_CONFIG: Record<
@@ -139,14 +145,54 @@ export const JournalView: React.FC<JournalViewProps> = ({
   apiKeys,
   onBackToChat,
   onSendToChat,
+  sidebarOpen,
+  onToggleSidebar,
 }) => {
   const [entries, setEntries] = useState<JournalEntry[]>([]);
   const [activeEntryId, setActiveEntryId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<"document" | "list" | "board">("document");
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
+  // Resizable sidebar state with local persistence
+  const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("journal_sidebar_width");
+      if (saved) {
+        const parsed = parseInt(saved, 10);
+        if (!isNaN(parsed) && parsed >= 220 && parsed <= 520) return parsed;
+      }
+    }
+    return 280;
+  });
+
+  const handleSidebarWidthChange = (newWidth: number) => {
+    setSidebarWidth(newWidth);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("journal_sidebar_width", newWidth.toString());
+    }
+  };
+
+  // Full-width canvas fit state with local persistence
+  const [isFullWidth, setIsFullWidth] = useState<boolean>(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("journal_full_width") === "true";
+    }
+    return false;
+  });
+
+  const toggleFullWidth = () => {
+    setIsFullWidth((prev) => {
+      const next = !prev;
+      if (typeof window !== "undefined") {
+        localStorage.setItem("journal_full_width", String(next));
+      }
+      return next;
+    });
+  };
+
   // Search and Filters
   const [searchQuery, setSearchQuery] = useState("");
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [filterCategory, setFilterCategory] = useState<string>("all");
   const [filterStatus, setFilterStatus] = useState<string>("all");
 
@@ -260,6 +306,23 @@ Ini adalah jurnal kerja bergaya Notion terintegrasi 100% lokal. Anda dapat menul
         setActiveEntryId(remaining[0]?.id || null);
       }
     }
+  };
+
+  // Duplicate entry
+  const handleDuplicateEntry = (id: string, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    const source = entries.find((item) => item.id === id);
+    if (!source) return;
+    const duplicated: JournalEntry = {
+      ...source,
+      id: `journal_${Date.now()}`,
+      title: `${source.title} (Salinan)`,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    const next = [duplicated, ...entries];
+    saveEntries(next);
+    setActiveEntryId(duplicated.id);
   };
 
   // Filtered entries
@@ -406,7 +469,16 @@ Dst. Berikan hanya daftar tugas actionable.`;
     <div className="flex-1 flex flex-col h-[100dvh] w-full bg-[var(--background)] text-[var(--foreground)] overflow-hidden select-text">
       {/* Top Header Bar */}
       <header className="h-14 flex-shrink-0 flex items-center justify-between px-4 border-b border-[var(--sidebar-border)] bg-[var(--sidebar-bg)]/80 backdrop-blur-md z-10">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
+          {onToggleSidebar && (
+            <button
+              onClick={onToggleSidebar}
+              className="p-1.5 rounded-xl text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--sidebar-hover)] transition-colors cursor-pointer"
+              title={sidebarOpen ? "Tutup Sidebar Aplikasi" : "Buka Sidebar Aplikasi"}
+            >
+              <PanelLeft className="w-4 h-4" />
+            </button>
+          )}
           <button
             onClick={onBackToChat}
             className="p-1.5 rounded-xl text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--sidebar-hover)] transition-colors cursor-pointer"
@@ -414,9 +486,19 @@ Dst. Berikan hanya daftar tugas actionable.`;
           >
             <ArrowLeft className="w-4 h-4" />
           </button>
+          {!isSidebarOpen && (
+            <button
+              onClick={() => setIsSidebarOpen(true)}
+              className="p-1.5 rounded-xl text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--sidebar-hover)] transition-colors cursor-pointer flex items-center gap-1.5 text-xs"
+              title="Buka Sidebar Journal"
+            >
+              <PanelLeft className="w-4 h-4 text-indigo-400" />
+              <span className="hidden md:inline font-medium">Sidebar</span>
+            </button>
+          )}
           <div className="flex items-center gap-2">
             <BookOpenText className="w-5 h-5 text-indigo-400" />
-            <h1 className="text-sm font-bold tracking-tight text-[var(--foreground)]">
+            <h1 className="text-sm font-bold tracking-tight text-[var(--foreground)] hidden sm:inline">
               Workspace Journal
             </h1>
           </div>
@@ -459,8 +541,31 @@ Dst. Berikan hanya daftar tugas actionable.`;
           </button>
         </div>
 
-        {/* Action Buttons: New Note & AI Copilot */}
+        {/* Action Buttons: Full-width toggle, AI Copilot & New Note */}
         <div className="flex items-center gap-2">
+          {viewMode === "document" && (
+            <button
+              onClick={toggleFullWidth}
+              className={`p-1.5 rounded-xl transition-colors cursor-pointer flex items-center gap-1.5 text-xs font-medium ${
+                isFullWidth
+                  ? "bg-indigo-600/20 text-indigo-300 border border-indigo-500/40 shadow-2xs"
+                  : "text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--sidebar-hover)]"
+              }`}
+              title={isFullWidth ? "Tampilan Tengah (Standar)" : "Tampilan Lebar Penuh (Fit Layar)"}
+            >
+              {isFullWidth ? (
+                <>
+                  <Minimize2 className="w-3.5 h-3.5" />
+                  <span className="hidden lg:inline">Pusat</span>
+                </>
+              ) : (
+                <>
+                  <Maximize2 className="w-3.5 h-3.5" />
+                  <span className="hidden lg:inline">Lebar Penuh</span>
+                </>
+              )}
+            </button>
+          )}
           <button
             onClick={() => {
               setAiPrompt(activeEntry?.title || "");
@@ -472,7 +577,7 @@ Dst. Berikan hanya daftar tugas actionable.`;
             <span className="hidden sm:inline">AI Copilot</span>
           </button>
           <button
-            onClick={() => handleCreateEntry("daily")}
+            onClick={() => handleCreateEntry(filterCategory !== "all" ? (filterCategory as JournalCategory) : "daily")}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition-all cursor-pointer shadow-2xs"
           >
             <Plus className="w-4 h-4" />
@@ -483,114 +588,284 @@ Dst. Berikan hanya daftar tugas actionable.`;
 
       {/* Main Workspace Area: Internal Sidebar + Active Viewport */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Collapsible Left Journal Navigator */}
-        <div
-          className={`border-r border-[var(--sidebar-border)] bg-[var(--sidebar-bg)] flex flex-col flex-shrink-0 transition-all duration-200 ${
-            isSidebarOpen ? "w-64 md:w-72" : "w-0 overflow-hidden border-r-0"
+        {/* Collapsible Left Journal Navigator with Drag Resize (matching Sidebar.tsx structure) */}
+        <aside
+          className={`relative border-r border-[var(--sidebar-border)] bg-[var(--sidebar-bg)] flex flex-col flex-shrink-0 transition-[width] duration-150 select-none ${
+            isSidebarOpen ? "" : "w-0! overflow-hidden border-r-0!"
           }`}
+          style={{ width: isSidebarOpen ? `${sidebarWidth}px` : "0px", maxWidth: "85vw" }}
         >
-          {/* Navigator Header with Search */}
-          <div className="p-3 border-b border-[var(--sidebar-border)] space-y-2">
-            <div className="relative flex items-center">
-              <Search className="absolute left-2.5 w-3.5 h-3.5 text-[var(--muted)] pointer-events-none" />
-              <input
-                type="text"
-                placeholder="Cari catatan..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl bg-[var(--card-bg)] border border-[var(--card-border)] text-[var(--foreground)] placeholder-[var(--muted)] focus:outline-none focus:ring-1 focus:ring-indigo-500"
-              />
-              {searchQuery && (
-                <button
-                  onClick={() => setSearchQuery("")}
-                  className="absolute right-2 text-[var(--muted)] hover:text-[var(--foreground)]"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              )}
-            </div>
+          {/* Draggable resize handle (Desktop) */}
+          {isSidebarOpen && (
+            <div
+              onMouseDown={(e) => {
+                e.preventDefault();
+                const startX = e.clientX;
+                const startWidth = sidebarWidth;
+                const prevCursor = document.body.style.cursor;
+                const prevUserSelect = document.body.style.userSelect;
+                document.body.style.cursor = "col-resize";
+                document.body.style.userSelect = "none";
+                const handleMouseMove = (moveEvent: MouseEvent) => {
+                  const next = Math.min(520, Math.max(220, startWidth + (moveEvent.clientX - startX)));
+                  handleSidebarWidthChange(next);
+                };
+                const handleMouseUp = () => {
+                  document.body.style.cursor = prevCursor;
+                  document.body.style.userSelect = prevUserSelect;
+                  window.removeEventListener("mousemove", handleMouseMove);
+                  window.removeEventListener("mouseup", handleMouseUp);
+                };
+                window.addEventListener("mousemove", handleMouseMove);
+                window.addEventListener("mouseup", handleMouseUp);
+              }}
+              className="hidden md:block absolute top-0 right-0 w-1.5 h-full cursor-col-resize hover:bg-indigo-500/50 active:bg-indigo-500/70 z-20 touch-none translate-x-1/2"
+              title="Geser untuk mengatur lebar sidebar"
+            />
+          )}
 
-            {/* Category Quick Chips */}
-            <div className="flex items-center gap-1 overflow-x-auto pb-1 touch-scroll scrollbar-none">
+          {/* Sidebar Top Brand Header (matching Sidebar.tsx) */}
+          <div className="px-4 pt-3.5 pb-2 flex items-center justify-between flex-shrink-0">
+            <span className="font-serif text-lg font-bold tracking-tight text-[var(--foreground)] flex items-center gap-2">
+              <BookOpenText className="w-4 h-4 text-indigo-400" />
+              <span>Journal</span>
+            </span>
+
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setIsSearchOpen(!isSearchOpen)}
+                className={`p-1 rounded-lg text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--sidebar-hover)] transition-colors cursor-pointer ${
+                  isSearchOpen ? "text-[var(--foreground)] bg-[var(--sidebar-hover)]" : ""
+                }`}
+                title="Cari Catatan"
+              >
+                <Search className="w-4 h-4" />
+              </button>
+
+              <button
+                onClick={() => setIsSidebarOpen(false)}
+                className="p-1 rounded-lg text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--sidebar-hover)] transition-colors cursor-pointer"
+                title="Tutup Sidebar"
+              >
+                <PanelLeftClose className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
+          {/* Search Bar (Expandable, matching Sidebar.tsx) */}
+          {isSearchOpen && (
+            <div className="px-3 pb-2 animate-in fade-in duration-150 flex-shrink-0">
+              <div className="relative flex items-center">
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Cari catatan, tag, ide..."
+                  autoFocus
+                  className="w-full px-2.5 py-1 text-xs rounded-xl bg-[var(--card-bg)] border border-[var(--card-border)] text-[var(--foreground)] placeholder-[var(--muted)] focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                />
+                {searchQuery && (
+                  <button
+                    onClick={() => setSearchQuery("")}
+                    className="absolute right-2 text-[var(--muted)] hover:text-[var(--foreground)]"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Primary Action Button: + Dokumen Baru (matching + New in Sidebar.tsx) */}
+          <div className="px-3 py-1 flex-shrink-0">
+            <button
+              onClick={() => handleCreateEntry(filterCategory !== "all" ? (filterCategory as JournalCategory) : "daily")}
+              className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold bg-indigo-600/15 hover:bg-indigo-600/25 text-indigo-400 border border-indigo-500/30 transition-all cursor-pointer group shadow-2xs active:scale-98"
+              title="Tambah Dokumen Baru"
+            >
+              <div className="flex items-center gap-2.5">
+                <Plus className="w-4 h-4 text-indigo-400 group-hover:rotate-90 transition-transform" />
+                <span>+ Dokumen Baru</span>
+              </div>
+              {filterCategory !== "all" && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 capitalize font-medium">
+                  {CATEGORY_CONFIG[filterCategory as JournalCategory]?.label.split(" ")[0]}
+                </span>
+              )}
+            </button>
+          </div>
+
+          {/* Categories Section (matching Customize / Projects in Sidebar.tsx) */}
+          <div className="pt-2 px-2 flex-shrink-0">
+            <div className="px-3 py-1 text-[11px] font-semibold text-[var(--muted)] select-none flex items-center justify-between">
+              <span>KATEGORI</span>
+              <span className="text-[10px] font-mono text-[var(--muted)]">{entries.length} total</span>
+            </div>
+            <div className="space-y-0.5 mt-0.5">
+              {/* All Documents */}
               <button
                 onClick={() => setFilterCategory("all")}
-                className={`px-2 py-0.5 rounded-md text-[10px] font-semibold whitespace-nowrap transition-colors cursor-pointer ${
+                className={`w-full flex items-center justify-between px-3 py-1.5 rounded-xl text-xs transition-colors cursor-pointer group ${
                   filterCategory === "all"
-                    ? "bg-indigo-600 text-white"
-                    : "text-[var(--muted)] hover:bg-[var(--sidebar-hover)]"
+                    ? "bg-[var(--sidebar-hover)] text-[var(--foreground)] font-semibold"
+                    : "text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--sidebar-hover)]"
                 }`}
               >
-                Semua ({entries.length})
+                <div className="flex items-center gap-2.5">
+                  <BookOpenText className="w-3.5 h-3.5 text-indigo-400" />
+                  <span>Semua Dokumen</span>
+                </div>
+                <span className="text-[10px] px-1.5 py-0.2 rounded-md bg-[var(--card-bg)] border border-[var(--card-border)] text-[var(--muted)] font-mono">
+                  {entries.length}
+                </span>
               </button>
+
+              {/* Categorized Entries with inline '+' button */}
               {(Object.keys(CATEGORY_CONFIG) as JournalCategory[]).map((cat) => {
+                const cfg = CATEGORY_CONFIG[cat];
+                const IconComp = cfg.icon;
                 const count = entries.filter((e) => e.category === cat).length;
+                const isSelected = filterCategory === cat;
                 return (
-                  <button
+                  <div
                     key={cat}
-                    onClick={() => setFilterCategory(cat)}
-                    className={`px-2 py-0.5 rounded-md text-[10px] font-semibold whitespace-nowrap transition-colors cursor-pointer ${
-                      filterCategory === cat
-                        ? "bg-indigo-600 text-white"
-                        : "text-[var(--muted)] hover:bg-[var(--sidebar-hover)]"
+                    className={`w-full flex items-center justify-between px-3 py-1.5 rounded-xl text-xs transition-colors cursor-pointer group ${
+                      isSelected
+                        ? "bg-[var(--sidebar-hover)] text-[var(--foreground)] font-semibold"
+                        : "text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--sidebar-hover)]"
                     }`}
+                    onClick={() => setFilterCategory(cat)}
                   >
-                    {CATEGORY_CONFIG[cat].label} ({count})
-                  </button>
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <IconComp className={`w-3.5 h-3.5 ${cfg.color}`} />
+                      <span className="truncate">{cfg.label}</span>
+                    </div>
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleCreateEntry(cat);
+                        }}
+                        className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-[var(--card-bg)] text-[var(--muted)] hover:text-indigo-400 transition-all"
+                        title={`Tambah catatan ${cfg.label}`}
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                      </button>
+                      <span className="text-[10px] px-1.5 py-0.2 rounded-md bg-[var(--card-bg)] border border-[var(--card-border)] text-[var(--muted)] font-mono">
+                        {count}
+                      </span>
+                    </div>
+                  </div>
                 );
               })}
             </div>
           </div>
 
-          {/* List of Entries */}
-          <div className="flex-1 overflow-y-auto p-2 space-y-1 touch-scroll">
-            {filteredEntries.length === 0 ? (
-              <div className="p-6 text-center text-xs text-[var(--muted)]">
-                Tidak ada catatan yang cocok.
-              </div>
-            ) : (
-              filteredEntries.map((entry) => {
-                const isActive = entry.id === activeEntryId;
-                const catCfg = CATEGORY_CONFIG[entry.category] || CATEGORY_CONFIG.daily;
-                return (
-                  <div
-                    key={entry.id}
-                    onClick={() => {
-                      setActiveEntryId(entry.id);
-                      setViewMode("document");
-                    }}
-                    className={`group p-2.5 rounded-xl transition-all cursor-pointer flex items-start gap-2.5 ${
-                      isActive
-                        ? "bg-[var(--sidebar-hover)] border border-indigo-500/30 text-[var(--foreground)]"
-                        : "hover:bg-[var(--sidebar-hover)]/60 text-[var(--muted)] hover:text-[var(--foreground)]"
-                    }`}
+          {/* Documents Section Header & List (matching Chats in Sidebar.tsx) */}
+          <div className="pt-2 px-2 flex-1 flex flex-col min-h-0">
+            <div className="px-3 py-1 text-[11px] font-semibold text-[var(--muted)] select-none flex items-center justify-between flex-shrink-0">
+              <span>CATATAN ({filteredEntries.length})</span>
+              {filterCategory !== "all" && (
+                <button
+                  onClick={() => setFilterCategory("all")}
+                  className="text-[10px] text-indigo-400 hover:underline cursor-pointer"
+                >
+                  Lihat Semua
+                </button>
+              )}
+            </div>
+
+            {/* Scrollable list */}
+            <div className="flex-1 overflow-y-auto space-y-0.5 p-1 touch-scroll">
+              {filteredEntries.length === 0 ? (
+                <div className="p-4 rounded-xl border border-dashed border-[var(--card-border)] text-center space-y-2 mt-2">
+                  <p className="text-xs text-[var(--muted)]">Belum ada dokumen di kategori ini</p>
+                  <button
+                    onClick={() => handleCreateEntry(filterCategory !== "all" ? (filterCategory as JournalCategory) : "daily")}
+                    className="px-3 py-1 rounded-lg text-xs font-semibold bg-indigo-600/20 text-indigo-400 hover:bg-indigo-600/30 transition-all inline-flex items-center gap-1 cursor-pointer"
                   >
-                    <span className="text-base flex-shrink-0 mt-0.5">{entry.icon || "📓"}</span>
-                    <div className="flex-1 min-w-0">
-                      <div className="text-xs font-semibold truncate text-[var(--foreground)]">
-                        {entry.title || "Catatan Tanpa Judul"}
+                    <Plus className="w-3 h-3" />
+                    <span>Buat Catatan Baru</span>
+                  </button>
+                </div>
+              ) : (
+                filteredEntries.map((entry) => {
+                  const isActive = entry.id === activeEntryId;
+                  const catCfg = CATEGORY_CONFIG[entry.category] || CATEGORY_CONFIG.daily;
+                  const doneCount = (entry.checklists || []).filter((c) => c.completed).length;
+                  const totalCount = (entry.checklists || []).length;
+                  return (
+                    <div
+                      key={entry.id}
+                      onClick={() => {
+                        setActiveEntryId(entry.id);
+                        setViewMode("document");
+                      }}
+                      className={`group p-2 rounded-xl transition-all cursor-pointer flex items-center justify-between gap-2 ${
+                        isActive
+                          ? "bg-[var(--sidebar-hover)] text-[var(--foreground)] font-medium border border-indigo-500/30 shadow-2xs"
+                          : "text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--sidebar-hover)] border border-transparent"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                        <span className="text-sm flex-shrink-0">{entry.icon || "📓"}</span>
+                        <div className="min-w-0 flex-1">
+                          <div className="text-xs truncate font-medium text-[var(--foreground)]">
+                            {entry.title || "Catatan Tanpa Judul"}
+                          </div>
+                          <div className="flex items-center gap-1.5 mt-0.5 text-[10px] text-[var(--muted)]">
+                            <span className="truncate">{catCfg.label.split(" ")[0]}</span>
+                            {totalCount > 0 && (
+                              <>
+                                <span>•</span>
+                                <span className={doneCount === totalCount ? "text-emerald-400 font-medium" : ""}>
+                                  {doneCount}/{totalCount}
+                                </span>
+                              </>
+                            )}
+                            {entry.date && (
+                              <>
+                                <span>•</span>
+                                <span>{entry.date.slice(5)}</span>
+                              </>
+                            )}
+                          </div>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-1.5 mt-1">
-                        <span className={`text-[9px] px-1.5 py-0.2 rounded font-medium ${catCfg.bg} ${catCfg.color}`}>
-                          {catCfg.label}
-                        </span>
-                        {entry.date && (
-                          <span className="text-[9px] text-[var(--muted)]">{entry.date}</span>
-                        )}
+
+                      {/* Hover actions: Duplicate & Delete */}
+                      <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+                        <button
+                          onClick={(e) => handleDuplicateEntry(entry.id, e)}
+                          className="p-1 rounded text-[var(--muted)] hover:text-indigo-400 hover:bg-[var(--card-bg)] transition-colors"
+                          title="Duplikasi Catatan"
+                        >
+                          <Copy className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={(e) => handleDeleteEntry(entry.id, e)}
+                          className="p-1 rounded text-[var(--muted)] hover:text-rose-400 hover:bg-[var(--card-bg)] transition-colors"
+                          title="Hapus Catatan"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
                       </div>
                     </div>
-                    <button
-                      onClick={(e) => handleDeleteEntry(entry.id, e)}
-                      className="opacity-0 group-hover:opacity-100 p-1 text-[var(--muted)] hover:text-rose-400 transition-opacity"
-                      title="Hapus Catatan"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                );
-              })
-            )}
+                  );
+                })
+              )}
+
+              {/* Bottom append button */}
+              <button
+                onClick={() => handleCreateEntry(filterCategory !== "all" ? (filterCategory as JournalCategory) : "daily")}
+                className="w-full mt-2 py-2 px-3 rounded-xl border border-dashed border-[var(--card-border)] hover:border-indigo-500/50 hover:bg-indigo-500/5 text-[var(--muted)] hover:text-indigo-400 text-xs font-medium flex items-center justify-center gap-2 transition-all cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>+ Tambah Catatan Baru</span>
+              </button>
+            </div>
           </div>
-        </div>
+        </aside>
 
         {/* Main Content Area */}
         <div className="flex-1 flex flex-col overflow-hidden bg-[var(--background)]">
@@ -634,7 +909,13 @@ Dst. Berikan hanya daftar tugas actionable.`;
               </div>
 
               {/* Document Container */}
-              <div className="max-w-4xl mx-auto px-6 md:px-12 py-8 space-y-6">
+              <div
+                className={`${
+                  isFullWidth
+                    ? "w-full max-w-none px-6 md:px-12 xl:px-16"
+                    : "max-w-5xl xl:max-w-6xl w-full mx-auto px-6 md:px-10"
+                } py-8 space-y-6 transition-all duration-150`}
+              >
                 {/* Emoji Icon & Title */}
                 <div className="space-y-3">
                   <div className="relative inline-block">
@@ -986,9 +1267,31 @@ Dst. Berikan hanya daftar tugas actionable.`;
             </div>
           )}
 
+          {/* Document Page View Empty State */}
+          {viewMode === "document" && !activeEntry && (
+            <div className="flex-1 flex flex-col items-center justify-center p-8 text-center space-y-4">
+              <div className="w-16 h-16 rounded-3xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-3xl">
+                📓
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-base font-bold text-[var(--foreground)]">Tidak Ada Catatan Terpilih</h3>
+                <p className="text-xs text-[var(--muted)] max-w-sm">
+                  Pilih catatan dari sidebar atau buat dokumen baru untuk memulai journaling dan manajemen tugas.
+                </p>
+              </div>
+              <button
+                onClick={() => handleCreateEntry(filterCategory !== "all" ? (filterCategory as JournalCategory) : "daily")}
+                className="px-4 py-2 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition-all inline-flex items-center gap-2 shadow-sm cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Buat Dokumen Baru</span>
+              </button>
+            </div>
+          )}
+
           {/* List / Table View */}
           {viewMode === "list" && (
-            <div className="flex-1 overflow-y-auto p-6 max-w-6xl mx-auto w-full space-y-4">
+            <div className={`flex-1 overflow-y-auto p-6 ${isFullWidth ? "w-full px-6 xl:px-12" : "max-w-6xl mx-auto w-full px-6"} space-y-4`}>
               <div className="flex items-center justify-between">
                 <h2 className="text-base font-bold text-[var(--foreground)]">Daftar Seluruh Catatan & Tugas</h2>
                 <span className="text-xs text-[var(--muted)] font-mono">
