@@ -72,7 +72,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   fontFamily: "inter",
   sendOnEnter: true,
   streamResponse: true,
-  chatFullWidth: true,
+  chatFullWidth: false,
   apiKeys: {
     geminiApiKey: "",
     openaiApiKey: "",
@@ -91,6 +91,25 @@ export const DEFAULT_SETTINGS: AppSettings = {
   musicDirectory: "",
   smartContextEnabled: true,
   ollamaKeepAlive: "60m",
+  customTheme: {
+    name: "Custom Palette",
+    background: "#12141a",
+    foreground: "#f3f4f6",
+    sidebarBg: "#0c0e12",
+    cardBg: "#1a1d24",
+    accent: "#38bdf8",
+    muted: "#9ca3af",
+  },
+};
+
+export const DEFAULT_CUSTOM_THEME = {
+  name: "Custom Palette",
+  background: "#12141a",
+  foreground: "#f3f4f6",
+  sidebarBg: "#0c0e12",
+  cardBg: "#1a1d24",
+  accent: "#38bdf8",
+  muted: "#9ca3af",
 };
 
 export interface KeepAlivePreset {

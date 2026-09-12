@@ -23,8 +23,9 @@ import {
   Sliders,
   Brain,
   Zap,
+  CheckCircle2,
 } from "lucide-react";
-import { Project, Conversation, ProjectFile } from "@/lib/types";
+import { Project, Conversation, ProjectFile, MemoryItem } from "@/lib/types";
 import { estimateTokens } from "@/lib/rag";
 
 interface ProjectDetailViewProps {
@@ -61,6 +62,50 @@ export const ProjectDetailView: React.FC<ProjectDetailViewProps> = ({
   const [fileSearchQuery, setFileSearchQuery] = useState("");
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [isAddingMemory, setIsAddingMemory] = useState(false);
+  const [newMemoryTitle, setNewMemoryTitle] = useState("");
+  const [newMemoryContent, setNewMemoryContent] = useState("");
+
+  const handleAddProjectMemory = () => {
+    if (!newMemoryTitle.trim() || !newMemoryContent.trim()) return;
+    const newMem: MemoryItem = {
+      id: `pmem_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      category: "project",
+      title: newMemoryTitle.trim(),
+      content: newMemoryContent.trim(),
+      updatedAt: Date.now(),
+      enabled: true,
+    };
+    const updatedMemories = [...(project.memories || []), newMem];
+    onSaveProject({
+      ...project,
+      memories: updatedMemories,
+      updatedAt: Date.now(),
+    });
+    setNewMemoryTitle("");
+    setNewMemoryContent("");
+    setIsAddingMemory(false);
+  };
+
+  const handleToggleProjectMemory = (memId: string) => {
+    const updatedMemories = (project.memories || []).map((m) =>
+      m.id === memId ? { ...m, enabled: !m.enabled, updatedAt: Date.now() } : m
+    );
+    onSaveProject({
+      ...project,
+      memories: updatedMemories,
+      updatedAt: Date.now(),
+    });
+  };
+
+  const handleDeleteProjectMemory = (memId: string) => {
+    const updatedMemories = (project.memories || []).filter((m) => m.id !== memId);
+    onSaveProject({
+      ...project,
+      memories: updatedMemories,
+      updatedAt: Date.now(),
+    });
+  };
 
   useEffect(() => {
     if (project) {
@@ -363,38 +408,44 @@ export const ProjectDetailView: React.FC<ProjectDetailViewProps> = ({
               </div>
             </div>
 
-            {/* Section 1: Instructions */}
+            {/* Section 1: Instructions (Bubble Card) */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <h3 className="text-sm font-semibold text-[var(--foreground)]">Instructions</h3>
+                <div className="flex items-center gap-1.5 text-xs font-bold text-[var(--foreground)]">
+                  <FileText className="w-3.5 h-3.5 text-purple-400" />
+                  <span>Instructions</span>
+                </div>
                 <button
+                  type="button"
                   onClick={() => setIsEditingInstructions(!isEditingInstructions)}
-                  className="p-1 rounded-md text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--sidebar-hover)] transition-colors cursor-pointer"
+                  className="text-[11px] text-purple-400 hover:text-purple-300 font-medium cursor-pointer"
                   title="Edit Instructions"
                 >
-                  {isEditingInstructions ? <X className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />}
+                  {isEditingInstructions ? "Cancel" : project.systemPrompt ? "Edit" : "+ Add"}
                 </button>
               </div>
 
               {isEditingInstructions ? (
-                <div className="space-y-2 animate-in fade-in">
+                <div className="space-y-2.5 p-3.5 rounded-2xl bg-[var(--card-bg)] border border-purple-500/30 shadow-2xs animate-in fade-in">
                   <textarea
                     value={instructionsText}
                     onChange={(e) => setInstructionsText(e.target.value)}
-                    placeholder="Add instructions to tailor AI responses..."
+                    placeholder="Add instructions to tailor AI responses for this project..."
                     rows={4}
-                    className="w-full p-2.5 text-xs rounded-xl bg-[var(--card-bg)] border border-[var(--card-border)] text-[var(--foreground)] placeholder-[var(--muted)] focus:outline-none focus:ring-1 focus:ring-[var(--card-border)]"
+                    className="w-full p-2.5 text-xs font-mono rounded-xl bg-[var(--sidebar-bg)] border border-[var(--card-border)] text-[var(--foreground)] placeholder-[var(--muted)] focus:outline-none focus:ring-1 focus:ring-purple-500 resize-y"
                   />
                   <div className="flex justify-end gap-2">
                     <button
+                      type="button"
                       onClick={() => setIsEditingInstructions(false)}
-                      className="px-2.5 py-1 rounded-lg text-xs text-[var(--muted)] hover:text-[var(--foreground)]"
+                      className="px-2.5 py-1 rounded-lg text-xs text-[var(--muted)] hover:text-[var(--foreground)] cursor-pointer"
                     >
                       Cancel
                     </button>
                     <button
+                      type="button"
                       onClick={handleSaveInstructions}
-                      className="px-3 py-1 rounded-lg text-xs bg-[var(--foreground)] text-[var(--background)] font-semibold hover:opacity-90 transition-colors flex items-center gap-1"
+                      className="px-3 py-1 rounded-lg text-xs bg-purple-600 text-white font-semibold hover:bg-purple-500 transition-colors flex items-center gap-1 cursor-pointer"
                     >
                       <Check className="w-3 h-3" />
                       <span>Save</span>
@@ -402,24 +453,25 @@ export const ProjectDetailView: React.FC<ProjectDetailViewProps> = ({
                   </div>
                 </div>
               ) : (
-                <div className="space-y-1">
-                  <p
+                <div className="p-3.5 rounded-2xl bg-[var(--card-bg)] border border-[var(--card-border)] shadow-2xs space-y-2">
+                  <div
                     onClick={() => setIsEditingInstructions(true)}
-                    className={`text-xs text-[var(--muted)] hover:text-[var(--foreground)] cursor-pointer transition-colors leading-relaxed whitespace-pre-wrap ${
-                      isInstructionsExpanded ? "" : "line-clamp-3"
+                    className={`text-xs font-mono text-[var(--muted)] hover:text-[var(--foreground)] cursor-pointer transition-colors leading-relaxed whitespace-pre-wrap ${
+                      isInstructionsExpanded ? "" : "line-clamp-4"
                     }`}
                   >
                     {project.systemPrompt
                       ? project.systemPrompt
-                      : "Add instructions to tailor AI responses"}
-                  </p>
-                  {project.systemPrompt && project.systemPrompt.length > 160 && (
+                      : "Add instructions to tailor AI responses specifically for this project."}
+                  </div>
+                  {project.systemPrompt && project.systemPrompt.length > 140 && (
                     <button
+                      type="button"
                       onClick={(e) => {
                         e.stopPropagation();
                         setIsInstructionsExpanded((prev) => !prev);
                       }}
-                      className="text-[10px] font-medium text-[var(--muted)] hover:text-[var(--foreground)] transition-colors cursor-pointer"
+                      className="text-[10px] font-medium text-purple-400 hover:text-purple-300 transition-colors cursor-pointer"
                     >
                       {isInstructionsExpanded ? "Show less" : "Show more"}
                     </button>
@@ -512,6 +564,119 @@ export const ProjectDetailView: React.FC<ProjectDetailViewProps> = ({
                           ~{estimateTokens(file.textContent || "").toLocaleString()} tok
                         </span>
                       </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Section 3: Project Memory */}
+            <div className="space-y-3 pt-4 border-t border-[var(--card-border)]">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5 text-xs font-bold text-[var(--foreground)]">
+                  <Brain className="w-3.5 h-3.5 text-pink-400" />
+                  <span>Project Memory</span>
+                  {project.memories && project.memories.length > 0 && (
+                    <span className="px-1.5 py-0.2 rounded-full text-[10px] font-semibold bg-pink-500/15 text-pink-400 border border-pink-500/30">
+                      {project.memories.filter((m) => m.enabled).length}/{project.memories.length}
+                    </span>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsAddingMemory(!isAddingMemory)}
+                  className="text-[11px] text-pink-400 hover:text-pink-300 font-medium cursor-pointer"
+                  title="Add Memory"
+                >
+                  {isAddingMemory ? "Cancel" : "+ Add Memory"}
+                </button>
+              </div>
+
+              {isAddingMemory && (
+                <div className="space-y-2.5 p-3 rounded-2xl bg-[var(--card-bg)] border border-pink-500/30 shadow-2xs animate-in fade-in">
+                  <input
+                    type="text"
+                    value={newMemoryTitle}
+                    onChange={(e) => setNewMemoryTitle(e.target.value)}
+                    placeholder="Memory title (e.g. Coding Standard, Persona, Goal)..."
+                    className="w-full p-2 text-xs rounded-xl bg-[var(--sidebar-bg)] border border-[var(--card-border)] text-[var(--foreground)] placeholder-[var(--muted)] focus:outline-none focus:ring-1 focus:ring-pink-500"
+                  />
+                  <textarea
+                    value={newMemoryContent}
+                    onChange={(e) => setNewMemoryContent(e.target.value)}
+                    placeholder="What should AI always remember when working in this project?..."
+                    rows={3}
+                    className="w-full p-2 text-xs rounded-xl bg-[var(--sidebar-bg)] border border-[var(--card-border)] text-[var(--foreground)] placeholder-[var(--muted)] focus:outline-none focus:ring-1 focus:ring-pink-500 resize-y"
+                  />
+                  <div className="flex justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsAddingMemory(false);
+                        setNewMemoryTitle("");
+                        setNewMemoryContent("");
+                      }}
+                      className="px-2.5 py-1 rounded-lg text-xs text-[var(--muted)] hover:text-[var(--foreground)] cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleAddProjectMemory}
+                      disabled={!newMemoryTitle.trim() || !newMemoryContent.trim()}
+                      className="px-3 py-1 rounded-lg text-xs bg-pink-600 text-white font-semibold hover:bg-pink-500 disabled:opacity-50 transition-colors flex items-center gap-1 cursor-pointer"
+                    >
+                      <Check className="w-3 h-3" />
+                      <span>Save Memory</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {(!project.memories || project.memories.length === 0) && !isAddingMemory ? (
+                <div
+                  onClick={() => setIsAddingMemory(true)}
+                  className="p-3.5 rounded-xl border border-dashed border-[var(--card-border)] hover:border-pink-500/40 text-center text-xs text-[var(--muted)] cursor-pointer transition-colors"
+                >
+                  Click + Add Memory to retain project-specific rules, tech stack, or persona facts.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {project.memories?.map((mem) => (
+                    <div
+                      key={mem.id}
+                      className={`group p-2.5 rounded-xl border transition-all flex items-start gap-2.5 ${
+                        mem.enabled
+                          ? "bg-[var(--card-bg)] border-[var(--card-border)] hover:border-pink-500/30"
+                          : "bg-[var(--sidebar-bg)]/50 border-[var(--card-border)]/50 opacity-60"
+                      }`}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => handleToggleProjectMemory(mem.id)}
+                        className={`mt-0.5 p-0.5 rounded cursor-pointer transition-colors ${
+                          mem.enabled ? "text-pink-400 hover:text-pink-300" : "text-[var(--muted)] hover:text-[var(--foreground)]"
+                        }`}
+                        title={mem.enabled ? "Disable memory" : "Enable memory"}
+                      >
+                        <CheckCircle2 className={`w-3.5 h-3.5 ${mem.enabled ? "fill-pink-500/20" : ""}`} />
+                      </button>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-xs font-semibold text-[var(--foreground)] truncate">
+                          {mem.title}
+                        </div>
+                        <p className="text-[11px] text-[var(--muted)] leading-relaxed line-clamp-2 mt-0.5 whitespace-pre-wrap">
+                          {mem.content}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteProjectMemory(mem.id)}
+                        className="p-1 rounded-md text-[var(--muted)] hover:text-rose-400 hover:bg-rose-500/10 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer flex-shrink-0"
+                        title="Delete memory"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
                     </div>
                   ))}
                 </div>

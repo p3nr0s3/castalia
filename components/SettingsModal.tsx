@@ -40,7 +40,7 @@ import { AppSettings, OllamaModel, ThemeType, FontFamilyType, ThinkingMode, Skil
 import { checkOllamaHealth } from "@/lib/ollama";
 import { storage } from "@/lib/storage";
 import { DEFAULT_SKILLS } from "@/lib/skills";
-import { CONTEXT_SIZE_PRESETS, KEEP_ALIVE_PRESETS } from "@/lib/constants";
+import { CONTEXT_SIZE_PRESETS, KEEP_ALIVE_PRESETS, DEFAULT_CUSTOM_THEME } from "@/lib/constants";
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -168,6 +168,14 @@ const THEME_OPTIONS: { id: ThemeType; name: string; icon: any; previewBg: string
     previewBg: "bg-gradient-to-r from-slate-200 to-slate-800",
     previewAccent: "bg-blue-500",
     desc: "Matches OS light/dark appearance",
+  },
+  {
+    id: "custom",
+    name: "Custom Palette",
+    icon: Palette,
+    previewBg: "bg-gradient-to-r from-purple-900 to-indigo-900",
+    previewAccent: "bg-sky-400",
+    desc: "Racik kombinasi warna tema Anda sendiri",
   },
 ];
 
@@ -558,6 +566,243 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     );
                   })}
                 </div>
+
+                {/* Custom Palette Editor (When theme is custom) */}
+                {formData.theme === "custom" && (
+                  <div className="p-4 rounded-2xl bg-[var(--sidebar-bg)] border border-purple-500/30 space-y-4 animate-in fade-in">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Palette className="w-4 h-4 text-purple-400" />
+                        <h4 className="text-xs font-bold text-[var(--foreground)]">Custom Color Palette Editor</h4>
+                      </div>
+                      <span className="text-[10px] text-purple-400 font-medium bg-purple-500/10 px-2 py-0.5 rounded-full border border-purple-500/20">
+                        Live Preview
+                      </span>
+                    </div>
+
+                    {/* Quick presets */}
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-semibold text-[var(--muted)] uppercase tracking-wider">
+                        Quick Preset Inspirations
+                      </label>
+                      <div className="flex flex-wrap gap-1.5">
+                        {[
+                          { name: "Cyberpunk Pink", bg: "#0d0221", fg: "#f3f4f6", sb: "#05010e", card: "#19053b", acc: "#ff007f" },
+                          { name: "Matcha Minimal", bg: "#0f1711", fg: "#e2e8f0", sb: "#080e0a", card: "#18261c", acc: "#10b981" },
+                          { name: "Solarized Ember", bg: "#1a1614", fg: "#fef3c7", sb: "#110e0c", card: "#29221d", acc: "#f59e0b" },
+                          { name: "Royal Purple", bg: "#0f0c20", fg: "#ede9fe", sb: "#080614", card: "#1c173b", acc: "#a855f7" },
+                          { name: "Deep Ocean", bg: "#0a192f", fg: "#e6f1ff", sb: "#020c1b", card: "#112240", acc: "#64ffda" },
+                        ].map((preset) => (
+                          <button
+                            key={preset.name}
+                            type="button"
+                            onClick={() => {
+                              setFormData({
+                                ...formData,
+                                customTheme: {
+                                  name: preset.name,
+                                  background: preset.bg,
+                                  foreground: preset.fg,
+                                  sidebarBg: preset.sb,
+                                  cardBg: preset.card,
+                                  accent: preset.acc,
+                                  muted: "#94a3b8",
+                                },
+                              });
+                            }}
+                            className="px-2.5 py-1 rounded-lg text-[11px] font-medium border border-[var(--card-border)] bg-[var(--card-bg)] hover:border-purple-400 text-[var(--foreground)] transition-colors flex items-center gap-1.5 cursor-pointer"
+                          >
+                            <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: preset.acc }} />
+                            <span>{preset.name}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Color inputs grid */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+                      <div>
+                        <label className="block text-[11px] font-medium text-[var(--muted)] mb-1">
+                          Canvas Background
+                        </label>
+                        <div className="flex items-center gap-2 p-1.5 rounded-xl border border-[var(--card-border)] bg-[var(--card-bg)]">
+                          <input
+                            type="color"
+                            value={formData.customTheme?.background || "#12141a"}
+                            onChange={(e) =>
+                              setFormData({
+                                ...formData,
+                                customTheme: {
+                                  ...(formData.customTheme || DEFAULT_CUSTOM_THEME),
+                                  background: e.target.value,
+                                },
+                              })
+                            }
+                            className="w-7 h-7 rounded-lg border-0 cursor-pointer bg-transparent"
+                          />
+                          <input
+                            type="text"
+                            value={formData.customTheme?.background || "#12141a"}
+                            onChange={(e) =>
+                              setFormData({
+                                ...formData,
+                                customTheme: {
+                                  ...(formData.customTheme || DEFAULT_CUSTOM_THEME),
+                                  background: e.target.value,
+                                },
+                              })
+                            }
+                            className="text-xs font-mono bg-transparent text-[var(--foreground)] focus:outline-none flex-1"
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-medium text-[var(--muted)] mb-1">
+                          Accent / Highlight
+                        </label>
+                        <div className="flex items-center gap-2 p-1.5 rounded-xl border border-[var(--card-border)] bg-[var(--card-bg)]">
+                          <input
+                            type="color"
+                            value={formData.customTheme?.accent || "#38bdf8"}
+                            onChange={(e) =>
+                              setFormData({
+                                ...formData,
+                                customTheme: {
+                                  ...(formData.customTheme || DEFAULT_CUSTOM_THEME),
+                                  accent: e.target.value,
+                                },
+                              })
+                            }
+                            className="w-7 h-7 rounded-lg border-0 cursor-pointer bg-transparent"
+                          />
+                          <input
+                            type="text"
+                            value={formData.customTheme?.accent || "#38bdf8"}
+                            onChange={(e) =>
+                              setFormData({
+                                ...formData,
+                                customTheme: {
+                                  ...(formData.customTheme || DEFAULT_CUSTOM_THEME),
+                                  accent: e.target.value,
+                                },
+                              })
+                            }
+                            className="text-xs font-mono bg-transparent text-[var(--foreground)] focus:outline-none flex-1"
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-medium text-[var(--muted)] mb-1">
+                          Sidebar Background
+                        </label>
+                        <div className="flex items-center gap-2 p-1.5 rounded-xl border border-[var(--card-border)] bg-[var(--card-bg)]">
+                          <input
+                            type="color"
+                            value={formData.customTheme?.sidebarBg || "#0c0e12"}
+                            onChange={(e) =>
+                              setFormData({
+                                ...formData,
+                                customTheme: {
+                                  ...(formData.customTheme || DEFAULT_CUSTOM_THEME),
+                                  sidebarBg: e.target.value,
+                                },
+                              })
+                            }
+                            className="w-7 h-7 rounded-lg border-0 cursor-pointer bg-transparent"
+                          />
+                          <input
+                            type="text"
+                            value={formData.customTheme?.sidebarBg || "#0c0e12"}
+                            onChange={(e) =>
+                              setFormData({
+                                ...formData,
+                                customTheme: {
+                                  ...(formData.customTheme || DEFAULT_CUSTOM_THEME),
+                                  sidebarBg: e.target.value,
+                                },
+                              })
+                            }
+                            className="text-xs font-mono bg-transparent text-[var(--foreground)] focus:outline-none flex-1"
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-medium text-[var(--muted)] mb-1">
+                          Card & Bubble Background
+                        </label>
+                        <div className="flex items-center gap-2 p-1.5 rounded-xl border border-[var(--card-border)] bg-[var(--card-bg)]">
+                          <input
+                            type="color"
+                            value={formData.customTheme?.cardBg || "#1a1d24"}
+                            onChange={(e) =>
+                              setFormData({
+                                ...formData,
+                                customTheme: {
+                                  ...(formData.customTheme || DEFAULT_CUSTOM_THEME),
+                                  cardBg: e.target.value,
+                                },
+                              })
+                            }
+                            className="w-7 h-7 rounded-lg border-0 cursor-pointer bg-transparent"
+                          />
+                          <input
+                            type="text"
+                            value={formData.customTheme?.cardBg || "#1a1d24"}
+                            onChange={(e) =>
+                              setFormData({
+                                ...formData,
+                                customTheme: {
+                                  ...(formData.customTheme || DEFAULT_CUSTOM_THEME),
+                                  cardBg: e.target.value,
+                                },
+                              })
+                            }
+                            className="text-xs font-mono bg-transparent text-[var(--foreground)] focus:outline-none flex-1"
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-medium text-[var(--muted)] mb-1">
+                          Text / Foreground Color
+                        </label>
+                        <div className="flex items-center gap-2 p-1.5 rounded-xl border border-[var(--card-border)] bg-[var(--card-bg)]">
+                          <input
+                            type="color"
+                            value={formData.customTheme?.foreground || "#f3f4f6"}
+                            onChange={(e) =>
+                              setFormData({
+                                ...formData,
+                                customTheme: {
+                                  ...(formData.customTheme || DEFAULT_CUSTOM_THEME),
+                                  foreground: e.target.value,
+                                },
+                              })
+                            }
+                            className="w-7 h-7 rounded-lg border-0 cursor-pointer bg-transparent"
+                          />
+                          <input
+                            type="text"
+                            value={formData.customTheme?.foreground || "#f3f4f6"}
+                            onChange={(e) =>
+                              setFormData({
+                                ...formData,
+                                customTheme: {
+                                  ...(formData.customTheme || DEFAULT_CUSTOM_THEME),
+                                  foreground: e.target.value,
+                                },
+                              })
+                            }
+                            className="text-xs font-mono bg-transparent text-[var(--foreground)] focus:outline-none flex-1"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 <div className="pt-3 border-t border-[var(--sidebar-border)] space-y-3">
                   <div>

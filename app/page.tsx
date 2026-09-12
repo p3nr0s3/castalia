@@ -19,7 +19,7 @@ import {
   RetrievedChunkInfo,
 } from "@/lib/types";
 import { storage } from "@/lib/storage";
-import { DEFAULT_SETTINGS, PRESET_PERSONAS } from "@/lib/constants";
+import { DEFAULT_SETTINGS, PRESET_PERSONAS, DEFAULT_CUSTOM_THEME } from "@/lib/constants";
 import { checkOllamaHealth, fetchOllamaModels, streamChatCompletion } from "@/lib/ollama";
 import { buildToolDirectivePrompt, parseToolDirective, MUTATING_TOOLS } from "@/lib/tools";
 import { executeToolCall } from "@/lib/toolEngine";
@@ -49,6 +49,7 @@ import {
 } from "@/lib/directoryData";
 import { MusicPlayerWidget, NowPlayingInfo } from "@/components/MusicPlayerWidget";
 import { CodespaceView } from "@/components/CodespaceView";
+import DocumentReaderView from "@/components/DocumentReaderView";
 import {
   buildOptimizedKnowledgeContextAsync,
   trimChatHistoryForBudget,
@@ -89,7 +90,7 @@ export default function HomePage() {
   const [isStreaming, setIsStreaming] = useState<boolean>(false);
   const [liveStats, setLiveStats] = useState<{ tokenCount: number; liveTps: number } | undefined>(undefined);
   const [thinkingMode, setThinkingMode] = useState<ThinkingMode>("default");
-  const [mainView, setMainView] = useState<"workspace" | "codespace">("workspace");
+  const [mainView, setMainView] = useState<"workspace" | "codespace" | "reader">("workspace");
   const [workspaceView, setWorkspaceView] = useState<"chat" | "projects-gallery" | "project-detail">("chat");
   const [nowPlayingInfo, setNowPlayingInfo] = useState<{ isPlaying: boolean; title: string; onOpenPlayer: () => void } | null>(null);
   const [isArenaMode, setIsArenaMode] = useState<boolean>(false);
@@ -209,22 +210,60 @@ export default function HomePage() {
   // Initialize theme & typography font
   useEffect(() => {
     const root = document.documentElement;
+    const customProps = [
+      "--background",
+      "--foreground",
+      "--sidebar-bg",
+      "--sidebar-hover",
+      "--sidebar-border",
+      "--card-bg",
+      "--card-border",
+      "--accent",
+      "--accent-hover",
+      "--user-bubble",
+      "--input-bg",
+      "--input-border",
+      "--muted",
+      "--header-bg",
+    ];
+
     if (settings.theme === "system") {
       const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
       root.removeAttribute("data-theme");
       if (prefersDark) root.classList.add("dark");
       else root.classList.remove("dark");
+      customProps.forEach((p) => root.style.removeProperty(p));
     } else if (settings.theme === "light") {
       root.setAttribute("data-theme", "light");
       root.classList.remove("dark");
+      customProps.forEach((p) => root.style.removeProperty(p));
+    } else if (settings.theme === "custom") {
+      root.setAttribute("data-theme", "custom");
+      root.classList.add("dark");
+      const ct = settings.customTheme || DEFAULT_CUSTOM_THEME;
+      root.style.setProperty("--background", ct.background);
+      root.style.setProperty("--foreground", ct.foreground);
+      root.style.setProperty("--sidebar-bg", ct.sidebarBg);
+      root.style.setProperty("--sidebar-hover", `${ct.sidebarBg}ee`);
+      root.style.setProperty("--sidebar-border", `${ct.cardBg}`);
+      root.style.setProperty("--card-bg", ct.cardBg);
+      root.style.setProperty("--card-border", `${ct.sidebarBg}`);
+      root.style.setProperty("--accent", ct.accent);
+      root.style.setProperty("--accent-hover", ct.accent);
+      root.style.setProperty("--user-bubble", ct.cardBg);
+      root.style.setProperty("--input-bg", ct.cardBg);
+      root.style.setProperty("--input-border", `${ct.sidebarBg}`);
+      root.style.setProperty("--muted", ct.muted || "#9ca3af");
+      root.style.setProperty("--header-bg", `${ct.background}d9`);
     } else {
       root.setAttribute("data-theme", settings.theme);
       root.classList.add("dark");
+      customProps.forEach((p) => root.style.removeProperty(p));
     }
 
     // Apply custom typography font
     root.setAttribute("data-font", settings.fontFamily || "inter");
-  }, [settings.theme, settings.fontFamily]);
+  }, [settings.theme, settings.fontFamily, settings.customTheme]);
 
   // Load models and health check
   const refreshOllama = useCallback(async () => {
@@ -997,6 +1036,20 @@ export default function HomePage() {
         }
         memorySection += "=== END OF USER MEMORY ===\n\n";
         basePrompt = `${basePrompt}${memorySection}`;
+      }
+    }
+
+    // 4b. Inject Project-Specific Memories (Static)
+    if (proj && proj.memories && proj.memories.length > 0) {
+      const activeProjMemories = proj.memories.filter((m) => m.enabled);
+      if (activeProjMemories.length > 0) {
+        let projMemSection = `\n\n=== PROJECT MEMORIES: ${proj.name.toUpperCase()} ===\n`;
+        projMemSection += "The following are key facts, constraints, and project rules specific to this project. Always respect them in this workspace:\n";
+        for (const mem of activeProjMemories) {
+          projMemSection += `- ${mem.title}: ${mem.content}\n`;
+        }
+        projMemSection += "=== END OF PROJECT MEMORIES ===\n\n";
+        basePrompt = `${basePrompt}${projMemSection}`;
       }
     }
 
@@ -2377,6 +2430,9 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
         pendingApprovalCount={pendingApprovals.filter((a) => a.status === "pending").length}
         onOpenArtifacts={() => setIsArtifactsModalOpen(true)}
         onOpenCodespace={() => setMainView("codespace")}
+        onOpenReader={() => setMainView("reader")}
+        onOpenMusic={() => dispatchMusicAction({ type: "open" })}
+        nowPlayingInfo={nowPlayingInfo}
         onOpenWorkspace={() => {
           setMainView("workspace");
           setWorkspaceView("chat");
@@ -2390,7 +2446,7 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
         onTrackUpdate={setNowPlayingInfo}
       />
 
-      {/* Main Viewport: Workspace (Chat) vs Projects Gallery vs Project Detail vs Codespace */}
+      {/* Main Viewport: Workspace (Chat) vs Projects Gallery vs Project Detail vs Codespace vs Reader */}
       {mainView === "codespace" ? (
         <div className="flex-1 flex flex-col h-[100dvh] overflow-hidden relative">
           <CodespaceView
@@ -2404,6 +2460,23 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
             }}
             sidebarOpen={sidebarOpen}
             onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
+          />
+        </div>
+      ) : mainView === "reader" ? (
+        <div className="flex-1 flex flex-col h-[100dvh] overflow-hidden relative">
+          <DocumentReaderView
+            models={models}
+            selectedModel={selectedModel}
+            apiKeys={settings.apiKeys}
+            onSendToChat={(text) => {
+              setInput(text);
+              setMainView("workspace");
+              setWorkspaceView("chat");
+            }}
+            onBackToChat={() => {
+              setMainView("workspace");
+              setWorkspaceView("chat");
+            }}
           />
         </div>
       ) : workspaceView === "projects-gallery" ? (

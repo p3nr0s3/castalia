@@ -44,6 +44,10 @@ export function calculateContextBreakdown({
 
   // 1. System Prompt Tokens
   let systemText = conversation?.systemPrompt || project?.systemPrompt || settings.defaultSystemPrompt || "";
+  if (project?.memories && project.memories.length > 0) {
+    const memText = project.memories.filter((m) => m.enabled).map((m) => `${m.title}: ${m.content}`).join("\n");
+    if (memText) systemText += `\n${memText}`;
+  }
   if (diskToolsActive) {
     systemText += `\n\n${buildToolDirectivePrompt()}`;
   }

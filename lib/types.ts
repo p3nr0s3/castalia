@@ -178,6 +178,7 @@ export interface Project {
   seed?: number;
   stopSequences?: string[];
   files: ProjectFile[];
+  memories?: MemoryItem[];
   createdAt: number;
   updatedAt: number;
 }
@@ -399,7 +400,18 @@ export type ThemeType =
   | "cyberpunk"
   | "forest"
   | "sunset"
-  | "nord";
+  | "nord"
+  | "custom";
+
+export interface CustomThemePalette {
+  name?: string;
+  background: string;
+  foreground: string;
+  sidebarBg: string;
+  cardBg: string;
+  accent: string;
+  muted?: string;
+}
 
 export type FontFamilyType =
   | "inter"
@@ -475,6 +487,7 @@ export interface AppSettings {
    * Prevents model unloading and KV-cache flushing during pauses in chat.
    */
   ollamaKeepAlive?: string;
+  customTheme?: CustomThemePalette;
 }
 
 // ============================================================================

@@ -322,6 +322,16 @@ export async function executeAgent(
         });
         effectiveSystemPrompt += "=== END OF KNOWLEDGE BASE ===\n\n";
       }
+      if (proj.memories && proj.memories.length > 0) {
+        const activeMems = proj.memories.filter((m) => m.enabled);
+        if (activeMems.length > 0) {
+          effectiveSystemPrompt += `\n\n=== PROJECT MEMORIES: ${proj.name.toUpperCase()} ===\n`;
+          activeMems.forEach((m) => {
+            effectiveSystemPrompt += `- ${m.title}: ${m.content}\n`;
+          });
+          effectiveSystemPrompt += "=== END OF PROJECT MEMORIES ===\n\n";
+        }
+      }
     }
   }
 
