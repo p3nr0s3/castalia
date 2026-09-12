@@ -8,7 +8,6 @@ import {
   Download,
   ArrowDown,
   Bot,
-  Plus,
   Folder,
   FileText,
   Zap,
@@ -611,7 +610,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
           </div>
         ) : (
           /* Message List (Seamless Transparent Stream) */
-          <div className={`w-full mx-auto py-2 space-y-1 min-w-0 ${chatFullWidth ? "max-w-none px-2 sm:px-4" : "max-w-4xl"}`}>
+          <div className={`w-full mx-auto py-2 space-y-1 min-w-0 ${chatFullWidth ? "max-w-none px-2 sm:px-6 xl:px-10" : "max-w-4xl"}`}>
             {messages.map((msg, index) => {
               const isLastMessage = index === messages.length - 1;
               return (
@@ -626,6 +625,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                   onForkConversation={onForkConversation}
                   onApproveTool={onApproveTool}
                   onRejectTool={onRejectTool}
+                  chatFullWidth={chatFullWidth}
                 />
               );
             })}
@@ -634,7 +634,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
         )}
       </div>
 
-      {/* Floating Scroll to Bottom Button (Bottom-Left Corner to never obstruct typing or right FABs) */}
+      {/* Floating Scroll to Bottom Button (Bottom-Left Corner to never obstruct typing or right side) */}
       {showScrollBottom && (
         <button
           onClick={scrollToBottom}
@@ -645,15 +645,6 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
           <span className="text-[11px]">Latest</span>
         </button>
       )}
-
-      {/* Floating + New Chat Action Button (Circle FAB in Bottom Right) */}
-      <button
-        onClick={onNewChat}
-        className="fixed bottom-24 right-5 sm:right-7 z-30 w-12 h-12 rounded-full flex items-center justify-center bg-emerald-600 hover:bg-emerald-500 text-white shadow-2xl shadow-emerald-600/40 border border-emerald-400/40 hover:scale-105 active:scale-90 transition-all cursor-pointer group"
-        title="Start New Conversation (⌘N)"
-      >
-        <Plus className="w-5 h-5 group-hover:rotate-90 transition-transform duration-200" />
-      </button>
 
       {/* Sticky Bottom Input Composer */}
       <ChatInput

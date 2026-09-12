@@ -60,6 +60,7 @@ interface ChatMessageProps {
   onForkConversation?: (messageId: string) => void;
   onApproveTool?: (approvalId: string) => void;
   onRejectTool?: (approvalId: string) => void;
+  chatFullWidth?: boolean;
 }
 
 function formatTimeAgo(timestamp?: number): string {
@@ -133,6 +134,7 @@ const ChatMessageComponent: React.FC<ChatMessageProps> = ({
   onForkConversation,
   onApproveTool,
   onRejectTool,
+  chatFullWidth = false,
 }) => {
   const [copied, setCopied] = useState(false);
   const [downloaded, setDownloaded] = useState(false);
@@ -222,8 +224,8 @@ const ChatMessageComponent: React.FC<ChatMessageProps> = ({
 
   if (isUser) {
     return (
-      <div className="w-full max-w-4xl mx-auto px-2.5 sm:px-4 py-2 flex justify-end min-w-0">
-        <div className="flex flex-col items-end gap-1.5 max-w-[85%] sm:max-w-[72%] md:max-w-[65%] min-w-0 group">
+      <div className={`w-full mx-auto px-2.5 sm:px-4 py-2 flex justify-end min-w-0 ${chatFullWidth ? "max-w-none sm:px-6 xl:px-10" : "max-w-4xl"}`}>
+        <div className={`flex flex-col items-end gap-1.5 min-w-0 group ${chatFullWidth ? "max-w-[92%] sm:max-w-[85%] md:max-w-[80%]" : "max-w-[85%] sm:max-w-[72%] md:max-w-[65%]"}`}>
           {/* User Message Bubble fitted to content */}
           <div className="w-fit max-w-full min-w-0 self-end px-3.5 py-2 sm:px-4 sm:py-2.5 rounded-2xl bg-[var(--user-bubble)] text-[var(--foreground)] text-[14px] leading-relaxed shadow-none select-text border-none break-words [overflow-wrap:anywhere] [word-break:break-word] overflow-hidden">
             {/* Image Attachments */}
@@ -389,7 +391,7 @@ const ChatMessageComponent: React.FC<ChatMessageProps> = ({
   }
 
   return (
-    <div className="w-full max-w-4xl mx-auto px-2.5 sm:px-4 py-2 transition-all duration-150 flex justify-start min-w-0">
+    <div className={`w-full mx-auto px-2.5 sm:px-4 py-2 transition-all duration-150 flex justify-start min-w-0 ${chatFullWidth ? "max-w-none sm:px-6 xl:px-10" : "max-w-4xl"}`}>
       <div className="w-full min-w-0 px-1 py-1 sm:px-2 sm:py-2 bg-transparent text-[var(--foreground)] border-none shadow-none group relative">
         {/* Message Content */}
         <div className="w-full min-w-0 space-y-2">
