@@ -321,6 +321,15 @@ export const CodespaceView: React.FC<CodespaceViewProps> = ({
   const [isAiLoading, setIsAiLoading] = useState<boolean>(false);
   const [aiPromptInput, setAiPromptInput] = useState<string>("");
 
+  // Runtime & Python Configuration states
+  const [customPythonBin, setCustomPythonBin] = useState<string>(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("codespace_python_bin") || "";
+    }
+    return "";
+  });
+  const [isRuntimeConfigOpen, setIsRuntimeConfigOpen] = useState(false);
+
   // File explorer states
   const [isCreatingFile, setIsCreatingFile] = useState(false);
   const [newFileName, setNewFileName] = useState("");
@@ -505,7 +514,6 @@ export const CodespaceView: React.FC<CodespaceViewProps> = ({
 <html>
 <head>
   <meta charset="utf-8" />
-  <script src="https://cdn.jsdelivr.net/pyodide/v0.26.2/full/pyodide.js"></script>
 </head>
 <body>
 <script>
@@ -527,24 +535,51 @@ export const CodespaceView: React.FC<CodespaceViewProps> = ({
     } catch (e) {}
   }
 
-  send("log", ["[Pyodide] Initializing Python 3.12 WebAssembly runtime..."]);
+  function loadScript(url) {
+    return new Promise(function(resolve, reject) {
+      if (typeof window.loadPyodide === "function") return resolve();
+      var s = document.createElement("script");
+      s.src = url;
+      s.onload = function() { resolve(); };
+      s.onerror = function() { reject(new Error("Gagal mengunduh Pyodide runtime dari CDN (" + url + "). Periksa koneksi internet Anda.")); };
+      document.head.appendChild(s);
+    });
+  }
+
+  send("log", ["[Pyodide] Downloading & initializing Python 3.12 WebAssembly engine..."]);
 
   try {
+    await loadScript("https://cdn.jsdelivr.net/pyodide/v0.26.2/full/pyodide.js");
+
+    if (typeof loadPyodide !== "function") {
+      throw new Error("Pyodide script loaded but loadPyodide is not defined.");
+    }
+
     if (!window.pyodideInstance) {
       window.pyodideInstance = await loadPyodide({
+        indexURL: "https://cdn.jsdelivr.net/pyodide/v0.26.2/full/",
         stdout: function(text) { send("log", [text]); },
         stderr: function(text) { send("error", [text]); }
       });
-      send("log", ["✓ Pyodide Python 3.12 WASM Engine Ready."]);
+      send("log", ["✓ Pyodide Python 3.12 WebAssembly ready."]);
     }
 
     var code = ${escaped};
+
+    // Auto-load common packages if imported
+    if (window.pyodideInstance.loadPackagesFromImports) {
+      try {
+        await window.pyodideInstance.loadPackagesFromImports(code);
+      } catch (pkgErr) {}
+    }
+
     await window.pyodideInstance.runPythonAsync(code);
     var duration = Date.now() - startTime;
     send("done", [], duration);
   } catch (err) {
     var duration = Date.now() - startTime;
-    send("error", [err && err.message ? err.message : String(err)], duration);
+    var errMsg = err && err.message ? err.message : String(err);
+    send("error", [errMsg], duration);
   }
 })();
 </script>
@@ -632,6 +667,7 @@ export const CodespaceView: React.FC<CodespaceViewProps> = ({
           body: JSON.stringify({
             code: activeSnippet.content,
             language: "python",
+            pythonBin: customPythonBin.trim() || undefined,
           }),
         });
 
@@ -1641,6 +1677,15 @@ export const CodespaceView: React.FC<CodespaceViewProps> = ({
 
                   <div className="flex items-center gap-1">
                     <button
+                      onClick={() => setIsRuntimeConfigOpen(!isRuntimeConfigOpen)}
+                      className={`p-1 rounded transition-colors cursor-pointer ${
+                        isRuntimeConfigOpen || customPythonBin ? "text-amber-400 bg-amber-500/10" : "text-slate-400 hover:text-white"
+                      }`}
+                      title="Python & Runtime Settings"
+                    >
+                      <Sliders className="w-3 h-3" />
+                    </button>
+                    <button
                       onClick={() =>
                         navigator.clipboard.writeText(consoleLogs.map((l) => `[${l.timestamp}] ${l.text}`).join("\n"))
                       }
@@ -1658,6 +1703,63 @@ export const CodespaceView: React.FC<CodespaceViewProps> = ({
                     </button>
                   </div>
                 </div>
+
+                {/* Runtime Configuration Panel */}
+                {isRuntimeConfigOpen && (
+                  <div className="p-3 bg-slate-900/95 border-b border-[var(--sidebar-border)] text-xs font-sans text-slate-200 space-y-2.5 animate-in slide-in-from-top-1">
+                    <div className="flex items-center justify-between font-semibold text-[11px] text-indigo-300">
+                      <span className="flex items-center gap-1.5">
+                        <Cpu className="w-3.5 h-3.5" /> Python Runtime Environment
+                      </span>
+                      <button
+                        onClick={() => setIsRuntimeConfigOpen(false)}
+                        className="text-slate-400 hover:text-white cursor-pointer"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+
+                    <div className="text-[11px] text-slate-400 leading-relaxed">
+                      Codespace mendukung eksekusi <strong>Pyodide WebAssembly</strong> langsung di browser dan <strong>Python Native</strong> di Windows.
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                        Custom Python Executable Path (Opsional)
+                      </label>
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          type="text"
+                          placeholder="C:\Python312\python.exe atau .\venv\Scripts\python.exe"
+                          value={customPythonBin}
+                          onChange={(e) => {
+                            setCustomPythonBin(e.target.value);
+                            try {
+                              localStorage.setItem("codespace_python_bin", e.target.value);
+                            } catch {}
+                          }}
+                          className="flex-1 px-2.5 py-1 text-xs rounded-lg border border-slate-700 bg-slate-950 text-slate-100 font-mono focus:outline-none focus:border-indigo-500"
+                        />
+                        {customPythonBin && (
+                          <button
+                            onClick={() => {
+                              setCustomPythonBin("");
+                              try {
+                                localStorage.removeItem("codespace_python_bin");
+                              } catch {}
+                            }}
+                            className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] cursor-pointer"
+                          >
+                            Reset
+                          </button>
+                        )}
+                      </div>
+                      <p className="text-[10px] text-slate-500">
+                        Tips: Jika ingin menjalankan Python native, Anda dapat menginstal dari Microsoft Store atau via PowerShell: <code>winget install Python.Python.3.12</code>.
+                      </p>
+                    </div>
+                  </div>
+                )}
 
                 {/* Console Stream Output */}
                 <div className="flex-1 p-3 overflow-y-auto space-y-1.5 touch-scroll select-text">
