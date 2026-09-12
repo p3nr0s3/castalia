@@ -202,8 +202,8 @@ const ChatMessageComponent: React.FC<ChatMessageProps> = ({
     return (
       <div className="w-full max-w-4xl mx-auto px-2.5 sm:px-4 py-2 flex justify-end min-w-0">
         <div className="flex flex-col items-end gap-1.5 max-w-[85%] sm:max-w-[72%] md:max-w-[65%] min-w-0 group">
-          {/* User Message Bubble without border matching Image 1 */}
-          <div className="w-full max-w-full min-w-0 px-4 py-2.5 sm:px-5 sm:py-3 rounded-2xl bg-[var(--user-bubble)] text-[var(--foreground)] text-[14px] leading-relaxed shadow-none select-text border-none break-words [overflow-wrap:anywhere] [word-break:break-word] overflow-hidden">
+          {/* User Message Bubble fitted to content */}
+          <div className="w-fit max-w-full min-w-0 self-end px-3.5 py-2 sm:px-4 sm:py-2.5 rounded-2xl bg-[var(--user-bubble)] text-[var(--foreground)] text-[14px] leading-relaxed shadow-none select-text border-none break-words [overflow-wrap:anywhere] [word-break:break-word] overflow-hidden">
             {/* Image Attachments */}
             {imageAttachments.length > 0 && (
               <div className="flex flex-wrap gap-2 pb-2">
