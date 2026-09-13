@@ -291,7 +291,19 @@ export async function executeAgent(
         const data = await res.json();
         if (data.results && data.results.length > 0) {
           searchSources = data.results;
-          searchContext = "\n\n=== LIVE REAL-TIME WEB & SCRAPED PAGE CONTENT ===\n";
+          const now = new Date();
+          const formattedDate = now.toLocaleDateString("id-ID", {
+            weekday: "long",
+            day: "numeric",
+            month: "long",
+            year: "numeric",
+          });
+
+          searchContext = `\n\n=== TEMPORAL GROUNDING & CURRENT REAL-TIME ===\n`;
+          searchContext += `Current Date: ${formattedDate} (${now.toISOString().split("T")[0]}).\n`;
+          searchContext += `Current Year: ${now.getFullYear()}.\n`;
+          searchContext += `CRITICAL TEMPORAL DIRECTIVE: You are an autonomous agent operating in ${now.getFullYear()}. The real-time web search and news results below reflect current live information. Do NOT assume a past knowledge cutoff.\n\n`;
+          searchContext += "=== LIVE REAL-TIME WEB & SCRAPED PAGE CONTENT ===\n";
           searchSources.forEach((src, idx) => {
             searchContext += `[${idx + 1}] "${src.title}"\nURL: ${src.url}\nSummary: ${src.snippet}\n`;
             if (src.deepContent) {

@@ -16,6 +16,20 @@ export const dynamic = "force-dynamic";
 
 const CORS_HEADERS = getCorsHeaders();
 
+interface SearchCacheItem {
+  timestamp: number;
+  payload: {
+    results: SearchSource[];
+    engine: string;
+    query: string;
+    intent: string;
+  };
+}
+
+const SEARCH_CACHE = new Map<string, SearchCacheItem>();
+const SEARCH_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes TTL
+const MAX_CACHE_ENTRIES = 120;
+
 export async function OPTIONS() {
   return new NextResponse(null, {
     status: 204,
@@ -63,25 +77,32 @@ export async function POST(req: NextRequest) {
         ? queryCtx.refinedQueries[0]
         : cleanQuery;
 
+    // Check In-Memory TTL Cache (0ms response for repeated queries)
+    const cacheKey = `${queryCtx.locale.lang}:${queryCtx.intent}:${cleanQuery.toLowerCase()}`;
+    const cached = SEARCH_CACHE.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < SEARCH_CACHE_TTL_MS) {
+      return NextResponse.json(cached.payload, {
+        headers: { ...CORS_HEADERS, "X-Cache": "HIT" },
+      });
+    }
+
     let results: SearchSource[] = [];
     let usedEngine = "builtin";
 
     // 3. Precision Engine Routing by Query Intent
     if (queryCtx.intent === "news") {
       usedEngine = "google-news";
-      // Fetch fresh, authentic news via Google News RSS
+      // 1. Fetch fresh real-time news via Google News RSS (top 3)
       const newsResults = await searchGoogleNews(cleanQuery, queryCtx.locale);
       const filteredNews = filterAndScoreResults(newsResults, queryCtx);
-      results = filteredNews.slice(0, 5);
+      results = filteredNews.slice(0, 3);
 
-      // If news results are sparse (< 3), supplement with organic web search
-      if (results.length < 3) {
-        const organicNews = await searchBingEngine(primarySearchQuery, queryCtx.locale);
-        const filteredOrganic = filterAndScoreResults(organicNews, queryCtx);
-        for (const item of filteredOrganic) {
-          if (!results.some((r) => r.url === item.url) && results.length < 5) {
-            results.push(item);
-          }
+      // 2. Hybrid enhancement: fetch 1-2 organic direct news articles (which can be deep-scraped)
+      const organicNews = await searchBingEngine(primarySearchQuery, queryCtx.locale);
+      const filteredOrganic = filterAndScoreResults(organicNews, queryCtx);
+      for (const item of filteredOrganic) {
+        if (!results.some((r) => r.url === item.url) && results.length < 5) {
+          results.push(item);
         }
       }
     } else if (queryCtx.intent === "hardware") {
@@ -179,15 +200,23 @@ export async function POST(req: NextRequest) {
       results = await Promise.all(scrapeTasks);
     }
 
-    return NextResponse.json(
-      {
-        results,
-        engine: usedEngine,
-        query: primarySearchQuery,
-        intent: queryCtx.intent,
-      },
-      { headers: CORS_HEADERS }
-    );
+    const responsePayload = {
+      results,
+      engine: usedEngine,
+      query: primarySearchQuery,
+      intent: queryCtx.intent,
+    };
+
+    // Store in In-Memory Cache with eviction
+    if (SEARCH_CACHE.size >= MAX_CACHE_ENTRIES) {
+      const oldestKey = SEARCH_CACHE.keys().next().value;
+      if (oldestKey) SEARCH_CACHE.delete(oldestKey);
+    }
+    SEARCH_CACHE.set(cacheKey, { timestamp: Date.now(), payload: responsePayload });
+
+    return NextResponse.json(responsePayload, {
+      headers: { ...CORS_HEADERS, "X-Cache": "MISS" },
+    });
   } catch (error: any) {
     return NextResponse.json(
       {

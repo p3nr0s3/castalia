@@ -1464,7 +1464,19 @@ export default function HomePage() {
                 .filter(Boolean);
               const scrapedCount = searchData.results.filter((r: any) => r.scraped).length;
 
-              searchContextText = "\n\n=== REAL-TIME WEB & SCRAPED PAGE CONTENT ===\n";
+              const now = new Date();
+              const formattedDate = now.toLocaleDateString("id-ID", {
+                weekday: "long",
+                day: "numeric",
+                month: "long",
+                year: "numeric",
+              });
+
+              searchContextText = `\n\n=== TEMPORAL GROUNDING & CURRENT REAL-TIME ===\n`;
+              searchContextText += `Current Date: ${formattedDate} (${now.toISOString().split("T")[0]}).\n`;
+              searchContextText += `Current Year: ${now.getFullYear()}.\n`;
+              searchContextText += `CRITICAL TEMPORAL DIRECTIVE: You are an AI assistant operating in ${now.getFullYear()}. The real-time web search and news results below reflect current events. Do NOT state that your knowledge is cut off in 2023 or 2024. Use the live real-time information below to answer accurately.\n\n`;
+              searchContextText += "=== REAL-TIME WEB & SCRAPED PAGE CONTENT ===\n";
               searchSources.forEach((src: any, idx: number) => {
                 searchContextText += `[${idx + 1}] "${src.title}"\nURL: ${src.url}\nSummary: ${src.snippet}\n`;
                 if (src.deepContent) {
