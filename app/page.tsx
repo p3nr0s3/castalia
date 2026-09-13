@@ -18,6 +18,7 @@ import {
   ToolCallExecution,
   RetrievedChunkInfo,
   SearchStepInfo,
+  OwaspScanResult,
 } from "@/lib/types";
 import { storage } from "@/lib/storage";
 import { DEFAULT_SETTINGS, PRESET_PERSONAS, DEFAULT_CUSTOM_THEME } from "@/lib/constants";
@@ -1146,13 +1147,32 @@ export default function HomePage() {
     let searchSources: any[] = [];
     let searchContextText = "";
 
+    // Check for OWASP Security Audit Scan Intent (/scan <url> or "scan security <url>")
+    const isScanCommand =
+      trimmedInput.startsWith("/scan") ||
+      /^(scan|audit|cek keamanan|uji keamanan|security scan)\s+(web|website|security\s+)?/i.test(trimmedInput);
+
+    let scanTargetUrl = "";
+    if (isScanCommand) {
+      const urlCandidate = trimmedInput
+        .replace(/^\/scan\s*/i, "")
+        .replace(/^(scan|audit|cek keamanan|uji keamanan|security scan)\s+(web|website|security\s+)?/i, "")
+        .trim();
+      const match = urlCandidate.match(/(?:https?:\/\/|[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}[^\s]*)/i);
+      if (match) {
+        scanTargetUrl = match[0].replace(/[>)"']+$/, "");
+      }
+    }
+
     // Perform real-time web search if enabled or if user prompt has explicit search/scrape intent
     const hasUrlInInput = /https?:\/\/[^\s]+/i.test(trimmedInput);
     const hasSearchIntent =
       /^(cari|carikan|search|tolong carikan|tolong cari|browsing|scraping|scrape|baca web|baca url|info tentang|what is the latest|berita tentang|coba carikan|coba cari)\b/i.test(trimmedInput) ||
       /\b(carikan|scraping|scrape web|cve-\d{4}-\d+)\b/i.test(trimmedInput);
 
-    const shouldRunSearch = Boolean((webSearchActive || hasUrlInInput || hasSearchIntent) && trimmedInput);
+    const shouldRunSearch = Boolean(
+      !isScanCommand && (webSearchActive || hasUrlInInput || hasSearchIntent) && trimmedInput
+    );
     const { cleanQuery: cleanSearchQueryStr } = shouldRunSearch
       ? reformulateSearchQuery(trimmedInput)
       : { cleanQuery: "" };
@@ -1348,6 +1368,76 @@ export default function HomePage() {
     abortControllerRef.current = abortController;
 
     try {
+      // Execute OWASP Security Audit Scan if requested
+      let owaspScanResult: OwaspScanResult | undefined = undefined;
+      let owaspContextText = "";
+
+      if (isScanCommand && scanTargetUrl) {
+        try {
+          const scanRes = await apiFetch("/api/scan", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ url: scanTargetUrl }),
+          });
+
+          if (scanRes.ok) {
+            const scanData = await scanRes.json();
+            if (scanData.scan) {
+              const scan: OwaspScanResult = scanData.scan;
+              owaspScanResult = scan;
+              assistantPlaceholder.owaspScan = scan;
+
+              // Format structured auditor directive context for LLM
+              owaspContextText = `\n\n=== OWASP TOP 10 PASSIVE WEB SECURITY SCAN REPORT ===\n`;
+              owaspContextText += `Target URL: ${scan.targetUrl}\n`;
+              owaspContextText += `Security Grade: ${scan.grade} (Score: ${scan.score}/100)\n`;
+              owaspContextText += `Headers Summary: CSP=${scan.headersSummary.csp ? "YES" : "MISSING"}, HSTS=${scan.headersSummary.hsts ? "YES" : "MISSING"}, X-Frame-Options=${scan.headersSummary.xFrameOptions ? "YES" : "MISSING"}, X-Content-Type-Options=${scan.headersSummary.xContentTypeOptions ? "YES" : "MISSING"}, Referrer-Policy=${scan.headersSummary.referrerPolicy ? "YES" : "MISSING"}, Permissions-Policy=${scan.headersSummary.permissionsPolicy ? "YES" : "MISSING"}\n`;
+              if (scan.headersSummary.serverBannerExposed) {
+                owaspContextText += `Exposed Server Banner: ${scan.headersSummary.serverBannerExposed}\n`;
+              }
+              owaspContextText += `Cookies: Total=${scan.cookiesSummary.total}, Missing HttpOnly=${scan.cookiesSummary.missingHttpOnly}, Missing Secure=${scan.cookiesSummary.missingSecure}, Missing SameSite=${scan.cookiesSummary.missingSameSite}\n`;
+              owaspContextText += `Passive Files: security.txt=${scan.securityTxtPresent ? "Present" : "Missing"}, robots.txt=${scan.robotsTxtPresent ? "Present" : "Missing"}\n`;
+              if (scan.techDetected && scan.techDetected.length > 0) {
+                owaspContextText += `Technologies Detected: ${scan.techDetected.join(", ")}\n`;
+              }
+
+              owaspContextText += `\nFindings (${scan.findings.length} total):\n`;
+              scan.findings.forEach((f, idx) => {
+                owaspContextText += `[${idx + 1}] [${f.status.toUpperCase()}] [Severity: ${f.severity.toUpperCase()}] [${f.category}]\n`;
+                owaspContextText += `    Title: ${f.title}\n`;
+                owaspContextText += `    Description: ${f.description}\n`;
+                if (f.evidence) owaspContextText += `    Evidence: ${f.evidence}\n`;
+                owaspContextText += `    Recommendation: ${f.recommendation}\n`;
+                if (f.cwe) owaspContextText += `    Reference: ${f.cwe}\n`;
+              });
+
+              owaspContextText += `\n=== INSTRUCTIONS FOR OWASP SECURITY AUDITOR ===\n`;
+              owaspContextText += `You are an elite Application Security Engineer & Penetration Testing Auditor.\n`;
+              owaspContextText += `Provide a professional, executive-grade penetration audit report in Indonesian / English matching the user's prompt based strictly on the scan findings above:\n`;
+              owaspContextText += `1. **Ringkasan Eksekutif & Skor Keamanan**: Evaluasi grade (${scan.grade}) dan postur risiko target saat ini.\n`;
+              owaspContextText += `2. **Analisis Temuan OWASP Top 10**: Jelaskan dampak praktis dari kelemahan yang ditemukan (misal: MITM risk akibat ketiadaan HSTS, XSS blast radius akibat CSP kosong, CSRF/session hijack akibat cookie flags).\n`;
+              owaspContextText += `3. **Langkah Remediasi Konkret**: Berikan snippet konfigurasi server (Nginx/Apache/Cloudflare) dan kode implementasi untuk menambal kelemahan tersebut.\n\n`;
+
+              setConversations((prev) =>
+                prev.map((c) => {
+                  if (c.id !== targetId) return c;
+                  return {
+                    ...c,
+                    messages: c.messages.map((m) =>
+                      m.id === assistantMessageId
+                        ? { ...m, owaspScan: scan }
+                        : m
+                    ),
+                  };
+                })
+              );
+            }
+          }
+        } catch (scanErr) {
+          console.warn("OWASP scan failed:", scanErr);
+        }
+      }
+
       // Execute live web search & scraping with step updates if requested
       if (shouldRunSearch) {
         try {
@@ -1433,12 +1523,17 @@ export default function HomePage() {
         diskToolsActive || skillsRequireDiskTools(settings.skills || DEFAULT_SKILLS, convWithNewMessages.activeSkillIds);
       let accumulatedText = connectorNotice || knowledgeNotice || "";
 
-      // Dynamic contexts for this turn (RAG + search + connector)
+      // Dynamic contexts for this turn (RAG + search + OWASP + connector)
       let combinedDynamicContext = ragDynamicContext || "";
       if (searchContextText) {
         combinedDynamicContext = combinedDynamicContext
           ? `${combinedDynamicContext}\n\n${searchContextText}`
           : searchContextText;
+      }
+      if (owaspContextText) {
+        combinedDynamicContext = combinedDynamicContext
+          ? `${combinedDynamicContext}\n\n${owaspContextText}`
+          : owaspContextText;
       }
       if (connectorContextText) {
         combinedDynamicContext = combinedDynamicContext
@@ -1460,6 +1555,9 @@ export default function HomePage() {
       } else {
         if (searchContextText) {
           effectiveSystemPrompt = `${effectiveSystemPrompt}${searchContextText}`;
+        }
+        if (owaspContextText) {
+          effectiveSystemPrompt = `${effectiveSystemPrompt}${owaspContextText}`;
         }
         if (connectorContextText) {
           effectiveSystemPrompt = `${effectiveSystemPrompt}${connectorContextText}`;

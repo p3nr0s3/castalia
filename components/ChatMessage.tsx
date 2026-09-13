@@ -39,6 +39,7 @@ import {
 import dynamic from "next/dynamic";
 import { Message } from "@/lib/types";
 import { DiffPreview } from "./DiffPreview";
+import { OwaspSecurityCard } from "./OwaspSecurityCard";
 import { formatBytes } from "@/lib/ollama";
 import { speakIndonesianFemale, stopSpeaking } from "@/lib/voiceEngine";
 
@@ -668,6 +669,11 @@ const ChatMessageComponent: React.FC<ChatMessageProps> = ({
                     </div>
                   )}
                 </div>
+              )}
+
+              {/* Visual OWASP Top 10 Security Audit Card */}
+              {message.owaspScan && (
+                <OwaspSecurityCard scan={message.owaspScan} />
               )}
 
               {message.isError ? (

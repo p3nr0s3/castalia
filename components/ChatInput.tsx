@@ -30,6 +30,7 @@ import {
   Headphones,
   PhoneCall,
   AlertTriangle,
+  ShieldCheck,
 } from "lucide-react";
 import { Attachment, ThinkingMode, OllamaModel, ApiKeysConfig, Skill } from "@/lib/types";
 import { formatBytes, detectModelProvider, getApiKeyForProvider } from "@/lib/ollama";
@@ -192,6 +193,15 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       action: () => {
         setWebSearchActive(true);
         setInput("");
+      },
+    },
+    {
+      command: "/scan",
+      label: "OWASP Top 10 Security Audit",
+      desc: "Run passive web security scan on any URL (e.g. /scan https://target.com)",
+      icon: ShieldCheck,
+      action: () => {
+        setInput("/scan ");
       },
     },
     {

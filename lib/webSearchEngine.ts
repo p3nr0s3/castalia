@@ -85,7 +85,8 @@ export function reformulateSearchQuery(query: string): { isUrl: boolean; targetU
     .replace(/^(bagaimana cara|gimana cara|how to|cara)\s+/i, "")
     .replace(/^(kenapa|mengapa|why does|why is)\s+/i, "")
     .replace(/^(apa perbedaan|beda|difference between)\s+/i, "")
-    .replace(/^(rekomendasi|laptop apa yang|tools apa yang)\s+/i, "rekomendasi ")
+    .replace(/^(laptop|tools|framework|library|aplikasi|software|hp|smartphone|pc)\s+apa\s+(yang\s+)?(cocok|bagus|terbaik)?\s*/i, "$1 terbaik ")
+    .replace(/^rekomendasi\s+/i, "")
     .replace(/\?+$/, "")
     .trim();
 
@@ -291,26 +292,26 @@ export function detectQueryContext(query: string): QueryContext {
     if (priceMatch) {
       const price = `${priceMatch[1]} ${priceMatch[2]}`;
       refinedQueries.push(
-        `rekomendasi ${subject} harga ${price} terbaik spesifikasi review`,
-        `daftar ${subject} terbaik ${price} 2025 review spesifikasi`,
-        `${subject} terbaik harga ${price} review kelebihan kekurangan`
+        `${subject} ${price} terbaik spesifikasi review`,
+        `${subject} harga ${price} spesifikasi review`,
+        `${subject} ${price} asus lenovo acer hp`
       );
     } else {
       refinedQueries.push(
-        `rekomendasi ${subject} terbaik 2025 review spesifikasi harga`,
+        `${subject} terbaik 2025 review spesifikasi harga`,
         `${subject} terbaik review kelebihan kekurangan`
       );
     }
   } else if (intent === "security") {
     const subj = coreSubjects[0] || query;
     refinedQueries.push(
-      `${subj} security advisory vulnerability details mitigation`,
-      `${subj} nvd cve exploit details`
+      `"${subj}" security advisory vulnerability details mitigation`,
+      `"${subj}" nvd cve exploit details`
     );
   } else if (intent === "coding") {
     refinedQueries.push(
       `${query} documentation solution tutorial`,
-      `${query} github stackoverflow`
+      `${query} github example`
     );
   }
 
@@ -327,7 +328,7 @@ export function filterAndScoreResults(
 ): SearchSource[] {
   const scored: { item: SearchSource; score: number }[] = [];
 
-  const hardwareBlacklist = [
+  const universalSpamBlacklist = [
     "kbbi",
     "arti kata",
     "kamus besar",
@@ -338,6 +339,14 @@ export function filterAndScoreResults(
     "surat lamaran",
     "beasiswa",
     "pengertian rekomendasi",
+    "perbedaan surat",
+    "contoh review jurnal",
+    "reviu atau review",
+    "pengertian review",
+    "definisi review",
+    "sscasn",
+    "petugas haji",
+    "penerimaan polri",
   ];
 
   const trustedHardwareDomains = [
@@ -351,6 +360,9 @@ export function filterAndScoreResults(
     "duniagames.co.id",
     "tokopedia.com",
     "shopee.co.id",
+    "bhinneka.com",
+    "myhartono.com",
+    "erablue.id",
     "techradar.com",
     "tomshardware.com",
     "notebookcheck.net",
@@ -375,20 +387,18 @@ export function filterAndScoreResults(
     const lowerUrl = (item.url || "").toLowerCase();
     const combined = `${lowerTitle} ${lowerSnippet} ${lowerUrl}`;
 
-    // 1. Blacklist check
-    if (context.intent === "hardware") {
-      const isBlacklisted = hardwareBlacklist.some((b) => combined.includes(b));
-      if (isBlacklisted) continue;
+    // 1. Universal Spam & Irrelevant Template Elimination
+    const isSpam = universalSpamBlacklist.some((b) => combined.includes(b));
+    if (isSpam) continue;
 
-      // Must mention at least one core subject keyword (e.g. "laptop") in title or snippet!
+    // 2. Core Subject Guard
+    if (context.intent === "hardware" || context.intent === "security") {
       if (context.coreSubjects.length > 0) {
         const hasSubject = context.coreSubjects.some(
           (sub) => lowerTitle.includes(sub) || lowerSnippet.includes(sub)
         );
         if (!hasSubject) continue;
       }
-    } else if (context.intent === "security") {
-      if (combined.includes("arti kata") || combined.includes("kbbi")) continue;
     }
 
     // 2. Score calculation

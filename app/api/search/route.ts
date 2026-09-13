@@ -139,14 +139,10 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // If still empty (e.g. strict filter was too aggressive), fall back to original clean query without strict subject drop
+      // If still empty, fall back to clean query with strict filtering
       if (filteredOrganic.length === 0) {
         const fallbackOrganic = await searchBingEngine(cleanQuery, queryCtx.locale);
-        // Exclude hard blacklist terms (KBBI, surat rekomendasi) even in fallback
-        filteredOrganic = filterAndScoreResults(fallbackOrganic, {
-          ...queryCtx,
-          coreSubjects: [],
-        });
+        filteredOrganic = filterAndScoreResults(fallbackOrganic, queryCtx);
       }
 
       results = filteredOrganic.slice(0, 5);

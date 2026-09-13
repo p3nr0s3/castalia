@@ -118,6 +118,7 @@ describe("webSearchEngine utilities", () => {
     expect(ctx.refinedQueries.length).toBeGreaterThan(0);
     expect(ctx.refinedQueries[0]).toContain("laptop");
     expect(ctx.refinedQueries[0]).toContain("10 jutaan");
+    expect(ctx.refinedQueries[0].startsWith("rekomendasi")).toBe(false);
   });
 
   it("filterAndScoreResults eliminates KBBI, letter templates, and unrelated items", () => {
@@ -140,6 +141,16 @@ describe("webSearchEngine utilities", () => {
         url: "https://kbbi.co.id/arti-kata/rekomendasi",
       },
       {
+        title: "SSCASN - Sistem Seleksi Calon Aparatur Sipil Negara",
+        snippet: "Portal resmi pendaftaran seleksi calon aparatur sipil negara.",
+        url: "https://sscasn.bkn.go.id",
+      },
+      {
+        title: "Contoh Review Jurnal Ilmiah yang Benar",
+        snippet: "Panduan cara membuat review jurnal ilmiah dan formatnya.",
+        url: "https://example.com/review-jurnal",
+      },
+      {
         title: "10 Rekomendasi Laptop 10 Jutaan Terbaik 2025",
         snippet: "Pilihan laptop terbaik di rentang harga 10 jutaan seperti Lenovo Ideapad Slim 5, Asus Vivobook 14, dan Acer Aspire 5.",
         url: "https://jagatreview.com/rekomendasi-laptop-10-jutaan",
@@ -153,9 +164,11 @@ describe("webSearchEngine utilities", () => {
 
     const filtered = filterAndScoreResults(candidateResults, ctx);
 
-    // Verified: All KBBI and letter templates are 100% eliminated
+    // Verified: All KBBI, letter templates, SSCASN, and academic journal reviews are 100% eliminated
     expect(filtered.some((r) => r.title.includes("KBBI"))).toBe(false);
     expect(filtered.some((r) => r.title.includes("Surat Rekomendasi"))).toBe(false);
+    expect(filtered.some((r) => r.title.includes("SSCASN"))).toBe(false);
+    expect(filtered.some((r) => r.title.includes("Review Jurnal"))).toBe(false);
 
     // Verified: True laptop review articles are preserved at the top
     expect(filtered.length).toBe(2);
