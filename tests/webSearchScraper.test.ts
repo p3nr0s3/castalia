@@ -97,12 +97,13 @@ describe("webSearchEngine utilities", () => {
   });
 
   it("reformulateSearchQuery optimizes natural questions into search keywords", () => {
+    const currentYear = new Date().getFullYear().toString();
     const q1 = cleanSearchQuery(
       "laptop apa yang cocok buat ngoding android studio budget 12 jutaan tahun ini?"
     );
     expect(q1.isUrl).toBe(false);
     expect(q1.cleanQuery).toContain("android studio");
-    expect(q1.cleanQuery).toContain("2025");
+    expect(q1.cleanQuery).toContain(currentYear);
 
     const q2 = cleanSearchQuery("apa perbedaan deepseek r1 dan openai o1?");
     expect(q2.isUrl).toBe(false);
@@ -252,5 +253,75 @@ describe("webSearchEngine utilities", () => {
     // Guaranteed: Authentic cybersecurity articles are preserved and ranked at top
     expect(filtered.length).toBeGreaterThanOrEqual(2);
     expect(filtered[0].title).toContain("Cybersecurity");
+  });
+
+  it("handles 'cari cve terbaru' with universal 2-axis routing to security domain and realtime mode", () => {
+    const currentYear = new Date().getFullYear();
+    const raw = "cari cve terbaru";
+    const { cleanQuery } = cleanSearchQuery(raw);
+    expect(cleanQuery).toBe("cve terbaru");
+
+    const ctx = detectQueryContext(cleanQuery, raw);
+    expect(ctx.domain).toBe("security");
+    expect(ctx.temporalMode).toBe("realtime");
+    expect(ctx.intent).toBe("news");
+    expect(ctx.coreSubjects).toContain("cve");
+    expect(ctx.refinedQueries.length).toBeGreaterThan(0);
+    expect(ctx.refinedQueries[0]).toContain(`CVE-${currentYear}`);
+
+    // Verify recency boost on 2026 CVE vs stale 2024 CVE
+    const candidateCVEs: SearchSource[] = [
+      {
+        title: "CVE-2024-3094 Backdoor Overview and Retrospective",
+        snippet: "A look back at the xz backdoor discovered in early 2024.",
+        url: "https://example.com/cve-2024-3094",
+      },
+      {
+        title: `Celah Zero-Day CVE-${currentYear}-85046 Ditemukan pada Browser Chrome`,
+        snippet: `Advisory kerentanan kritis CVE-${currentYear}-85046 rilis terbaru.`,
+        url: `https://bleepingcomputer.com/cve-${currentYear}-85046`,
+        engine: "google-news",
+      },
+    ];
+
+    const scored = filterAndScoreResults(candidateCVEs, ctx);
+    expect(scored[0].title).toContain(`CVE-${currentYear}`);
+  });
+
+  it("peels conversational slang particles and handles colloquial Indonesian hardware queries", () => {
+    const raw = "gan spill dong spek laptop 10 jutaan terbaru";
+    const { cleanQuery } = cleanSearchQuery(raw);
+    expect(cleanQuery).not.toContain("gan");
+    expect(cleanQuery).not.toContain("spill");
+    expect(cleanQuery).not.toContain("dong");
+    expect(cleanQuery).toContain("laptop 10 jutaan");
+
+    const ctx = detectQueryContext(cleanQuery, raw);
+    expect(ctx.domain).toBe("shopping");
+    expect(ctx.intent).toBe("hardware");
+    expect(ctx.coreSubjects).toContain("laptop");
+  });
+
+  it("handles universal non-tech evergreen queries cleanly without interference", () => {
+    const raw1 = "bray tolong infokan cara masak rendang padang asli";
+    const q1 = cleanSearchQuery(raw1);
+    expect(q1.cleanQuery).toBe("masak rendang padang asli");
+    expect(q1.cleanQuery).not.toContain("bray");
+    expect(q1.cleanQuery).not.toContain("tolong");
+    expect(q1.cleanQuery).not.toContain("infokan");
+
+    const ctx1 = detectQueryContext(q1.cleanQuery, raw1);
+    expect(ctx1.domain).toBe("general");
+    expect(ctx1.temporalMode).toBe("evergreen");
+    expect(ctx1.intent).toBe("general");
+
+    const raw2 = "pasal uu kuhp pencemaran nama baik";
+    const q2 = cleanSearchQuery(raw2);
+    expect(q2.cleanQuery).toBe("pasal uu kuhp pencemaran nama baik");
+
+    const ctx2 = detectQueryContext(q2.cleanQuery, raw2);
+    expect(ctx2.domain).toBe("general");
+    expect(ctx2.temporalMode).toBe("evergreen");
+    expect(ctx2.intent).toBe("general");
   });
 });

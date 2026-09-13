@@ -55,10 +55,10 @@ export function decodeBingUrl(rawUrl: string): string {
 }
 
 /**
- * Smart Query Reformulation:
+ * Universal Query Reformulation:
  * Converts conversational, long-winded user questions into precise, high-yield search keywords.
- * Strips conversational filler, pronouns (e.g. "saya", "aku"), polite requests, and news framing prefixes.
- * Also extracts direct URLs.
+ * Peels greeting particles, polite requests, pronouns, actions, question words, and news framing.
+ * Dynamically converts relative time references ("tahun ini", "this year") to the current calendar year.
  */
 export function reformulateSearchQuery(query: string): { isUrl: boolean; targetUrl?: string; cleanQuery: string } {
   const trimmed = (query || "").trim();
@@ -67,21 +67,35 @@ export function reformulateSearchQuery(query: string): { isUrl: boolean; targetU
     return { isUrl: true, targetUrl: urlMatch[0], cleanQuery: urlMatch[0] };
   }
 
-  // 1. Remove polite greetings, pronouns, actions, and news framing prefixes
+  const currentYear = new Date().getFullYear().toString();
+
+  // 1. Remove trailing conversational slang, particles, and question marks
   let clean = trimmed
-    .replace(/\s+(dong|ya|nih|kan|please|kok|sih)$/i, "")
+    .replace(/\s+(dong|ya|nih|kan|please|kok|sih|gan|bro|bray|lur|min|cuk|bang|om|dek|ygy|kek|deh|atuh|euy|lah|ta)$/i, "")
     .replace(/\?+$/, "");
 
+  // 2. Iteratively peel conversational shell layers
   let prev = "";
   while (prev !== clean) {
     prev = clean;
     clean = clean
-      .replace(/^(tolong|coba|bisakah|bisa|mohon|please|can you|could you|help me)\s+/i, "")
-      .replace(/^(saya|aku|kami|kita)\s+(mau|ingin|butuh|perlu)?\s*(minta|cari|tanya|tahu)?\s*/i, "")
-      .replace(/^(carikan|cari|temukan|search for|search|find|browsing|scraping|scrape|baca|cek|jelaskan|berikan info|kasih tahu|tampilkan|get me|give me|tell me about)\s*/i, "")
-      .replace(/^(saya|aku|kami|kita|me|us)\s+/i, "")
-      .replace(/^(berita|kabar|info|informasi|news|updates?|articles?)(\s+(terbaru|terkini|terupdate|hari ini|latest|breaking))?(\s+(tentang|mengenai|soal|seputar|terkait|about|on|regarding))?\s*/i, "")
-      .replace(/^(tentang|mengenai|soal|seputar|terkait|about|regarding)\s+/i, "")
+      // Layer 1: Greeting & Politeness (\\bp\\b matches single letter 'p' greeting without touching 'pasal')
+      .replace(/^(halo|hai|hey|hi|permisi|assalamualaikum|\bp\b|gan|bro|bray|lur|min|cuk|bang|om|dek|tolong|coba|bisakah|bisa|mohon|please|can you|could you|help me|spill|infokan|bagi info|kasih tahu|kasih tau|tanya|mau tanya|nanya dong)\s*/i, "")
+      // Layer 1b: Floating filler particles after actions (e.g. "spill dong")
+      .replace(/^(dong|ya|nih|kan|please|kok|sih|deh|lah)\s*/i, "")
+      // Layer 2: Persona & Speaker pronouns
+      .replace(/^(saya|aku|kami|kita|gw|gue|gua|ane|ku|i|we)\s+(mau|ingin|pengen|butuh|perlu|minta|lagi nyari|sedang mencari|hendak)?\s*(tahu|tau|cari|baca|cek)?\s*/i, "")
+      .replace(/^(saya|aku|kami|kita|gw|gue|gua|ane|ku|me|us)\s+/i, "")
+      // Layer 3: Action & Search directive
+      .replace(/^(carikan|cari|temukan|browsing|scraping|scrape|search for|search|find|lookup|baca|bacakan|cek|periksa|jelaskan|berikan|tampilkan|get me|give me|show me|tell me about|look up)\s*/i, "")
+      .replace(/^(berita|kabar|info\b|informasi\b|news|updates?|articles?)(\s+(terbaru|terkini|terupdate|hari ini|latest|breaking))?(\s+(tentang|mengenai|soal|seputar|terkait|about|on|regarding))?\s*/i, "")
+      .replace(/^(tentang|mengenai|soal|seputar|terkait|about|on|regarding|info tentang|informasi seputar)\s*/i, "")
+      // Layer 4: Common Question Openers
+      .replace(/^(apa yang dimaksud dengan|apa itu|apakah itu|apakah yang dimaksud|apa sih|what is|who is|siapa itu|siapakah)\s*/i, "")
+      .replace(/^(bagaimana cara|gimana cara|cara|how to|gmn cara|tutorial cara|langkah-langkah)\s*/i, "")
+      .replace(/^(kenapa|mengapa|why does|why is|kenape|kok bisa)\s*/i, "")
+      .replace(/^(apa perbedaan antara|apa perbedaan|apa bedanya|perbedaan antara|perbedaan|difference between|vs)\s*/i, "")
+      .replace(/^(rekomendasi|rekomen|saran|pilihan)\s*/i, "")
       .trim();
   }
 
@@ -91,21 +105,12 @@ export function reformulateSearchQuery(query: string): { isUrl: boolean; targetU
     return { isUrl: false, cleanQuery: clean };
   }
 
-  // 2. Identify common question framing patterns and convert to keyword queries
+  // 3. Dynamic Year Normalization
   clean = clean
-    .replace(/^(apa yang dimaksud dengan|apa itu|apakah itu|what is)\s+/i, "")
-    .replace(/^(bagaimana cara|gimana cara|how to|cara)\s+/i, "")
-    .replace(/^(kenapa|mengapa|why does|why is)\s+/i, "")
-    .replace(/^(apa perbedaan|beda|difference between)\s+/i, "")
-    .replace(/^(laptop|tools|framework|library|aplikasi|software|hp|smartphone|pc)\s+apa\s+(yang\s+)?(cocok|bagus|terbaik)?\s*/i, "$1 terbaik ")
-    .replace(/^rekomendasi\s+/i, "")
-    .replace(/\?+$/, "")
+    .replace(/\b(tahun ini|this year|saat ini|sekarang)\b/gi, currentYear)
     .trim();
 
-  // 3. Normalize "tahun ini" / "this year" to current year
-  clean = clean.replace(/\btahun ini\b/gi, "2025").replace(/\bthis year\b/gi, "2025");
-
-  // 4. Remove unnecessary filler stop-words if query is lengthy
+  // 4. Remove unnecessary filler stop-words if query is lengthy (> 6 words)
   if (clean.split(/\s+/).length > 6) {
     const stopWords = new Set([
       "yang", "untuk", "buat", "pada", "di", "ke", "dari", "dan", "atau", "adalah",
@@ -203,51 +208,73 @@ export async function scrapePageContent(url: string, maxChars: number = 2500): P
 }
 
 /**
- * Contextual Query Analysis & Classification:
- * Detects user intent (news, hardware, security, coding, general), extracts core subject nouns,
- * determines regional language/locale, and generates high-accuracy targeted query expansions.
+ * Universal 2-Axis Query Routing & Entity Extraction:
+ * Axis 1 (Temporal Mode): "realtime" (breaking news, current year) vs "evergreen" (guides, definitions, stable concepts).
+ * Axis 2 (Domain): "security" (CVE, exploits, pentest), "shopping" (hardware, prices, specs), "technical" (code, libraries), "general" (all other topics: medical, legal, culinary, etc.).
+ * Maps cleanly to existing intent types for backward compatibility, while locking queries dynamically to the current calendar year.
  */
 export interface QueryContext {
   isIndonesian: boolean;
   locale: { lang: string; cc: string; acceptLang: string };
+  temporalMode: "realtime" | "evergreen";
+  domain: "security" | "shopping" | "technical" | "general";
   intent: "news" | "hardware" | "security" | "coding" | "general";
   coreSubjects: string[];
   refinedQueries: string[];
+  yearTarget: number;
 }
 
 export function detectQueryContext(query: string, rawQuery?: string): QueryContext {
+  const currentYear = new Date().getFullYear();
   const combinedText = `${rawQuery || ""} ${query}`.trim().toLowerCase();
   const trimmed = query.trim().toLowerCase();
 
-  // Check language
+  // Language & Regional Locale Detection
   const isIndonesian =
-    /\b(rekomendasi|terbaik|laptop|jutaan|juta|harga|hp|spek|spesifikasi|bagaimana|kenapa|apa|cara|yang|untuk|buat|dan|di|ini|terbaru|terkini|kabar|berita|murah|beli|pilihan)\b/i.test(
+    /\b(rekomendasi|terbaik|laptop|jutaan|juta|harga|hp|spek|spesifikasi|bagaimana|kenapa|apa|cara|yang|untuk|buat|dan|di|ini|terbaru|terkini|kabar|berita|murah|beli|pilihan|obat|pasal|anak)\b/i.test(
       combinedText
     );
   const locale = isIndonesian
     ? { lang: "id", cc: "ID", acceptLang: "id-ID,id;q=0.9,en-US;q=0.8" }
     : { lang: "en", cc: "US", acceptLang: "en-US,en;q=0.9" };
 
-  let intent: "news" | "hardware" | "security" | "coding" | "general" = "general";
+  // Axis 1: Temporal Mode Detection
+  const isRealtime =
+    /\b(berita|news|terbaru|terkini|kabar|hari ini|terupdate|breaking|headlines?|update|updates|teranyar|rilis terbaru|latest|today|recent|\b2026\b)\b/i.test(
+      combinedText
+    );
+  const temporalMode: "realtime" | "evergreen" = isRealtime ? "realtime" : "evergreen";
+
+  // Axis 2: Domain Target Detection
+  let domain: "security" | "shopping" | "technical" | "general" = "general";
   const coreSubjects: string[] = [];
   const refinedQueries: string[] = [];
 
-  // Check for News Intent markers
-  const hasNewsMarker =
-    /\b(berita|news|terbaru|terkini|kabar|hari ini|terupdate|breaking|headlines?|update|updates)\b/i.test(
+  // Security Domain: matches standalone \bcve\b as well as CVE identifiers and infosec vocabulary
+  const isSecurity =
+    /\b(cve|cve-\d{4}-\d+|vulnerability|vulnerabilities|exploit|exploits|kerentanan|backdoor|zero-day|0-day|advisory|hacker|hacking|malware|ransomware|phishing|data breach|kebocoran data|infosec|cybersecurity|cyber security|keamanan siber|keamanan cyber|soc|siem|pentest|penetration testing|threat)\b/i.test(
       combinedText
     );
 
-  // 1. Cybersecurity & CVE Intent
-  const isSecurity =
-    /\b(cve-\d{4}-\d+|cybersecurity|cyber security|keamanan siber|keamanan cyber|vulnerability|exploit|kerentanan|backdoor|zero-day|advisory|hacker|hacking|malware|ransomware|phishing|data breach|kebocoran data|infosec|soc|siem|pentest|penetration testing)\b/i.test(
+  // Shopping & Hardware Domain
+  const isShopping =
+    /\b(laptop|notebook|komputer|pc|smartphone|hp|handphone|tablet|gpu|vga|rtx|gtx|processor|intel|ryzen|ram|ssd|monitor|gadget|macbook|tws|headset|harga|spesifikasi|spek|diskon|murah|jutaan|juta|beli|price|review)\b/i.test(
+      combinedText
+    );
+
+  // Technical & Developer Domain
+  const isTechnical =
+    /\b(error|exception|bug|syntax|api|sdk|next\.js|react|vue|angular|tailwind|python|typescript|javascript|golang|rust|docker|kubernetes|linux|database|sql|postgres|mysql|redis|git|github|npm|pip)\b/i.test(
       combinedText
     );
 
   if (isSecurity) {
+    domain = "security";
     const cveMatch = combinedText.match(/cve-\d{4}-\d+/i);
     if (cveMatch) {
       coreSubjects.push(cveMatch[0].toUpperCase());
+    } else if (/\bcve\b/i.test(combinedText)) {
+      coreSubjects.push("cve");
     } else if (/\b(cybersecurity|cyber security)\b/i.test(combinedText)) {
       coreSubjects.push("cybersecurity");
     } else if (/\b(keamanan siber|keamanan cyber)\b/i.test(combinedText)) {
@@ -259,126 +286,128 @@ export function detectQueryContext(query: string, rawQuery?: string): QueryConte
     } else {
       coreSubjects.push("vulnerability");
     }
-
-    if (hasNewsMarker) {
-      intent = "news";
-    } else {
-      intent = "security";
-    }
-  }
-
-  // 2. Hardware & Product Purchase Intent
-  if (intent === "general") {
-    const hardwareKeywords = [
-      "laptop",
-      "notebook",
-      "komputer",
-      "pc",
-      "smartphone",
-      "hp",
-      "tablet",
-      "gpu",
-      "vga",
-      "rtx",
-      "gtx",
-      "processor",
-      "intel",
-      "ryzen",
-      "ram",
-      "ssd",
-      "monitor",
-      "gadget",
-      "macbook",
-      "tws",
-      "headset",
+  } else if (isShopping) {
+    domain = "shopping";
+    const hwMatch = combinedText.match(
+      /\b(laptop|notebook|pc|smartphone|hp|tablet|gpu|rtx|gtx|processor|ram|ssd|monitor|gadget|macbook|tws|headset)\b/i
+    );
+    if (hwMatch) coreSubjects.push(hwMatch[1].toLowerCase());
+    else coreSubjects.push("gadget");
+  } else if (isTechnical) {
+    domain = "technical";
+    const codeKeywords = [
+      "next.js",
+      "react",
+      "vue",
+      "tailwind",
+      "python",
+      "docker",
+      "typescript",
+      "javascript",
+      "golang",
+      "rust",
+      "sql",
     ];
-
-    for (const hw of hardwareKeywords) {
-      if (new RegExp(`\\b${hw}\\b`, "i").test(trimmed)) {
-        intent = "hardware";
-        coreSubjects.push(hw);
-      }
+    for (const ck of codeKeywords) {
+      if (combinedText.includes(ck)) coreSubjects.push(ck);
     }
   }
 
-  // 3. Coding & Developer Error Intent
-  if (intent === "general") {
-    if (
-      /\b(error|exception|next\.js|react|vue|angular|tailwind|python|typescript|javascript|docker|golang|rust|api|syntax|bug)\b/i.test(
-        trimmed
-      )
-    ) {
-      intent = "coding";
-      const codeKeywords = [
-        "next.js",
-        "react",
-        "vue",
-        "tailwind",
-        "python",
-        "docker",
-        "typescript",
-        "javascript",
-      ];
-      for (const ck of codeKeywords) {
-        if (trimmed.includes(ck)) coreSubjects.push(ck);
-      }
-    }
-  }
-
-  // 4. Standalone News Intent
-  if (intent === "general" && hasNewsMarker) {
+  // Unified Intent Mapping for backward compatibility
+  let intent: "news" | "hardware" | "security" | "coding" | "general" = "general";
+  if (domain === "shopping") {
+    // Shopping always uses product specs/reviews, even if user says "terbaru"
+    intent = "hardware";
+  } else if (domain === "technical") {
+    intent = "coding";
+  } else if (domain === "security") {
+    // If security + realtime (e.g. "cari cve terbaru") -> route to news (Google News RSS + fresh advisories)
+    // If security + evergreen (e.g. "detail CVE-2024-3094") -> route to security databases
+    intent = isRealtime ? "news" : "security";
+  } else if (temporalMode === "realtime") {
     intent = "news";
-    if (query && query.trim()) {
-      coreSubjects.push(query.trim().toLowerCase());
-    }
   }
 
-  // 5. Targeted Query Expansions
-  if (intent === "news") {
-    const subj = coreSubjects[0] || query;
+  // Targeted Query Expansions with dynamic calendar year
+  const subject = coreSubjects[0] || query;
+  if (domain === "security" && temporalMode === "realtime") {
+    if (coreSubjects.includes("cve") || coreSubjects.some((s) => s.startsWith("CVE-"))) {
+      refinedQueries.push(
+        `"CVE-${currentYear}" OR "CVE-${currentYear - 1}" latest vulnerability advisory`,
+        `"CVE-${currentYear}" critical exploit details nvd cvefeed`,
+        `cybersecurity vulnerability advisory ${currentYear}`
+      );
+    } else {
+      if (isIndonesian) {
+        refinedQueries.push(
+          `${subject} berita terbaru terkini ${currentYear}`,
+          `${subject} kabar hari ini`,
+          `${subject} update terkini`
+        );
+      } else {
+        refinedQueries.push(
+          `${subject} latest news ${currentYear}`,
+          `${subject} breaking news updates today`,
+          `${subject} current update`
+        );
+      }
+    }
+  } else if (temporalMode === "realtime") {
     if (isIndonesian) {
       refinedQueries.push(
-        `${subj} berita terbaru terkini`,
-        `${subj} kabar hari ini`,
-        `${subj} update terkini`
+        `${subject} berita terbaru terkini ${currentYear}`,
+        `${subject} kabar hari ini`,
+        `${subject} update terkini`
       );
     } else {
       refinedQueries.push(
-        `${subj} latest news`,
-        `${subj} breaking news updates`,
-        `${subj} today`
+        `${subject} latest news ${currentYear}`,
+        `${subject} breaking news updates today`,
+        `${subject} current update`
       );
     }
-  } else if (intent === "hardware") {
-    const subject = coreSubjects[0] || "laptop";
-    const priceMatch = trimmed.match(/(\d+)\s*(jutaan|juta|jt|ribu|rb)/i);
+  } else if (domain === "shopping") {
+    const priceMatch = combinedText.match(/(\d+)\s*(jutaan|juta|jt|ribu|rb)/i);
     if (priceMatch) {
       const price = `${priceMatch[1]} ${priceMatch[2]}`;
       refinedQueries.push(
-        `${subject} ${price} terbaik spesifikasi review`,
+        `${subject} ${price} terbaik spesifikasi review ${currentYear}`,
         `${subject} harga ${price} spesifikasi review`,
         `${subject} ${price} asus lenovo acer hp`
       );
     } else {
       refinedQueries.push(
-        `${subject} terbaik 2025 review spesifikasi harga`,
+        `${subject} terbaik ${currentYear} review spesifikasi harga`,
         `${subject} terbaik review kelebihan kekurangan`
       );
     }
-  } else if (intent === "security") {
-    const subj = coreSubjects[0] || query;
+  } else if (domain === "security") {
     refinedQueries.push(
-      `"${subj}" security advisory vulnerability details mitigation`,
-      `"${subj}" nvd cve exploit details`
+      `"${subject}" security advisory vulnerability details mitigation`,
+      `"${subject}" nvd cve exploit details`
     );
-  } else if (intent === "coding") {
+  } else if (domain === "technical") {
     refinedQueries.push(
       `${query} documentation solution tutorial`,
       `${query} github example`
     );
+  } else {
+    refinedQueries.push(
+      `${query} penjelasan panduan informasi`,
+      `${query}`
+    );
   }
 
-  return { isIndonesian, locale, intent, coreSubjects, refinedQueries };
+  return {
+    isIndonesian,
+    locale,
+    temporalMode,
+    domain,
+    intent,
+    coreSubjects,
+    refinedQueries,
+    yearTarget: currentYear,
+  };
 }
 
 /**
@@ -485,12 +514,18 @@ export function filterAndScoreResults(
     if (isSpam) continue;
 
     // 2. Core Subject Guard (for hardware and security)
-    if (context.intent === "hardware" || context.intent === "security") {
+    if (context.intent === "hardware" || context.domain === "security" || context.intent === "security") {
       if (context.coreSubjects.length > 0) {
         const hasSubject = context.coreSubjects.some(
           (sub) => lowerTitle.includes(sub) || lowerSnippet.includes(sub)
         );
-        if (!hasSubject) continue;
+        if (!hasSubject && context.domain === "security") {
+          // Allow relevant infosec keywords if specific subject tag isn't verbatim
+          const hasSecKw = /\b(cve|vulnerability|exploit|zero-day|0-day|keamanan|hacker|malware|cybersecurity)\b/i.test(combined);
+          if (!hasSecKw) continue;
+        } else if (!hasSubject) {
+          continue;
+        }
       }
     }
 
@@ -506,6 +541,23 @@ export function filterAndScoreResults(
     for (const sub of context.coreSubjects) {
       if (lowerTitle.includes(sub)) score += 50;
       if (lowerSnippet.includes(sub)) score += 25;
+    }
+
+    // Temporal recency scoring (boost current year, penalize stale years on realtime queries)
+    const currentYearStr = new Date().getFullYear().toString();
+    const prevYearStr = (new Date().getFullYear() - 1).toString();
+    if (context.temporalMode === "realtime") {
+      if (lowerTitle.includes(currentYearStr) || lowerSnippet.includes(currentYearStr)) {
+        score += 40;
+      } else if (lowerTitle.includes(prevYearStr) || lowerSnippet.includes(prevYearStr)) {
+        score += 20;
+      }
+      const olderYears = ["2020", "2021", "2022", "2023", "2024"];
+      for (const y of olderYears) {
+        if (lowerTitle.includes(y) && !lowerTitle.includes(currentYearStr)) {
+          score -= 30;
+        }
+      }
     }
 
     // Secondary matches
@@ -533,15 +585,17 @@ export function filterAndScoreResults(
     }
 
     // Domain authority boost
-    if (context.intent === "news") {
+    if (context.intent === "news" || context.temporalMode === "realtime") {
       if (trustedNewsDomains.some((d) => lowerUrl.includes(d))) {
         score += 45;
       }
-    } else if (context.intent === "hardware") {
+    }
+    if (context.intent === "hardware" || context.domain === "shopping") {
       if (trustedHardwareDomains.some((d) => lowerUrl.includes(d))) {
         score += 45;
       }
-    } else if (context.intent === "security") {
+    }
+    if (context.intent === "security" || context.domain === "security") {
       if (trustedSecurityDomains.some((d) => lowerUrl.includes(d))) {
         score += 45;
       }
