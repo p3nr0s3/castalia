@@ -40,7 +40,8 @@ import { SkillsModal } from "@/components/SkillsModal";
 import { ArtifactsModal } from "@/components/ArtifactsModal";
 import { DirectoryModal } from "@/components/DirectoryModal";
 import { MemoryModal } from "@/components/MemoryModal";
-import { VoiceCallModal } from "@/components/VoiceCallModal";
+import { VoiceModeModal } from "@/components/VoiceModeModal";
+import { KnowledgeGraphModal } from "@/components/KnowledgeGraphModal";
 import {
   DEFAULT_DIRECTORY_SKILLS,
   DEFAULT_CONNECTORS,
@@ -130,6 +131,7 @@ export default function HomePage() {
   const [isMemoryModalOpen, setIsMemoryModalOpen] = useState<boolean>(false);
   const [isArtifactsModalOpen, setIsArtifactsModalOpen] = useState<boolean>(false);
   const [isVoiceCallOpen, setIsVoiceCallOpen] = useState<boolean>(false);
+  const [isKnowledgeGraphOpen, setIsKnowledgeGraphOpen] = useState<boolean>(false);
   const [sidebarOpen, setSidebarOpen] = useState<boolean>(false);
   const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
     if (typeof window === "undefined") return 256;
@@ -2393,6 +2395,7 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
         onOpenArtifacts={() => setIsArtifactsModalOpen(true)}
         onOpenCodespace={() => setMainView("codespace")}
         onOpenJournal={() => setMainView("journal")}
+        onOpenKnowledgeGraph={() => setIsKnowledgeGraphOpen(true)}
         onOpenWorkspace={() => {
           setMainView("workspace");
           setWorkspaceView("chat");
@@ -2730,12 +2733,30 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
         }}
       />
 
-      {/* Live Voice Call Modal (Interactive Indonesian Female Voice Mode) */}
-      <VoiceCallModal
+      {/* Hands-Free Voice Mode Modal (Dynamic Audio Orb Visualizer & Web Audio API) */}
+      <VoiceModeModal
         isOpen={isVoiceCallOpen}
         onClose={() => setIsVoiceCallOpen(false)}
         selectedModel={selectedModel}
+        models={models}
+        apiKeys={settings.apiKeys}
         onSendMessage={handleVoiceCallSendMessage}
+      />
+
+      {/* Visual Knowledge Graph Modal (Obsidian-Style 2D Force-Directed Canvas) */}
+      <KnowledgeGraphModal
+        isOpen={isKnowledgeGraphOpen}
+        onClose={() => setIsKnowledgeGraphOpen(false)}
+        projects={projects}
+        journalEntries={storage.getJournalEntries()}
+        onNavigateToProject={(projId) => {
+          handleSelectProject(projId);
+          setIsKnowledgeGraphOpen(false);
+        }}
+        onNavigateToJournal={(journalId) => {
+          setMainView("journal");
+          setIsKnowledgeGraphOpen(false);
+        }}
       />
     </div>
   );

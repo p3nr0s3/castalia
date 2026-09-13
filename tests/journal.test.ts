@@ -183,4 +183,65 @@ describe("Workspace Journal data model & business logic", () => {
     expect(migrated.checklists?.length).toBe(1);
     expect(migrated.content).toContain("Ensure mobile devices");
   });
+
+  it("extracts bilateral links and calculates backlinks correctly", () => {
+    const noteA: JournalEntry = {
+      id: "note-a",
+      title: "Arsitektur Backend",
+      content: "Rencana pengembangan database dan integrasi dengan [[Desain Frontend]].",
+      category: "project",
+      status: "in_progress",
+      tags: ["backend"],
+      createdAt: 1000,
+      updatedAt: 1000,
+    };
+
+    const noteB: JournalEntry = {
+      id: "note-b",
+      title: "Desain Frontend",
+      content: "Panduan komponen UI Tailwind dan referensi ke [[Arsitektur Backend]].",
+      category: "project",
+      status: "in_progress",
+      tags: ["frontend"],
+      createdAt: 1000,
+      updatedAt: 1000,
+    };
+
+    const noteC: JournalEntry = {
+      id: "note-c",
+      title: "Meeting Notes",
+      content: "Membahas progres proyek dan link ke [[Desain Frontend]].",
+      category: "daily",
+      status: "draft",
+      tags: [],
+      createdAt: 1000,
+      updatedAt: 1000,
+    };
+
+    const entries = [noteA, noteB, noteC];
+
+    // Bilateral link extraction for noteA
+    const linkRegex = /\[\[(.*?)\]\]/g;
+    const extractedLinksA: string[] = [];
+    let match: RegExpExecArray | null;
+    while ((match = linkRegex.exec(noteA.content)) !== null) {
+      extractedLinksA.push(match[1].trim());
+    }
+    expect(extractedLinksA).toEqual(["Desain Frontend"]);
+
+    // Backlinks for noteB ("Desain Frontend")
+    const searchTargetB = `[[${noteB.title.trim().toLowerCase()}]]`;
+    const backlinksForB = entries.filter(
+      (e) => e.id !== noteB.id && e.content.toLowerCase().includes(searchTargetB)
+    );
+    expect(backlinksForB.length).toBe(2);
+    expect(backlinksForB.map((e) => e.id)).toEqual(["note-a", "note-c"]);
+
+    // Markdown link preprocessor transforms [[Title]] into clickable link tokens
+    const processed = noteA.content.replace(/\[\[(.*?)\]\]/g, (_m, title) => {
+      const cleanTitle = title.trim();
+      return `[🔗 ${cleanTitle}](#journal-note-${encodeURIComponent(cleanTitle)})`;
+    });
+    expect(processed).toContain("[🔗 Desain Frontend](#journal-note-Desain%20Frontend)");
+  });
 });

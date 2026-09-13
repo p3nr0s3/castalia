@@ -477,3 +477,42 @@ html, body {
   -webkit-overflow-scrolling: touch;
   transform: translateZ(0);
 }
+
+/* Print / PDF Export Styling */
+@media print {
+  /* Hide application chrome, sidebars, headers, buttons */
+  aside,
+  header,
+  nav,
+  button,
+  .no-print {
+    display: none !important;
+  }
+
+  body, html {
+    background: #ffffff !important;
+    color: #0f172a !important;
+    overflow: visible !important;
+    height: auto !important;
+  }
+
+  .print-container {
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 1.5rem !important;
+    border: none !important;
+    box-shadow: none !important;
+    background: #ffffff !important;
+    color: #0f172a !important;
+  }
+
+  .print-container * {
+    color: #0f172a !important;
+    border-color: #e2e8f0 !important;
+  }
+
+  .prose {
+    color: #0f172a !important;
+  }
+}

@@ -32,6 +32,7 @@ import {
   RotateCcw,
   ShieldAlert,
   BookMarked,
+  Share2,
 } from "lucide-react";
 import { Conversation, Project, AgentTask } from "@/lib/types";
 import { storage } from "@/lib/storage";
@@ -63,6 +64,7 @@ interface SidebarProps {
   onOpenArtifacts?: () => void;
   onOpenCodespace?: () => void;
   onOpenJournal?: () => void;
+  onOpenKnowledgeGraph?: () => void;
   onOpenWorkspace?: () => void;
   mainView?: "workspace" | "codespace" | "journal";
   agents?: AgentTask[];
@@ -108,6 +110,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenArtifacts,
   onOpenCodespace,
   onOpenJournal,
+  onOpenKnowledgeGraph,
   onOpenWorkspace,
   mainView = "workspace",
   agents = [],
@@ -385,6 +388,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
             >
               <BookMarked className="w-4 h-4 text-[var(--muted)]" />
               <span>Journal</span>
+            </button>
+          )}
+
+          {/* Knowledge Graph (Obsidian 2D Force-Directed Canvas) */}
+          {onOpenKnowledgeGraph && (
+            <button
+              onClick={() => {
+                onOpenKnowledgeGraph();
+                if (typeof window !== "undefined" && window.innerWidth < 768) setIsOpen(false);
+              }}
+              className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs transition-colors cursor-pointer text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--sidebar-hover)]"
+              title="Visual Knowledge Graph (Obsidian-Style 2D Canvas)"
+            >
+              <Share2 className="w-4 h-4 text-purple-400" />
+              <span>Knowledge Graph</span>
             </button>
           )}
 

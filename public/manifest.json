@@ -1,0 +1,24 @@
+{
+  "name": "Ollama Chat Web - AI Studio & IDE",
+  "short_name": "Ollama Web",
+  "description": "Modern local-first AI workspace with RAG, Knowledge Graph, Notion Journal, and Codespace IDE.",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "theme_color": "#0f172a",
+  "background_color": "#0f172a",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "64x64 128x128 256x256 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon.svg",
+      "sizes": "64x64 128x128 256x256 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

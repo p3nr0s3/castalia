@@ -18,6 +18,7 @@ export const metadata: Metadata = {
     statusBarStyle: "black-translucent",
     title: "Ollama Chat",
   },
+  manifest: "/manifest.json",
 };
 
 export const viewport: Viewport = {
@@ -45,6 +46,7 @@ export default function RootLayout({
         />
         <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
         <link rel="apple-touch-icon" href="/favicon.svg" />
+        <link rel="manifest" href="/manifest.json" />
       </head>
       <body suppressHydrationWarning className="antialiased h-[100dvh] w-full max-w-full overflow-hidden bg-[var(--background)] text-[var(--foreground)] selection:bg-blue-500 selection:text-white touch-manipulation">
         {children}

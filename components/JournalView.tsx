@@ -40,6 +40,9 @@ import {
   Maximize2,
   Minimize2,
   FileText,
+  Link2,
+  Printer,
+  Download,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -203,6 +206,11 @@ export const JournalView: React.FC<JournalViewProps> = ({
   const [newChecklistText, setNewChecklistText] = useState("");
   const [newTagText, setNewTagText] = useState("");
 
+  // Bilateral Linking [[...]] Autocomplete & Export State
+  const [linkSearchQuery, setLinkSearchQuery] = useState<string | null>(null);
+  const [linkTriggerIndex, setLinkTriggerIndex] = useState<number | null>(null);
+  const [showExportMenu, setShowExportMenu] = useState(false);
+
   // AI Journal Copilot State
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
   const [aiMode, setAiMode] = useState<"draft" | "todos" | "polish">("draft");
@@ -262,6 +270,159 @@ Ini adalah jurnal kerja bergaya Notion terintegrasi 100% lokal. Anda dapat menul
   const activeEntry = useMemo(() => {
     return entries.find((e) => e.id === activeEntryId) || entries[0] || null;
   }, [entries, activeEntryId]);
+
+  // Backlinks: Notes referencing the current active entry via [[Title]]
+  const backlinks = useMemo(() => {
+    if (!activeEntry) return [];
+    const currentTitleLower = activeEntry.title.trim().toLowerCase();
+    if (!currentTitleLower) return [];
+
+    return entries.filter((other) => {
+      if (other.id === activeEntry.id) return false;
+      return other.content.toLowerCase().includes(`[[${currentTitleLower}]]`);
+    });
+  }, [entries, activeEntry]);
+
+  // Bilateral link suggestions matching current query
+  const linkSuggestions = useMemo(() => {
+    if (linkSearchQuery === null) return [];
+    const q = linkSearchQuery.trim().toLowerCase();
+    return entries
+      .filter((e) => e.id !== activeEntry?.id && (!q || e.title.toLowerCase().includes(q)))
+      .slice(0, 6);
+  }, [entries, activeEntry?.id, linkSearchQuery]);
+
+  // Pre-process bilateral links [[Title]] into Markdown link tokens
+  const processedMarkdown = useMemo(() => {
+    if (!activeEntry?.content) return "*Catatan ini masih kosong.*";
+    return activeEntry.content.replace(/\[\[(.*?)\]\]/g, (_m, title) => {
+      const cleanTitle = title.trim();
+      return `[🔗 ${cleanTitle}](#journal-note-${encodeURIComponent(cleanTitle)})`;
+    });
+  }, [activeEntry?.content]);
+
+  const handleContentChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const val = e.target.value;
+    const cursorPos = e.target.selectionStart;
+    updateActiveEntry({ content: val });
+
+    // Check if user recently typed `[[` without a closing `]]`
+    const textBeforeCursor = val.slice(0, cursorPos);
+    const lastDoubleOpen = textBeforeCursor.lastIndexOf("[[");
+    const lastDoubleClose = textBeforeCursor.lastIndexOf("]]");
+
+    if (lastDoubleOpen !== -1 && lastDoubleOpen > lastDoubleClose) {
+      const query = textBeforeCursor.slice(lastDoubleOpen + 2);
+      if (!query.includes("\n")) {
+        setLinkSearchQuery(query);
+        setLinkTriggerIndex(lastDoubleOpen);
+        return;
+      }
+    }
+    setLinkSearchQuery(null);
+    setLinkTriggerIndex(null);
+  };
+
+  const handleSelectLinkSuggestion = (targetEntry: JournalEntry) => {
+    if (linkTriggerIndex === null || !activeEntry) return;
+    const content = activeEntry.content;
+    const before = content.slice(0, linkTriggerIndex);
+    const afterCursor = content.slice(linkTriggerIndex + 2 + (linkSearchQuery?.length || 0));
+    const newContent = `${before}[[${targetEntry.title}]]${afterCursor}`;
+    updateActiveEntry({ content: newContent });
+    setLinkSearchQuery(null);
+    setLinkTriggerIndex(null);
+  };
+
+  const handleCreateAndLinkNote = (title: string) => {
+    const newEntry: JournalEntry = {
+      id: `journ_${Date.now()}`,
+      title: title.trim(),
+      content: `*Catatan baru dibuat via bilateral link dari [[${activeEntry?.title || "Journal"}]]*\n\n`,
+      icon: "📝",
+      category: "daily",
+      status: "draft",
+      priority: "medium",
+      tags: [],
+      checklists: [],
+      date: new Date().toISOString().slice(0, 10),
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    const updated = [newEntry, ...entries];
+    saveEntries(updated);
+    handleSelectLinkSuggestion(newEntry);
+  };
+
+  const handleCreateNoteWithTitle = (title: string) => {
+    const newEntry: JournalEntry = {
+      id: `journ_${Date.now()}`,
+      title: title.trim(),
+      content: `*Catatan dibuat otomatis melalui bilateral link dari [[${activeEntry?.title || "Journal"}]]*\n\n`,
+      icon: "📓",
+      category: "daily",
+      status: "draft",
+      priority: "medium",
+      tags: [],
+      checklists: [],
+      date: new Date().toISOString().slice(0, 10),
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    const updated = [newEntry, ...entries];
+    saveEntries(updated);
+    setActiveEntryId(newEntry.id);
+  };
+
+  const handleExportSingleMarkdown = () => {
+    if (!activeEntry) return;
+    const checklistMd = (activeEntry.checklists || [])
+      .map((c) => `- [${c.completed ? "x" : " "}] ${c.title}`)
+      .join("\n");
+
+    const fileContent = `# ${activeEntry.icon || "📓"} ${activeEntry.title}
+
+- **Kategori:** ${activeEntry.category}
+- **Prioritas:** ${activeEntry.priority || "medium"}
+- **Status:** ${activeEntry.status}
+- **Tags:** ${activeEntry.tags.map((t) => `#${t}`).join(" ") || "-"}
+- **Dibuat:** ${new Date(activeEntry.createdAt).toLocaleString("id-ID")}
+- **Terakhir Diubah:** ${new Date(activeEntry.updatedAt).toLocaleString("id-ID")}
+
+---
+
+${checklistMd ? `## Checklist & To-Do\n${checklistMd}\n\n---\n\n` : ""}## Catatan
+${activeEntry.content}
+`;
+
+    const blob = new Blob([fileContent], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${activeEntry.title.toLowerCase().replace(/[^a-z0-9]+/g, "-") || "journal"}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+    setShowExportMenu(false);
+  };
+
+  const handleExportAllBundle = () => {
+    const bundle = {
+      version: "1.0",
+      exportedAt: new Date().toISOString(),
+      count: entries.length,
+      entries,
+    };
+    const blob = new Blob([JSON.stringify(bundle, null, 2)], {
+      type: "application/json;charset=utf-8",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `workspace-journal-bundle-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    setShowExportMenu(false);
+  };
 
   // Create New Journal Entry
   const handleCreateEntry = (category: JournalCategory = "daily") => {
@@ -566,6 +727,59 @@ Dst. Berikan hanya daftar tugas actionable.`;
               )}
             </button>
           )}
+
+          {/* PDF / Print Button */}
+          {viewMode === "document" && activeEntry && (
+            <button
+              onClick={() => window.print()}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--sidebar-hover)] transition-all cursor-pointer"
+              title="Cetak Dokumen atau Simpan PDF"
+            >
+              <Printer className="w-3.5 h-3.5 text-indigo-400" />
+              <span className="hidden md:inline">PDF / Cetak</span>
+            </button>
+          )}
+
+          {/* Export Menu Dropdown */}
+          <div className="relative">
+            <button
+              onClick={() => setShowExportMenu(!showExportMenu)}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--sidebar-hover)] transition-all cursor-pointer"
+              title="Ekspor Dokumen atau Bundle Catatan"
+            >
+              <Download className="w-3.5 h-3.5 text-emerald-400" />
+              <span className="hidden md:inline">Ekspor</span>
+            </button>
+            {showExportMenu && (
+              <div
+                onClick={(e) => e.stopPropagation()}
+                className="absolute right-0 mt-1 w-52 rounded-2xl bg-[var(--card-bg)] border border-[var(--card-border)] shadow-2xl p-1.5 z-40 space-y-1 text-xs"
+              >
+                {activeEntry && (
+                  <button
+                    onClick={handleExportSingleMarkdown}
+                    className="w-full flex items-center gap-2 px-2.5 py-2 rounded-xl text-left hover:bg-[var(--sidebar-hover)] text-[var(--foreground)] transition-colors cursor-pointer"
+                  >
+                    <FileText className="w-3.5 h-3.5 text-indigo-400" />
+                    <div className="truncate">
+                      <div className="font-semibold truncate">Catatan Ini (.md)</div>
+                      <div className="text-[10px] text-[var(--muted)]">Markdown & Checklist</div>
+                    </div>
+                  </button>
+                )}
+                <button
+                  onClick={handleExportAllBundle}
+                  className="w-full flex items-center gap-2 px-2.5 py-2 rounded-xl text-left hover:bg-[var(--sidebar-hover)] text-[var(--foreground)] transition-colors cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5 text-emerald-400" />
+                  <div>
+                    <div className="font-semibold">Semua Catatan (.json)</div>
+                    <div className="text-[10px] text-[var(--muted)]">Backup {entries.length} Catatan</div>
+                  </div>
+                </button>
+              </div>
+            )}
+          </div>
           <button
             onClick={() => {
               setAiPrompt(activeEntry?.title || "");
@@ -910,7 +1124,8 @@ Dst. Berikan hanya daftar tugas actionable.`;
 
               {/* Document Container */}
               <div
-                className={`${
+                id="journal-printable-doc"
+                className={`print-container ${
                   isFullWidth
                     ? "w-full max-w-none px-6 md:px-12 xl:px-16"
                     : "max-w-5xl xl:max-w-6xl w-full mx-auto px-6 md:px-10"
@@ -1243,24 +1458,156 @@ Dst. Berikan hanya daftar tugas actionable.`;
                       >
                         Garis
                       </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const newContent = `${activeEntry.content} [[`;
+                          updateActiveEntry({ content: newContent });
+                          setLinkSearchQuery("");
+                          setLinkTriggerIndex(newContent.length - 2);
+                        }}
+                        className="px-2 py-1 rounded-lg text-xs font-semibold text-indigo-400 hover:text-indigo-300 hover:bg-indigo-500/15 flex items-center gap-1 cursor-pointer transition-colors"
+                        title="Tautkan ke catatan lain ([[Catatan]])"
+                      >
+                        <Link2 className="w-3 h-3" />
+                        <span>[[ Link ]]</span>
+                      </button>
                     </div>
                   )}
 
                   {/* Body Content */}
                   {previewMode ? (
                     <div className="p-6 rounded-2xl bg-[var(--card-bg)] border border-[var(--card-border)] min-h-[300px] prose dark:prose-invert max-w-none text-xs md:text-sm">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                        {activeEntry.content || "*Catatan ini masih kosong.*"}
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
+                        components={{
+                          a: ({ href, children, ...props }) => {
+                            if (href?.startsWith("#journal-note-")) {
+                              const rawTitle = decodeURIComponent(href.replace("#journal-note-", ""));
+                              return (
+                                <span
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    const target = entries.find(
+                                      (en) => en.title.trim().toLowerCase() === rawTitle.trim().toLowerCase()
+                                    );
+                                    if (target) {
+                                      setActiveEntryId(target.id);
+                                    } else {
+                                      if (confirm(`Catatan "${rawTitle}" belum dibuat. Buat catatan baru sekarang?`)) {
+                                        handleCreateNoteWithTitle(rawTitle);
+                                      }
+                                    }
+                                  }}
+                                  className="inline-flex items-center gap-1 px-2 py-0.5 mx-1 rounded-lg text-xs font-semibold bg-indigo-500/15 hover:bg-indigo-500/30 text-indigo-400 hover:text-indigo-300 border border-indigo-500/30 transition-all cursor-pointer select-none no-underline shadow-2xs"
+                                  title={`Buka catatan: ${rawTitle}`}
+                                >
+                                  <BookMarked className="w-3 h-3 text-indigo-400 inline" />
+                                  <span>{children}</span>
+                                </span>
+                              );
+                            }
+                            return (
+                              <a href={href} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline" {...props}>
+                                {children}
+                              </a>
+                            );
+                          },
+                        }}
+                      >
+                        {processedMarkdown}
                       </ReactMarkdown>
                     </div>
                   ) : (
-                    <textarea
-                      value={activeEntry.content}
-                      onChange={(e) => updateActiveEntry({ content: e.target.value })}
-                      placeholder="Mulai menulis jurnal atau ketik catatan bebas di sini..."
-                      rows={14}
-                      className="w-full p-4 rounded-2xl bg-[var(--card-bg)] border border-[var(--card-border)] text-xs md:text-sm font-mono text-[var(--foreground)] placeholder-[var(--muted)] focus:outline-none focus:ring-1 focus:ring-indigo-500 leading-relaxed resize-y"
-                    />
+                    <div className="relative">
+                      <textarea
+                        value={activeEntry.content}
+                        onChange={handleContentChange}
+                        placeholder="Mulai menulis jurnal atau ketik catatan bebas di sini... Ketik [[ untuk menghubungkan catatan."
+                        rows={14}
+                        className="w-full p-4 rounded-2xl bg-[var(--card-bg)] border border-[var(--card-border)] text-xs md:text-sm font-mono text-[var(--foreground)] placeholder-[var(--muted)] focus:outline-none focus:ring-1 focus:ring-indigo-500 leading-relaxed resize-y"
+                      />
+
+                      {/* Bilateral Link Autocomplete Popover */}
+                      {linkSearchQuery !== null && (
+                        <div className="absolute left-4 top-16 w-72 max-h-60 overflow-y-auto rounded-2xl bg-[var(--card-bg)] border border-indigo-500/40 shadow-2xl p-2 z-40 space-y-1 backdrop-blur-md animate-in fade-in zoom-in-95 duration-100">
+                          <div className="px-2 py-1 text-[10px] font-bold text-indigo-400 uppercase tracking-wider flex items-center justify-between border-b border-[var(--card-border)]/50 pb-1.5 mb-1">
+                            <span className="flex items-center gap-1.5">
+                              <Link2 className="w-3 h-3" />
+                              <span>Tautkan Catatan ([[...]])</span>
+                            </span>
+                            <button
+                              onClick={() => setLinkSearchQuery(null)}
+                              className="text-[var(--muted)] hover:text-rose-400"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </div>
+                          {linkSuggestions.length > 0 ? (
+                            linkSuggestions.map((sug) => (
+                              <button
+                                key={sug.id}
+                                type="button"
+                                onClick={() => handleSelectLinkSuggestion(sug)}
+                                className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-xl text-xs hover:bg-indigo-500/15 text-[var(--foreground)] transition-colors text-left cursor-pointer"
+                              >
+                                <span className="flex items-center gap-2 truncate">
+                                  <span>{sug.icon || "📓"}</span>
+                                  <span className="font-medium truncate">{sug.title}</span>
+                                </span>
+                                <span className="text-[10px] text-[var(--muted)] font-mono ml-1">
+                                  #{sug.category}
+                                </span>
+                              </button>
+                            ))
+                          ) : (
+                            <div className="px-2.5 py-1 text-[11px] text-[var(--muted)]">
+                              Tidak ada catatan yang cocok
+                            </div>
+                          )}
+                          {linkSearchQuery.trim().length > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => handleCreateAndLinkNote(linkSearchQuery.trim())}
+                              className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-xl text-xs text-indigo-400 hover:bg-indigo-500/15 border-t border-[var(--card-border)]/50 pt-1.5 transition-colors text-left cursor-pointer font-semibold"
+                            >
+                              <Plus className="w-3.5 h-3.5" />
+                              <span className="truncate">Buat "{linkSearchQuery.trim()}"</span>
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Backlinks / Referencing Notes Section */}
+                  {backlinks.length > 0 && (
+                    <div className="mt-8 pt-6 border-t border-[var(--card-border)] space-y-3">
+                      <div className="flex items-center gap-2 text-xs font-bold text-[var(--muted)]">
+                        <Link2 className="w-3.5 h-3.5 text-indigo-400" />
+                        <span>Terhubung di {backlinks.length} Catatan Lain (Backlinks)</span>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
+                        {backlinks.map((b) => (
+                          <button
+                            key={b.id}
+                            onClick={() => setActiveEntryId(b.id)}
+                            className="flex items-start gap-2.5 p-3 rounded-xl bg-[var(--card-bg)] hover:bg-[var(--sidebar-hover)] border border-[var(--card-border)] hover:border-indigo-500/40 text-left transition-all cursor-pointer group shadow-2xs"
+                          >
+                            <span className="text-lg flex-shrink-0">{b.icon || "📓"}</span>
+                            <div className="min-w-0 flex-1">
+                              <div className="text-xs font-semibold text-[var(--foreground)] group-hover:text-indigo-400 transition-colors truncate">
+                                {b.title}
+                              </div>
+                              <div className="text-[11px] text-[var(--muted)] line-clamp-1 mt-0.5">
+                                {b.content.replace(/[#*`_\[\]]/g, "").slice(0, 60) || "Tanpa konten tambahan"}
+                              </div>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                   )}
                 </div>
               </div>
