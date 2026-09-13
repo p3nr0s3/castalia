@@ -522,7 +522,7 @@ export const VoiceModeModal: React.FC<VoiceModeModalProps> = ({
       {/* Center Animated Voice Orb */}
       <div className="relative flex flex-col items-center justify-center space-y-8 z-10 max-w-xl mx-auto px-4">
         {/* Dynamic 3D Glowing Gradient Sphere (Orb) - NO mic icon inside */}
-        <div className="relative flex items-center justify-center py-6">
+        <div className="relative flex items-center justify-center pt-2 pb-14 sm:pb-18">
           {/* Ambient Outer Aura Blur */}
           <div
             style={{
@@ -615,8 +615,8 @@ export const VoiceModeModal: React.FC<VoiceModeModalProps> = ({
           </div>
         </div>
 
-        {/* Live Status Label */}
-        <div className="text-center space-y-2 max-w-md px-4">
+        {/* Live Status Label - Positioned comfortably below the sphere ripples */}
+        <div className="text-center space-y-2.5 max-w-md px-4 mt-6 sm:mt-8">
           <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white/10 border border-white/15 text-xs font-semibold backdrop-blur-md">
             <span
               className={`w-2 h-2 rounded-full ${
@@ -643,14 +643,7 @@ export const VoiceModeModal: React.FC<VoiceModeModalProps> = ({
             </p>
           )}
 
-          {/* AI Response Preview */}
-          {aiTranscript && status === "speaking" && (
-            <p className="text-xs sm:text-sm text-slate-200 line-clamp-3 leading-relaxed">
-              &ldquo;{aiTranscript}&rdquo;
-            </p>
-          )}
-
-          {!interimTranscript && !aiTranscript && status === "listening" && (
+          {!interimTranscript && status === "listening" && (
             <p className="text-xs text-slate-400">
               Bicara langsung secara alami. AI akan merespon otomatis begitu kamu berhenti bicara.
             </p>
