@@ -101,6 +101,9 @@ export interface SearchSource {
   title: string;
   url: string;
   snippet: string;
+  deepContent?: string;
+  engine?: string;
+  scraped?: boolean;
 }
 
 /** Satu eksekusi disk tool yang ditempel ke sebuah pesan assistant untuk ditampilkan di UI. */
@@ -453,6 +456,8 @@ export interface VoiceSettingsConfig {
 export interface AppSettings {
   ollamaUrl: string;
   searxngUrl: string;
+  searchProvider?: "auto" | "searxng" | "builtin";
+  deepScrapeEnabled?: boolean;
   webSearchDefault: boolean;
   defaultModel: string;
   defaultSystemPrompt: string;

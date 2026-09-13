@@ -293,12 +293,16 @@ export async function executeAgent(
         const data = await res.json();
         if (data.results && data.results.length > 0) {
           searchSources = data.results;
-          searchContext = "\n\n=== LIVE REAL-TIME WEB SEARCH RESULTS (via SearXNG) ===\n";
+          searchContext = "\n\n=== LIVE REAL-TIME WEB & SCRAPED PAGE CONTENT ===\n";
           searchSources.forEach((src, idx) => {
-            searchContext += `[${idx + 1}] "${src.title}"\nURL: ${src.url}\nSummary: ${src.snippet}\n\n`;
+            searchContext += `[${idx + 1}] "${src.title}"\nURL: ${src.url}\nSummary: ${src.snippet}\n`;
+            if (src.deepContent) {
+              searchContext += `Scraped Content:\n${src.deepContent}\n`;
+            }
+            searchContext += "\n";
           });
           searchContext += "=== INSTRUCTIONS ===\n";
-          searchContext += "Use the live web search results above to formulate your response. Include citations like [1], [2] when stating facts.\n\n";
+          searchContext += "Use the live web search and scraped web page content above to formulate your response. Include citations like [1], [2] when stating facts.\n\n";
         }
       }
     } catch (e) {

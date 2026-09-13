@@ -2178,19 +2178,75 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     )}
                   </div>
 
-                  <div className="p-3.5 rounded-2xl bg-[var(--sidebar-bg)] border border-[var(--card-border)] space-y-2">
-                    <label className="block text-xs font-bold text-[var(--foreground)]">
-                      SearXNG Search Endpoint
+                  <div className="p-3.5 rounded-2xl bg-[var(--sidebar-bg)] border border-[var(--card-border)] space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5">
+                        <Globe className="w-4 h-4 text-blue-400" />
+                        <label className="block text-xs font-bold text-[var(--foreground)]">
+                          Web Search & Deep Page Scraper
+                        </label>
+                      </div>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+                        Zero Docker Required
+                      </span>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="text-[11px] font-medium text-[var(--muted)]">
+                        Search Engine Provider
+                      </label>
+                      <select
+                        value={formData.searchProvider || "auto"}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            searchProvider: e.target.value as any,
+                          })
+                        }
+                        className="w-full px-3 py-2 text-xs rounded-xl border border-[var(--card-border)] bg-[var(--card-bg)] text-[var(--foreground)] focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+                      >
+                        <option value="auto">Auto (Built-in Web Scraper + SearXNG fallback)</option>
+                        <option value="builtin">Built-in Web Scraper & Reader Only (Zero Setup)</option>
+                        <option value="searxng">SearXNG Docker Only</option>
+                      </select>
+                    </div>
+
+                    <label className="flex items-center gap-2.5 p-2 rounded-xl bg-[var(--card-bg)] border border-[var(--card-border)] cursor-pointer text-xs">
+                      <input
+                        type="checkbox"
+                        checked={formData.deepScrapeEnabled !== false}
+                        onChange={(e) =>
+                          setFormData({ ...formData, deepScrapeEnabled: e.target.checked })
+                        }
+                        className="rounded border-[var(--card-border)] text-emerald-600 focus:ring-emerald-500 w-4 h-4"
+                      />
+                      <div className="flex-1">
+                        <span className="font-semibold text-[var(--foreground)] block">
+                          Deep Webpage Reader Mode
+                        </span>
+                        <span className="text-[11px] text-[var(--muted)] block">
+                          Automatically visits and scrapes full readable article content so local models can read the whole page.
+                        </span>
+                      </div>
                     </label>
-                    <input
-                      type="text"
-                      value={formData.searxngUrl}
-                      onChange={(e) => setFormData({ ...formData, searxngUrl: e.target.value })}
-                      className="w-full px-3 py-2 text-xs font-mono rounded-xl border border-[var(--card-border)] bg-[var(--card-bg)] text-[var(--foreground)] focus:ring-1 focus:ring-emerald-500 focus:outline-none"
-                    />
-                    <p className="text-[11px] text-[var(--muted)]">
-                      Local Docker SearXNG URL used for web grounding and live citations.
-                    </p>
+
+                    {(formData.searchProvider === "searxng" || formData.searchProvider === "auto" || !formData.searchProvider) && (
+                      <div className="space-y-1 pt-1">
+                        <label className="block text-[11px] font-medium text-[var(--muted)]">
+                          SearXNG Endpoint URL (Optional)
+                        </label>
+                        <input
+                          type="text"
+                          value={formData.searxngUrl}
+                          onChange={(e) => setFormData({ ...formData, searxngUrl: e.target.value })}
+                          placeholder="http://localhost:8080"
+                          className="w-full px-3 py-2 text-xs font-mono rounded-xl border border-[var(--card-border)] bg-[var(--card-bg)] text-[var(--foreground)] focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+                        />
+                        <p className="text-[10px] text-[var(--muted)]">
+                          If SearXNG is not running, the built-in search engine & page scraper seamlessly takes over.
+                        </p>
+                      </div>
+                    )}
                   </div>
 
                   {/* Local Disk Explorer Launcher */}

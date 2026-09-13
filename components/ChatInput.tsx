@@ -186,8 +186,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   const SLASH_COMMANDS: SlashCommand[] = [
     {
       command: "/search",
-      label: "Web Search",
-      desc: "Retrieve live factual search results via SearXNG",
+      label: "Web Search & Scraper",
+      desc: "Retrieve live factual search results & scrape page content (built-in, zero setup)",
       icon: Globe,
       action: () => {
         setWebSearchActive(true);
@@ -640,7 +640,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               : isListening
               ? "🎙️ Listening to your voice..."
               : webSearchActive
-              ? "Ask with live Web Search (SearXNG)..."
+              ? "Ask with live Web Search & Scraper..."
               : disabled
               ? "Please select a model..."
               : placeholder
@@ -712,7 +712,11 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                   ? "bg-blue-600 text-white font-semibold shadow-xs shadow-blue-500/30"
                   : "text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--sidebar-hover)]"
               }`}
-              title={webSearchActive ? "Web Search Active" : "Enable Web Search"}
+              title={
+                webSearchActive
+                  ? "Web Search & Page Scraper Active"
+                  : "Enable Web Search & Scraper (Built-in, No Docker required)"
+              }
             >
               <Globe className={`w-3.5 h-3.5 ${webSearchActive ? "animate-spin-slow text-white" : ""}`} />
               <span className="hidden sm:inline text-[11px]">

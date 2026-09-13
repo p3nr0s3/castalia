@@ -58,6 +58,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   semanticRagEnabled: false,
   embeddingModel: "nomic-embed-text",
   searxngUrl: "http://localhost:8080",
+  searchProvider: "auto",
+  deepScrapeEnabled: true,
   webSearchDefault: false,
   defaultModel: "",
   defaultSystemPrompt: "You are a helpful, respectful, and honest AI assistant.",

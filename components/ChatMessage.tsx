@@ -774,9 +774,14 @@ const ChatMessageComponent: React.FC<ChatMessageProps> = ({
                         {idx + 1}
                       </div>
                       <div className="min-w-0 flex-1">
-                        <div className="font-medium text-[var(--foreground)] truncate group-hover/card:text-blue-400 transition-colors flex items-center gap-1">
+                        <div className="font-medium text-[var(--foreground)] truncate group-hover/card:text-blue-400 transition-colors flex items-center gap-1.5">
                           <span className="truncate">{src.title}</span>
-                          <ExternalLink className="w-3 h-3 opacity-0 group-hover/card:opacity-100 transition-opacity flex-shrink-0" />
+                          {src.scraped && (
+                            <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 flex-shrink-0 leading-none">
+                              Scraped
+                            </span>
+                          )}
+                          <ExternalLink className="w-3 h-3 opacity-0 group-hover/card:opacity-100 transition-opacity flex-shrink-0 ml-auto" />
                         </div>
                         {src.snippet && (
                           <p className="text-[11px] text-[var(--muted)] line-clamp-2 mt-0.5">

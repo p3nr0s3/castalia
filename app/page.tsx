@@ -1144,8 +1144,15 @@ export default function HomePage() {
     let searchSources: any[] = [];
     let searchContextText = "";
 
-    // Perform real-time web search if enabled
-    if (webSearchActive && trimmedInput) {
+    // Perform real-time web search if enabled or if user prompt has explicit search/scrape intent
+    const hasUrlInInput = /https?:\/\/[^\s]+/i.test(trimmedInput);
+    const hasSearchIntent =
+      /^(cari|carikan|search|tolong carikan|tolong cari|browsing|scraping|scrape|baca web|baca url|info tentang|what is the latest|berita tentang|coba carikan|coba cari)\b/i.test(trimmedInput) ||
+      /\b(carikan|scraping|scrape web|cve-\d{4}-\d+)\b/i.test(trimmedInput);
+
+    const shouldRunSearch = Boolean((webSearchActive || hasUrlInInput || hasSearchIntent) && trimmedInput);
+
+    if (shouldRunSearch) {
       try {
         const searchRes = await apiFetch("/api/search", {
           method: "POST",
@@ -1153,18 +1160,24 @@ export default function HomePage() {
           body: JSON.stringify({
             query: trimmedInput,
             searxngUrl: settings.searxngUrl,
+            provider: settings.searchProvider || "auto",
+            deepScrape: settings.deepScrapeEnabled !== false,
           }),
         });
         if (searchRes.ok) {
           const searchData = await searchRes.json();
           if (searchData.results && searchData.results.length > 0) {
             searchSources = searchData.results;
-            searchContextText = "\n\n=== REAL-TIME WEB SEARCH RESULTS (via SearXNG) ===\n";
-            searchSources.forEach((src, idx) => {
-              searchContextText += `[${idx + 1}] "${src.title}"\nURL: ${src.url}\nSummary: ${src.snippet}\n\n`;
+            searchContextText = "\n\n=== REAL-TIME WEB & SCRAPED PAGE CONTENT ===\n";
+            searchSources.forEach((src: any, idx: number) => {
+              searchContextText += `[${idx + 1}] "${src.title}"\nURL: ${src.url}\nSummary: ${src.snippet}\n`;
+              if (src.deepContent) {
+                searchContextText += `Scraped Content:\n${src.deepContent}\n`;
+              }
+              searchContextText += "\n";
             });
             searchContextText += "=== INSTRUCTIONS ===\n";
-            searchContextText += "Answer the user's prompt using the real-time web search results above. Cite references using [1], [2], etc., when stating specific facts.\n\n";
+            searchContextText += "Answer the user's prompt using the real-time web search and scraped web page results above. You have actual full access to the scraped webpage content. Cite references using [1], [2], etc., when stating specific facts.\n\n";
           }
         }
       } catch (searchErr) {
