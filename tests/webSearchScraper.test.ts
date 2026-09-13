@@ -324,4 +324,32 @@ describe("webSearchEngine utilities", () => {
     expect(ctx2.temporalMode).toBe("evergreen");
     expect(ctx2.intent).toBe("general");
   });
+
+  it("resolves multi-turn conversational follow-ups and anaphora using previous context", () => {
+    const mockContext = {
+      previousQuery: "cari cve terbaru",
+      lastAssistantContent:
+        "Berikut adalah beberapa CVE terbaru 2026:\n1. CVE-2026-85046: Kerentanan Zero-Day di Google Chrome\n2. CVE-2026-42018: Kerentanan memory leak di Linux kernel",
+    };
+
+    // Follow-up 1: "bagaimana cara mitigasinya?" -> resolves to include CVE-2026-85046
+    const f1 = cleanSearchQuery("bagaimana cara mitigasinya?", mockContext);
+    expect(f1.cleanQuery).toContain("CVE-2026-85046");
+    expect(f1.cleanQuery).toContain("mitigasinya");
+
+    // Follow-up 2: "jelaskan lebih detail yang pertama" -> resolves to CVE-2026-85046
+    const f2 = cleanSearchQuery("jelaskan lebih detail yang pertama", mockContext);
+    expect(f2.cleanQuery).toContain("CVE-2026-85046");
+    expect(f2.cleanQuery).not.toContain("yang pertama");
+
+    // Follow-up 3: "cari exploit untuk yang kedua" -> resolves to CVE-2026-42018
+    const f3 = cleanSearchQuery("cari exploit untuk yang kedua", mockContext);
+    expect(f3.cleanQuery).toContain("CVE-2026-42018");
+    expect(f3.cleanQuery).toContain("exploit");
+
+    // New unrelated query should not be polluted
+    const unrelated = cleanSearchQuery("cara masak soto ayam lamongan", mockContext);
+    expect(unrelated.cleanQuery).toBe("masak soto ayam lamongan");
+    expect(unrelated.cleanQuery).not.toContain("CVE");
+  });
 });

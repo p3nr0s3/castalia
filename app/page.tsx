@@ -1163,17 +1163,25 @@ export default function HomePage() {
       }
     }
 
-    // Perform real-time web search if enabled or if user prompt has explicit search/scrape intent
-    const hasUrlInInput = /https?:\/\/[^\s]+/i.test(trimmedInput);
-    const hasSearchIntent =
-      /^(cari|carikan|search|tolong carikan|tolong cari|browsing|scraping|scrape|baca web|baca url|info tentang|what is the latest|berita tentang|coba carikan|coba cari)\b/i.test(trimmedInput) ||
-      /\b(carikan|scraping|scrape web|cve-\d{4}-\d+)\b/i.test(trimmedInput);
+    // Strict Mode: Real-time web search and live scraping ONLY execute when the user explicitly enables the Web Search toggle or uses /search
+    const isExplicitSearchCommand = /^\/search\s+/i.test(trimmedInput);
+    const searchInput = isExplicitSearchCommand
+      ? trimmedInput.replace(/^\/search\s+/i, "").trim()
+      : trimmedInput;
 
     const shouldRunSearch = Boolean(
-      !isScanCommand && (webSearchActive || hasUrlInInput || hasSearchIntent) && trimmedInput
+      !isScanCommand && (webSearchActive || isExplicitSearchCommand) && searchInput
     );
+
+    // Multi-turn context resolution: resolve anaphoric follow-up references using previous conversation turn
+    const lastUserMsg = [...targetConv.messages].reverse().find((m) => m.role === "user");
+    const lastAssistantMsg = [...targetConv.messages].reverse().find((m) => m.role === "assistant");
+
     const { cleanQuery: cleanSearchQueryStr } = shouldRunSearch
-      ? reformulateSearchQuery(trimmedInput)
+      ? reformulateSearchQuery(searchInput, {
+          previousQuery: lastUserMsg?.content,
+          lastAssistantContent: lastAssistantMsg?.content,
+        })
       : { cleanQuery: "" };
 
     // Process Live Connector Operations (/github, /slack, /discord, /blender)

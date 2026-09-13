@@ -59,8 +59,17 @@ export function decodeBingUrl(rawUrl: string): string {
  * Converts conversational, long-winded user questions into precise, high-yield search keywords.
  * Peels greeting particles, polite requests, pronouns, actions, question words, and news framing.
  * Dynamically converts relative time references ("tahun ini", "this year") to the current calendar year.
+ * Resolves conversational anaphora and short follow-up questions using multi-turn context history.
  */
-export function reformulateSearchQuery(query: string): { isUrl: boolean; targetUrl?: string; cleanQuery: string } {
+export interface SearchContextHistory {
+  previousQuery?: string;
+  lastAssistantContent?: string;
+}
+
+export function reformulateSearchQuery(
+  query: string,
+  contextHistory?: SearchContextHistory
+): { isUrl: boolean; targetUrl?: string; cleanQuery: string } {
   const trimmed = (query || "").trim();
   const urlMatch = trimmed.match(/https?:\/\/[^\s]+/);
   if (urlMatch) {
@@ -99,18 +108,54 @@ export function reformulateSearchQuery(query: string): { isUrl: boolean; targetU
       .trim();
   }
 
+  // 3. Multi-turn Conversational Entity & Anaphora Resolution
+  if (contextHistory && (contextHistory.previousQuery || contextHistory.lastAssistantContent)) {
+    const isAnaphoric = /\b(yang pertama|pertama|nomor 1|no 1|yang kedua|kedua|nomor 2|no 2|tersebut|tadi|yang tadi|di atas|itu|the first one|the second one|that one|previous)\b/i.test(trimmed);
+    const isShortFollowup =
+      clean.split(/\s+/).length <= 4 &&
+      /\b(mitigasi|solusi|dampak|cara|exploit|patch|fix|kenapa|mengapa|detail|penjelasan|spek|harga|kelebihan|kekurangan|penyebab)(nya)?\b/i.test(
+        clean
+      );
+
+    if (isAnaphoric || isShortFollowup) {
+      // Look for CVE identifiers in the previous assistant message
+      const rawMatches = (contextHistory.lastAssistantContent || "").match(/CVE-\d{4}-\d+/gi) || [];
+      const uniqueCves = Array.from(new Set(rawMatches.map((m) => m.toUpperCase())));
+
+      if (uniqueCves.length > 0) {
+        if (/\b(yang pertama|pertama|nomor 1|no 1|the first one)\b/i.test(trimmed)) {
+          const stripped = clean.replace(/\b(yang pertama|pertama|nomor 1|no 1|the first one)\b/gi, "").trim();
+          clean = `${uniqueCves[0]} ${stripped}`.trim();
+        } else if (/\b(yang kedua|kedua|nomor 2|no 2|the second one)\b/i.test(trimmed) && uniqueCves.length > 1) {
+          const stripped = clean.replace(/\b(yang kedua|kedua|nomor 2|no 2|the second one)\b/gi, "").trim();
+          clean = `${uniqueCves[1]} ${stripped}`.trim();
+        } else {
+          const stripped = clean.replace(/\b(tersebut|tadi|yang tadi|di atas|itu)\b/gi, "").trim();
+          clean = `${uniqueCves[0]} ${stripped}`.trim();
+        }
+      } else if (contextHistory.previousQuery) {
+        const prevClean = contextHistory.previousQuery
+          .replace(/^(cari|carikan|search|tolong cari|browsing)\s+/i, "")
+          .replace(/\s+(dong|ya|nih|kan)$/i, "")
+          .trim();
+        const stripped = clean.replace(/\b(tersebut|tadi|yang tadi|di atas|itu)\b/gi, "").trim();
+        clean = `${prevClean} ${stripped}`.trim();
+      }
+    }
+  }
+
   // If already short and specific (e.g. "Cybersecurity" or "CVE-2024-3094"), return immediately
   const words = clean.split(/\s+/);
   if (words.length <= 3 && clean.length > 0) {
     return { isUrl: false, cleanQuery: clean };
   }
 
-  // 3. Dynamic Year Normalization
+  // 4. Dynamic Year Normalization
   clean = clean
     .replace(/\b(tahun ini|this year|saat ini|sekarang)\b/gi, currentYear)
     .trim();
 
-  // 4. Remove unnecessary filler stop-words if query is lengthy (> 6 words)
+  // 5. Remove unnecessary filler stop-words if query is lengthy (> 6 words)
   if (clean.split(/\s+/).length > 6) {
     const stopWords = new Set([
       "yang", "untuk", "buat", "pada", "di", "ke", "dari", "dan", "atau", "adalah",
