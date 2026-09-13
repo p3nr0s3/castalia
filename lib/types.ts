@@ -131,6 +131,14 @@ export interface RetrievedChunkInfo {
   estimatedTokens: number;
 }
 
+export interface SearchStepInfo {
+  step: "searching" | "scraping" | "done";
+  query?: string;
+  sourceCount?: number;
+  scrapedCount?: number;
+  scrapedDomains?: string[];
+}
+
 export interface Message {
   id: string;
   role: MessageRole;
@@ -139,6 +147,7 @@ export interface Message {
   model?: string;
   attachments?: Attachment[];
   sources?: SearchSource[];
+  searchSteps?: SearchStepInfo;
   metrics?: GenerationMetrics;
   reasoning?: string;
   isError?: boolean;

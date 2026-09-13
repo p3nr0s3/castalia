@@ -17,6 +17,7 @@ import {
   ThinkingMode,
   ToolCallExecution,
   RetrievedChunkInfo,
+  SearchStepInfo,
 } from "@/lib/types";
 import { storage } from "@/lib/storage";
 import { DEFAULT_SETTINGS, PRESET_PERSONAS, DEFAULT_CUSTOM_THEME } from "@/lib/constants";
@@ -61,6 +62,7 @@ import {
   getCachedPromptResponse,
   setCachedPromptResponse,
 } from "@/lib/responseCache";
+import { reformulateSearchQuery } from "@/lib/webSearchEngine";
 
 export default function HomePage() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -1151,39 +1153,9 @@ export default function HomePage() {
       /\b(carikan|scraping|scrape web|cve-\d{4}-\d+)\b/i.test(trimmedInput);
 
     const shouldRunSearch = Boolean((webSearchActive || hasUrlInInput || hasSearchIntent) && trimmedInput);
-
-    if (shouldRunSearch) {
-      try {
-        const searchRes = await apiFetch("/api/search", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            query: trimmedInput,
-            searxngUrl: settings.searxngUrl,
-            provider: settings.searchProvider || "auto",
-            deepScrape: settings.deepScrapeEnabled !== false,
-          }),
-        });
-        if (searchRes.ok) {
-          const searchData = await searchRes.json();
-          if (searchData.results && searchData.results.length > 0) {
-            searchSources = searchData.results;
-            searchContextText = "\n\n=== REAL-TIME WEB & SCRAPED PAGE CONTENT ===\n";
-            searchSources.forEach((src: any, idx: number) => {
-              searchContextText += `[${idx + 1}] "${src.title}"\nURL: ${src.url}\nSummary: ${src.snippet}\n`;
-              if (src.deepContent) {
-                searchContextText += `Scraped Content:\n${src.deepContent}\n`;
-              }
-              searchContextText += "\n";
-            });
-            searchContextText += "=== INSTRUCTIONS ===\n";
-            searchContextText += "Answer the user's prompt using the real-time web search and scraped web page results above. You have actual full access to the scraped webpage content. Cite references using [1], [2], etc., when stating specific facts.\n\n";
-          }
-        }
-      } catch (searchErr) {
-        console.warn("Web search failed:", searchErr);
-      }
-    }
+    const { cleanQuery: cleanSearchQueryStr } = shouldRunSearch
+      ? reformulateSearchQuery(trimmedInput)
+      : { cleanQuery: "" };
 
     // Process Live Connector Operations (/github, /slack, /discord, /blender)
     let connectorContextText = "";
@@ -1320,7 +1292,13 @@ export default function HomePage() {
       content: connectorNotice,
       timestamp: Date.now(),
       model: selectedModel,
-      sources: searchSources.length > 0 ? searchSources : undefined,
+      sources: undefined,
+      searchSteps: shouldRunSearch
+        ? {
+            step: "searching",
+            query: cleanSearchQueryStr,
+          }
+        : undefined,
     };
 
     const modelBMessageId = isArenaMode && arenaModelB ? `msg_ast_b_${Date.now() + 2}` : null;
@@ -1370,6 +1348,80 @@ export default function HomePage() {
     abortControllerRef.current = abortController;
 
     try {
+      // Execute live web search & scraping with step updates if requested
+      if (shouldRunSearch) {
+        try {
+          const searchRes = await apiFetch("/api/search", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              query: cleanSearchQueryStr,
+              searxngUrl: settings.searxngUrl,
+              provider: settings.searchProvider || "auto",
+              deepScrape: settings.deepScrapeEnabled !== false,
+            }),
+          });
+
+          if (searchRes.ok) {
+            const searchData = await searchRes.json();
+            if (searchData.results && searchData.results.length > 0) {
+              searchSources = searchData.results;
+              const domains = searchData.results
+                .map((r: any) => {
+                  try {
+                    return new URL(r.url).hostname.replace(/^www\./, "");
+                  } catch {
+                    return "";
+                  }
+                })
+                .filter(Boolean);
+              const scrapedCount = searchData.results.filter((r: any) => r.scraped).length;
+
+              searchContextText = "\n\n=== REAL-TIME WEB & SCRAPED PAGE CONTENT ===\n";
+              searchSources.forEach((src: any, idx: number) => {
+                searchContextText += `[${idx + 1}] "${src.title}"\nURL: ${src.url}\nSummary: ${src.snippet}\n`;
+                if (src.deepContent) {
+                  searchContextText += `Scraped Content:\n${src.deepContent}\n`;
+                }
+                searchContextText += "\n";
+              });
+              searchContextText += "=== INSTRUCTIONS ===\n";
+              searchContextText += "Answer the user's prompt using the real-time web search and scraped web page results above. You have actual full access to the scraped webpage content. Cite references using [1], [2], etc., when stating specific facts.\n\n";
+
+              const doneStepInfo: SearchStepInfo = {
+                step: "done",
+                query: cleanSearchQueryStr,
+                sourceCount: searchSources.length,
+                scrapedCount,
+                scrapedDomains: domains,
+              };
+              assistantPlaceholder.searchSteps = doneStepInfo;
+              assistantPlaceholder.sources = searchSources;
+
+              setConversations((prev) =>
+                prev.map((c) => {
+                  if (c.id !== targetId) return c;
+                  return {
+                    ...c,
+                    messages: c.messages.map((m) =>
+                      m.id === assistantMessageId
+                        ? {
+                            ...m,
+                            sources: searchSources,
+                            searchSteps: doneStepInfo,
+                          }
+                        : m
+                    ),
+                  };
+                })
+              );
+            }
+          }
+        } catch (searchErr) {
+          console.warn("Web search failed:", searchErr);
+        }
+      }
+
       const {
         prompt: baseEffectivePrompt,
         staticPrompt,

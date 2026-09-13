@@ -80,4 +80,15 @@ describe("webSearchEngine utilities", () => {
     expect(query3.isUrl).toBe(false);
     expect(query3.cleanQuery).toBe("latest quantum computing breakthroughs");
   });
+
+  it("reformulateSearchQuery optimizes natural questions into search keywords", () => {
+    const q1 = cleanSearchQuery("laptop apa yang cocok buat ngoding android studio budget 12 jutaan tahun ini?");
+    expect(q1.isUrl).toBe(false);
+    expect(q1.cleanQuery).toContain("android studio");
+    expect(q1.cleanQuery).toContain("2025");
+
+    const q2 = cleanSearchQuery("apa perbedaan deepseek r1 dan openai o1?");
+    expect(q2.isUrl).toBe(false);
+    expect(q2.cleanQuery).toBe("deepseek r1 dan openai o1");
+  });
 });

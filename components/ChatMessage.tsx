@@ -34,6 +34,7 @@ import {
   Loader2,
   FileEdit,
   BookOpen,
+  Search,
 } from "lucide-react";
 import dynamic from "next/dynamic";
 import { Message } from "@/lib/types";
@@ -628,6 +629,47 @@ const ChatMessageComponent: React.FC<ChatMessageProps> = ({
             </div>
           ) : (
             <div className="text-sm sm:text-[15px] leading-relaxed text-[var(--foreground)] select-text break-words [overflow-wrap:anywhere] [word-break:break-word] pt-0.5">
+              {/* Perplexity-style Live Search & Scraping Step Pill */}
+              {!isUser && message.searchSteps && (
+                <div className="mb-2.5">
+                  {message.searchSteps.step === "searching" && (
+                    <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-blue-500/10 border border-blue-500/25 text-xs text-blue-400 font-medium animate-pulse">
+                      <Search className="w-3.5 h-3.5 animate-spin-slow text-blue-400 flex-shrink-0" />
+                      <span>
+                        Searching web for{" "}
+                        <strong className="text-blue-300 font-semibold">
+                          &quot;{message.searchSteps.query}&quot;
+                        </strong>
+                        ...
+                      </span>
+                    </div>
+                  )}
+                  {message.searchSteps.step === "scraping" && (
+                    <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/25 text-xs text-emerald-400 font-medium animate-pulse">
+                      <Globe className="w-3.5 h-3.5 animate-spin-slow text-emerald-400 flex-shrink-0" />
+                      <span>
+                        Reading & scraping {message.searchSteps.sourceCount || "web"} pages
+                        {message.searchSteps.scrapedDomains && message.searchSteps.scrapedDomains.length > 0
+                          ? ` (${message.searchSteps.scrapedDomains.slice(0, 3).join(", ")})`
+                          : ""}
+                        ...
+                      </span>
+                    </div>
+                  )}
+                  {message.searchSteps.step === "done" && (
+                    <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[var(--card-bg)] border border-[var(--card-border)] text-[11px] text-[var(--muted)] hover:text-[var(--foreground)] transition-colors">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
+                      <span>
+                        Researched web across {message.searchSteps.sourceCount || sources.length} sources
+                        {message.searchSteps.scrapedCount
+                          ? ` (${message.searchSteps.scrapedCount} scraped & read)`
+                          : ""}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {message.isError ? (
                 <div className="flex items-start gap-2.5 p-3.5 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs sm:text-sm">
                   <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
