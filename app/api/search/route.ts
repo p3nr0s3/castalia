@@ -3,6 +3,8 @@ import { SearchSource } from "@/lib/types";
 import { getCorsHeaders } from "@/lib/corsHeaders";
 import {
   cleanSearchQuery,
+  detectQueryContext,
+  filterAndScoreResults,
   scrapePageContent,
   searchBingEngine,
   searchWikipedia,
@@ -55,10 +57,17 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // 2. Contextual Query Analysis (Language, Intent, Core Subjects)
+    const queryCtx = detectQueryContext(cleanQuery);
+    const primarySearchQuery =
+      queryCtx.intent === "hardware" && queryCtx.refinedQueries.length > 0
+        ? queryCtx.refinedQueries[0]
+        : cleanQuery;
+
     let results: SearchSource[] = [];
     let usedEngine = "builtin";
 
-    // 2. Try SearXNG first if provider is 'auto' or 'searxng'
+    // 3. Try SearXNG first if provider is 'auto' or 'searxng'
     if (provider === "searxng" || provider === "auto") {
       try {
         let host = searxngUrl.replace(/\/+$/, "");
@@ -73,15 +82,15 @@ export async function POST(req: NextRequest) {
         }
 
         const targetSearchUrl = `${host}/search?q=${encodeURIComponent(
-          cleanQuery
-        )}&format=json&language=all`;
+          primarySearchQuery
+        )}&format=json&language=${queryCtx.locale.lang}`;
 
         const res = await fetch(targetSearchUrl, {
           method: "GET",
           headers: {
             Accept: "application/json",
             "User-Agent":
-              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
           },
           cache: "no-store",
           signal: AbortSignal.timeout(1800),
@@ -91,13 +100,17 @@ export async function POST(req: NextRequest) {
           const data = await res.json();
           const rawResults = data.results || [];
           if (rawResults.length > 0) {
-            results = rawResults.slice(0, 5).map((r: any) => ({
+            const mapped: SearchSource[] = rawResults.map((r: any) => ({
               title: r.title || "Untitled",
               url: r.url || "",
               snippet: r.content || r.snippet || "",
               engine: r.engine ? `searxng-${r.engine}` : "searxng",
             }));
-            usedEngine = "searxng";
+            const filtered = filterAndScoreResults(mapped, queryCtx);
+            if (filtered.length > 0) {
+              results = filtered.slice(0, 5);
+              usedEngine = "searxng";
+            }
           }
         }
       } catch {
@@ -105,14 +118,41 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 3. Fall back to Built-in Web Search Engine (Zero Docker required)
+    // 4. Fall back to Precision Built-in Web Search Engine (Zero Docker required)
     if (results.length === 0) {
-      const organicResults = await searchBingEngine(cleanQuery);
-      results = organicResults;
       usedEngine = "builtin-web";
+      // First attempt with primary query and regional locale
+      const rawOrganic = await searchBingEngine(primarySearchQuery, queryCtx.locale);
+      let filteredOrganic = filterAndScoreResults(rawOrganic, queryCtx);
 
-      // If results are sparse (< 2), also query Wikipedia API
-      if (results.length < 2) {
+      // If results are sparse (< 2) and we have alternative refined queries, execute second targeted search
+      if (filteredOrganic.length < 2 && queryCtx.refinedQueries.length > 1) {
+        const secondQuery = queryCtx.refinedQueries[1];
+        const secondOrganic = await searchBingEngine(secondQuery, queryCtx.locale);
+        const secondFiltered = filterAndScoreResults(secondOrganic, queryCtx);
+
+        // Merge without duplicate URLs
+        for (const item of secondFiltered) {
+          if (!filteredOrganic.some((r) => r.url === item.url)) {
+            filteredOrganic.push(item);
+          }
+        }
+      }
+
+      // If still empty (e.g. strict filter was too aggressive), fall back to original clean query without strict subject drop
+      if (filteredOrganic.length === 0) {
+        const fallbackOrganic = await searchBingEngine(cleanQuery, queryCtx.locale);
+        // Exclude hard blacklist terms (KBBI, surat rekomendasi) even in fallback
+        filteredOrganic = filterAndScoreResults(fallbackOrganic, {
+          ...queryCtx,
+          coreSubjects: [],
+        });
+      }
+
+      results = filteredOrganic.slice(0, 5);
+
+      // 5. Wikipedia: Only query for general or security encyclopedia concepts, NEVER for hardware shopping
+      if (results.length < 2 && queryCtx.intent !== "hardware") {
         const wikiResults = await searchWikipedia(cleanQuery);
         for (const w of wikiResults) {
           if (!results.some((r) => r.url === w.url)) {
@@ -122,14 +162,24 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 4. Deep Page Scraping (Reader Mode): fetch and extract full text for top results
+    // 6. Deep Page Scraping (Reader Mode): fetch and extract full text for top results with content validation
     if (deepScrape && results.length > 0) {
       let scrapedCount = 0;
-      const scrapeTasks = results.slice(0, 5).map(async (r) => {
-        // Scrape up to 2-3 quality articles
+      const scrapeTasks = results.map(async (r) => {
         if (scrapedCount < 2 && r.url && r.url.startsWith("http")) {
           const content = await scrapePageContent(r.url, 2500);
           if (content && content.length >= 150) {
+            // Validate that scraped content is actually about the core subject
+            if (queryCtx.coreSubjects.length > 0) {
+              const lowerContent = content.toLowerCase();
+              const hasSubject = queryCtx.coreSubjects.some((s) =>
+                lowerContent.includes(s)
+              );
+              if (!hasSubject) {
+                return r;
+              }
+            }
+
             scrapedCount++;
             return {
               ...r,
@@ -145,7 +195,12 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json(
-      { results, engine: usedEngine, query: cleanQuery },
+      {
+        results,
+        engine: usedEngine,
+        query: primarySearchQuery,
+        intent: queryCtx.intent,
+      },
       { headers: CORS_HEADERS }
     );
   } catch (error: any) {

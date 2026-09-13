@@ -190,16 +190,275 @@ export async function scrapePageContent(url: string, maxChars: number = 2500): P
 }
 
 /**
- * Built-in search engine powered by high-speed organic result parsing.
+ * Contextual Query Analysis & Classification:
+ * Detects user intent (hardware, security, coding, general), extracts core subject nouns,
+ * determines regional language/locale, and generates high-accuracy targeted query expansions.
  */
-export async function searchBingEngine(cleanQuery: string): Promise<SearchSource[]> {
+export interface QueryContext {
+  isIndonesian: boolean;
+  locale: { lang: string; cc: string; acceptLang: string };
+  intent: "hardware" | "security" | "coding" | "general";
+  coreSubjects: string[];
+  refinedQueries: string[];
+}
+
+export function detectQueryContext(query: string): QueryContext {
+  const trimmed = query.trim().toLowerCase();
+
+  // Check language
+  const isIndonesian =
+    /\b(rekomendasi|terbaik|laptop|jutaan|juta|harga|hp|spek|spesifikasi|bagaimana|kenapa|apa|cara|yang|untuk|buat|dan|di|ini|terbaru|murah|beli|pilihan)\b/i.test(
+      trimmed
+    );
+  const locale = isIndonesian
+    ? { lang: "id", cc: "ID", acceptLang: "id-ID,id;q=0.9,en-US;q=0.8" }
+    : { lang: "en", cc: "US", acceptLang: "en-US,en;q=0.9" };
+
+  let intent: "hardware" | "security" | "coding" | "general" = "general";
+  const coreSubjects: string[] = [];
+  const refinedQueries: string[] = [];
+
+  // 1. Hardware & Product Purchase Intent
+  const hardwareKeywords = [
+    "laptop",
+    "notebook",
+    "komputer",
+    "pc",
+    "smartphone",
+    "hp",
+    "tablet",
+    "gpu",
+    "vga",
+    "rtx",
+    "gtx",
+    "processor",
+    "intel",
+    "ryzen",
+    "ram",
+    "ssd",
+    "monitor",
+    "gadget",
+    "macbook",
+    "tws",
+    "headset",
+  ];
+
+  for (const hw of hardwareKeywords) {
+    if (new RegExp(`\\b${hw}\\b`, "i").test(trimmed)) {
+      intent = "hardware";
+      coreSubjects.push(hw);
+    }
+  }
+
+  // 2. Cybersecurity & CVE Intent
+  if (
+    /\b(cve-\d{4}-\d+|vulnerability|exploit|kerentanan|backdoor|zero-day|advisory)\b/i.test(
+      trimmed
+    )
+  ) {
+    intent = "security";
+    const cveMatch = trimmed.match(/cve-\d{4}-\d+/i);
+    if (cveMatch) coreSubjects.push(cveMatch[0].toUpperCase());
+    else coreSubjects.push("vulnerability");
+  }
+
+  // 3. Coding & Developer Error Intent
+  else if (
+    /\b(error|exception|next\.js|react|vue|angular|tailwind|python|typescript|javascript|docker|golang|rust|api|syntax|bug)\b/i.test(
+      trimmed
+    )
+  ) {
+    intent = "coding";
+    const codeKeywords = [
+      "next.js",
+      "react",
+      "vue",
+      "tailwind",
+      "python",
+      "docker",
+      "typescript",
+      "javascript",
+    ];
+    for (const ck of codeKeywords) {
+      if (trimmed.includes(ck)) coreSubjects.push(ck);
+    }
+  }
+
+  // 4. Targeted Query Expansions
+  if (intent === "hardware") {
+    const subject = coreSubjects[0] || "laptop";
+    const priceMatch = trimmed.match(/(\d+)\s*(jutaan|juta|jt|ribu|rb)/i);
+    if (priceMatch) {
+      const price = `${priceMatch[1]} ${priceMatch[2]}`;
+      refinedQueries.push(
+        `rekomendasi ${subject} harga ${price} terbaik spesifikasi review`,
+        `daftar ${subject} terbaik ${price} 2025 review spesifikasi`,
+        `${subject} terbaik harga ${price} review kelebihan kekurangan`
+      );
+    } else {
+      refinedQueries.push(
+        `rekomendasi ${subject} terbaik 2025 review spesifikasi harga`,
+        `${subject} terbaik review kelebihan kekurangan`
+      );
+    }
+  } else if (intent === "security") {
+    const subj = coreSubjects[0] || query;
+    refinedQueries.push(
+      `${subj} security advisory vulnerability details mitigation`,
+      `${subj} nvd cve exploit details`
+    );
+  } else if (intent === "coding") {
+    refinedQueries.push(
+      `${query} documentation solution tutorial`,
+      `${query} github stackoverflow`
+    );
+  }
+
+  return { isIndonesian, locale, intent, coreSubjects, refinedQueries };
+}
+
+/**
+ * Filter and Rank Results by Strict Semantic Relevance:
+ * Discards irrelevant spam, definition farms (KBBI), and mismatched topics.
+ */
+export function filterAndScoreResults(
+  results: SearchSource[],
+  context: QueryContext
+): SearchSource[] {
+  const scored: { item: SearchSource; score: number }[] = [];
+
+  const hardwareBlacklist = [
+    "kbbi",
+    "arti kata",
+    "kamus besar",
+    "definisi kata",
+    "surat rekomendasi",
+    "contoh surat",
+    "format surat",
+    "surat lamaran",
+    "beasiswa",
+    "pengertian rekomendasi",
+  ];
+
+  const trustedHardwareDomains = [
+    "jagatreview.com",
+    "gadgetren.com",
+    "pricebook.co.id",
+    "kompas.com",
+    "detik.com",
+    "carisinyal.com",
+    "idntimes.com",
+    "duniagames.co.id",
+    "tokopedia.com",
+    "shopee.co.id",
+    "techradar.com",
+    "tomshardware.com",
+    "notebookcheck.net",
+  ];
+
+  const trustedSecurityDomains = [
+    "nvd.nist.gov",
+    "cve.org",
+    "cvefeed.io",
+    "opencve.io",
+    "github.com",
+    "redhat.com",
+    "debian.org",
+    "bleepingcomputer.com",
+    "thehackernews.com",
+    "mitre.org",
+  ];
+
+  for (const item of results) {
+    const lowerTitle = (item.title || "").toLowerCase();
+    const lowerSnippet = (item.snippet || "").toLowerCase();
+    const lowerUrl = (item.url || "").toLowerCase();
+    const combined = `${lowerTitle} ${lowerSnippet} ${lowerUrl}`;
+
+    // 1. Blacklist check
+    if (context.intent === "hardware") {
+      const isBlacklisted = hardwareBlacklist.some((b) => combined.includes(b));
+      if (isBlacklisted) continue;
+
+      // Must mention at least one core subject keyword (e.g. "laptop") in title or snippet!
+      if (context.coreSubjects.length > 0) {
+        const hasSubject = context.coreSubjects.some(
+          (sub) => lowerTitle.includes(sub) || lowerSnippet.includes(sub)
+        );
+        if (!hasSubject) continue;
+      }
+    } else if (context.intent === "security") {
+      if (combined.includes("arti kata") || combined.includes("kbbi")) continue;
+    }
+
+    // 2. Score calculation
+    let score = 50;
+
+    // Core subject matches
+    for (const sub of context.coreSubjects) {
+      if (lowerTitle.includes(sub)) score += 50;
+      if (lowerSnippet.includes(sub)) score += 25;
+    }
+
+    // Secondary matches
+    const secondaryKeywords = [
+      "rekomendasi",
+      "terbaik",
+      "spesifikasi",
+      "spek",
+      "harga",
+      "review",
+      "juta",
+      "jutaan",
+      "cve",
+      "advisory",
+      "solution",
+    ];
+    for (const kw of secondaryKeywords) {
+      if (lowerTitle.includes(kw)) score += 15;
+      if (lowerSnippet.includes(kw)) score += 5;
+    }
+
+    // Domain authority boost
+    if (context.intent === "hardware") {
+      if (trustedHardwareDomains.some((d) => lowerUrl.includes(d))) {
+        score += 45;
+      }
+    } else if (context.intent === "security") {
+      if (trustedSecurityDomains.some((d) => lowerUrl.includes(d))) {
+        score += 45;
+      }
+    }
+
+    scored.push({ item, score });
+  }
+
+  // Sort descending by relevance score
+  scored.sort((a, b) => b.score - a.score);
+  return scored.map((s) => s.item);
+}
+
+/**
+ * Built-in search engine powered by high-speed organic result parsing with locale awareness.
+ */
+export async function searchBingEngine(
+  cleanQuery: string,
+  locale?: { lang: string; cc: string; acceptLang: string }
+): Promise<SearchSource[]> {
   try {
-    const bingUrl = `https://www.bing.com/search?q=${encodeURIComponent(cleanQuery)}&setlang=en`;
+    const lang = locale?.lang || "id";
+    const cc = locale?.cc || "ID";
+    const acceptLang = locale?.acceptLang || "id-ID,id;q=0.9,en-US;q=0.8";
+
+    const bingUrl = `https://www.bing.com/search?q=${encodeURIComponent(
+      cleanQuery
+    )}&setlang=${lang}&cc=${cc}`;
+
     const res = await fetch(bingUrl, {
       headers: {
         "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept-Language": "en-US,en;q=0.9,id;q=0.8",
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept-Language": acceptLang,
         Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
       },
       signal: AbortSignal.timeout(4500),
@@ -223,7 +482,11 @@ export async function searchBingEngine(cleanQuery: string): Promise<SearchSource
       while ((linkMatch = linkRegex.exec(block)) !== null) {
         const href = linkMatch[1];
         const decoded = decodeBingUrl(href);
-        if (decoded.startsWith("http") && !decoded.includes("bing.com") && !decoded.includes("microsoft.com")) {
+        if (
+          decoded.startsWith("http") &&
+          !decoded.includes("bing.com") &&
+          !decoded.includes("microsoft.com")
+        ) {
           decodedUrl = decoded;
           break;
         }
