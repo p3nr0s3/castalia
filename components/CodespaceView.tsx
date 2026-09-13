@@ -1252,25 +1252,39 @@ export const CodespaceView: React.FC<CodespaceViewProps> = ({
             className="flex-shrink-0 flex flex-col border-b lg:border-b-0 bg-[var(--sidebar-bg)]/60 select-none overflow-hidden"
           >
             {/* Explorer Header */}
-            <div className="h-10 px-3 border-b border-[var(--sidebar-border)] flex items-center justify-between bg-[var(--card-bg)]/40">
+            <div className="h-9 px-3 border-b border-[var(--sidebar-border)] flex items-center justify-between bg-[var(--card-bg)]/60">
               <div className="flex items-center gap-1.5">
                 <FolderCode className="w-3.5 h-3.5 text-blue-400" />
-                <span className="text-[11px] font-bold uppercase tracking-wider text-[var(--foreground)]">
-                  Files ({snippets.length})
+                <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--muted)]">
+                  EXPLORER
+                </span>
+                <span className="text-[9px] font-mono font-medium px-1.5 py-0.2 rounded-full bg-[var(--sidebar-hover)] text-[var(--muted)]">
+                  {snippets.length}
                 </span>
               </div>
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-0.5">
                 <button
                   onClick={() => setIsCreatingFile(!isCreatingFile)}
-                  className="p-1 rounded-lg text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--sidebar-hover)] transition-colors cursor-pointer"
-                  title="Create new file"
+                  className="p-1 rounded text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--sidebar-hover)] transition-colors cursor-pointer"
+                  title="New File..."
                 >
                   <Plus className="w-3.5 h-3.5" />
                 </button>
                 <button
+                  onClick={() => {
+                    setSnippets(DEFAULT_SNIPPETS);
+                    setActiveSnippetId(DEFAULT_SNIPPETS[0].id);
+                    setOpenTabIds(DEFAULT_SNIPPETS.map((s) => s.id));
+                  }}
+                  className="p-1 rounded text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--sidebar-hover)] transition-colors cursor-pointer"
+                  title="Reset to default workspace files"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                </button>
+                <button
                   onClick={() => setIsLeftCollapsed(true)}
-                  className="p-1 rounded-lg text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--sidebar-hover)] transition-colors cursor-pointer hidden lg:block"
-                  title="Collapse panel"
+                  className="p-1 rounded text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--sidebar-hover)] transition-colors cursor-pointer hidden lg:block"
+                  title="Collapse Explorer"
                 >
                   <PanelLeftClose className="w-3.5 h-3.5" />
                 </button>
@@ -1306,8 +1320,8 @@ export const CodespaceView: React.FC<CodespaceViewProps> = ({
               </form>
             )}
 
-            {/* Files List */}
-            <div className="flex-1 overflow-y-auto p-1.5 space-y-0.5 touch-scroll">
+            {/* Files List - Clean VS Code Tree Style */}
+            <div className="flex-1 overflow-y-auto py-1 px-1.5 space-y-0.5 touch-scroll">
               {snippets.map((snip) => {
                 const isSelected = snip.id === activeSnippet.id;
                 const badge = getFileBadgeColor(snip.language);
@@ -1322,10 +1336,10 @@ export const CodespaceView: React.FC<CodespaceViewProps> = ({
                         setOpenTabIds((prev) => [...prev, snip.id]);
                       }
                     }}
-                    className={`group flex items-center justify-between px-2.5 py-1.5 rounded-xl text-xs cursor-pointer transition-all ${
+                    className={`group flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs font-mono cursor-pointer transition-all ${
                       isSelected
-                        ? "bg-[var(--card-bg)] text-blue-400 font-semibold shadow-xs border border-[var(--card-border)]"
-                        : "text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--sidebar-hover)] border border-transparent"
+                        ? "bg-blue-500/10 text-blue-400 font-semibold border-l-2 border-blue-500 pl-2 shadow-xs"
+                        : "text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--sidebar-hover)]/70 border-l-2 border-transparent"
                     }`}
                   >
                     {isEditing ? (
@@ -1388,22 +1402,6 @@ export const CodespaceView: React.FC<CodespaceViewProps> = ({
                 );
               })}
             </div>
-
-            {/* Explorer Footer Telemetry */}
-            <div className="p-2.5 border-t border-[var(--sidebar-border)] bg-[var(--card-bg)]/20 text-[10px] text-[var(--muted)] flex items-center justify-between">
-              <span className="truncate">Active: {activeSnippet.name}</span>
-              <button
-                onClick={() => {
-                  setSnippets(DEFAULT_SNIPPETS);
-                  setActiveSnippetId(DEFAULT_SNIPPETS[0].id);
-                  setOpenTabIds(DEFAULT_SNIPPETS.map((s) => s.id));
-                }}
-                className="hover:text-[var(--foreground)] transition-colors flex items-center gap-1 cursor-pointer"
-                title="Reset sample files"
-              >
-                <RotateCcw className="w-2.5 h-2.5" /> Reset
-              </button>
-            </div>
           </div>
         )}
 
@@ -1425,7 +1423,7 @@ export const CodespaceView: React.FC<CodespaceViewProps> = ({
         {/* ================= CENTER CODE EDITOR ================= */}
         <div className="flex-1 flex flex-col min-w-0 bg-[var(--card-bg)]/10 overflow-hidden">
           {/* Top Multi-File Tab Bar */}
-          <div className="h-9 border-b border-[var(--sidebar-border)] bg-[var(--sidebar-bg)]/70 flex items-center justify-between overflow-x-auto touch-scroll px-1">
+          <div className="h-9 border-b border-[var(--sidebar-border)] bg-[var(--sidebar-bg)]/80 flex items-center justify-between overflow-x-auto touch-scroll px-1.5 gap-2">
             <div className="flex items-center gap-1 min-w-0">
               {openTabIds.map((tabId) => {
                 const snip = snippets.find((s) => s.id === tabId);
@@ -1437,17 +1435,17 @@ export const CodespaceView: React.FC<CodespaceViewProps> = ({
                   <div
                     key={snip.id}
                     onClick={() => setActiveSnippetId(snip.id)}
-                    className={`group flex items-center gap-1.5 px-3 py-1.5 rounded-t-lg text-xs font-mono cursor-pointer transition-all border-t-2 ${
+                    className={`group flex items-center gap-2 px-3 py-1.5 rounded-t-lg text-xs font-mono cursor-pointer transition-all border-t-2 select-none ${
                       isActive
                         ? "bg-[var(--card-bg)] text-[var(--foreground)] border-blue-500 font-semibold shadow-xs"
-                        : "text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--sidebar-hover)] border-transparent"
+                        : "text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--sidebar-hover)]/60 border-transparent"
                     }`}
                   >
                     <span className={`text-[9px] font-bold ${badge.text}`}>{badge.label}</span>
-                    <span className="truncate max-w-[120px]">{snip.name}</span>
+                    <span className="truncate max-w-[130px]">{snip.name}</span>
                     <button
                       onClick={(e) => handleCloseTab(snip.id, e)}
-                      className="p-0.5 rounded-full hover:bg-[var(--card-border)] hover:text-rose-400 opacity-0 group-hover:opacity-100 transition-opacity"
+                      className="p-0.5 rounded hover:bg-[var(--card-border)] hover:text-rose-400 opacity-0 group-hover:opacity-100 transition-opacity"
                       title="Close tab"
                     >
                       <X className="w-3 h-3" />
@@ -1458,7 +1456,7 @@ export const CodespaceView: React.FC<CodespaceViewProps> = ({
 
               <button
                 onClick={() => setIsCreatingFile(true)}
-                className="p-1 rounded-lg text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--sidebar-hover)] transition-colors cursor-pointer ml-1"
+                className="p-1 rounded text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--sidebar-hover)] transition-colors cursor-pointer ml-0.5"
                 title="New file"
               >
                 <Plus className="w-3.5 h-3.5" />
@@ -1466,12 +1464,12 @@ export const CodespaceView: React.FC<CodespaceViewProps> = ({
             </div>
 
             {/* Quick Copilot Snippet Action Bar */}
-            <div className="flex items-center gap-1 pr-2 flex-shrink-0 text-[10px]">
-              <span className="text-[var(--muted)] hidden xl:inline">AI:</span>
+            <div className="flex items-center gap-1.5 pr-2 flex-shrink-0 text-[10px]">
+              <span className="text-[var(--muted)] text-[10px] uppercase font-bold tracking-wider hidden xl:inline">AI:</span>
               <button
                 onClick={() => handleAiAction("fix")}
                 disabled={isAiLoading}
-                className="px-2 py-0.5 rounded-md bg-[var(--card-bg)] hover:bg-[var(--sidebar-hover)] border border-[var(--card-border)] text-emerald-400 font-medium transition-colors cursor-pointer flex items-center gap-1"
+                className="px-2 py-0.5 rounded-md bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/25 text-emerald-400 font-medium transition-colors cursor-pointer flex items-center gap-1 shadow-2xs disabled:opacity-50"
                 title="Fix bugs & errors in active code"
               >
                 <Bug className="w-3 h-3" />
@@ -1480,7 +1478,7 @@ export const CodespaceView: React.FC<CodespaceViewProps> = ({
               <button
                 onClick={() => handleAiAction("optimize")}
                 disabled={isAiLoading}
-                className="px-2 py-0.5 rounded-md bg-[var(--card-bg)] hover:bg-[var(--sidebar-hover)] border border-[var(--card-border)] text-amber-400 font-medium transition-colors cursor-pointer flex items-center gap-1"
+                className="px-2 py-0.5 rounded-md bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/25 text-amber-400 font-medium transition-colors cursor-pointer flex items-center gap-1 shadow-2xs disabled:opacity-50"
                 title="Optimize execution speed & Big-O"
               >
                 <Zap className="w-3 h-3" />
@@ -1489,7 +1487,7 @@ export const CodespaceView: React.FC<CodespaceViewProps> = ({
               <button
                 onClick={() => handleAiAction("tests")}
                 disabled={isAiLoading}
-                className="px-2 py-0.5 rounded-md bg-[var(--card-bg)] hover:bg-[var(--sidebar-hover)] border border-[var(--card-border)] text-purple-400 font-medium transition-colors cursor-pointer hidden sm:flex items-center gap-1"
+                className="px-2 py-0.5 rounded-md bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/25 text-purple-400 font-medium transition-colors cursor-pointer hidden sm:flex items-center gap-1 shadow-2xs disabled:opacity-50"
                 title="Generate Unit Tests"
               >
                 <Sparkles className="w-3 h-3" />
@@ -1600,7 +1598,7 @@ export const CodespaceView: React.FC<CodespaceViewProps> = ({
             className="flex-shrink-0 flex flex-col bg-[var(--sidebar-bg)]/50 border-t lg:border-t-0 select-none overflow-hidden"
           >
             {/* Tab Switcher Header */}
-            <div className="h-10 px-2 border-b border-[var(--sidebar-border)] bg-[var(--card-bg)]/50 flex items-center justify-between gap-1 flex-shrink-0">
+            <div className="h-9 px-2 border-b border-[var(--sidebar-border)] bg-[var(--card-bg)]/60 flex items-center justify-between gap-1 flex-shrink-0">
               <div className="flex items-center gap-1 flex-1">
                 <button
                   onClick={() => setOutputTab("console")}
@@ -1611,7 +1609,7 @@ export const CodespaceView: React.FC<CodespaceViewProps> = ({
                   }`}
                 >
                   <Terminal className="w-3.5 h-3.5" />
-                  <span>Console</span>
+                  <span>Terminal</span>
                 </button>
 
                 <button
@@ -1641,7 +1639,7 @@ export const CodespaceView: React.FC<CodespaceViewProps> = ({
 
               <button
                 onClick={() => setIsRightCollapsed(true)}
-                className="p-1 rounded-lg text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--sidebar-hover)] transition-colors cursor-pointer hidden lg:block"
+                className="p-1 rounded text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--sidebar-hover)] transition-colors cursor-pointer hidden lg:block"
                 title="Collapse panel"
               >
                 <PanelRightClose className="w-3.5 h-3.5" />
@@ -1650,26 +1648,27 @@ export const CodespaceView: React.FC<CodespaceViewProps> = ({
 
             {/* TAB 1: CONSOLE / TERMINAL OUTPUT */}
             {outputTab === "console" && (
-              <div className="flex-1 flex flex-col bg-black/50 text-emerald-400 overflow-hidden font-mono text-xs">
+              <div className="flex-1 flex flex-col bg-[#0d1117] text-slate-200 overflow-hidden font-mono text-xs">
                 {/* Terminal Toolbar */}
-                <div className="px-3 py-2 border-b border-[var(--sidebar-border)]/40 bg-black/40 flex items-center justify-between text-[11px] text-slate-400 flex-shrink-0">
+                <div className="px-3 py-1.5 border-b border-slate-800 bg-[#161b22] flex items-center justify-between text-[11px] text-slate-400 flex-shrink-0">
                   <div className="flex items-center gap-2">
                     <span
-                      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                      className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[10px] font-mono font-semibold ${
                         telemetry.status === "running"
-                          ? "bg-amber-500/20 text-amber-300"
+                          ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
                           : telemetry.status === "success"
-                          ? "bg-emerald-500/20 text-emerald-300"
+                          ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
                           : telemetry.status === "error"
-                          ? "bg-rose-500/20 text-rose-300"
-                          : "bg-slate-500/20 text-slate-300"
+                          ? "bg-rose-500/20 text-rose-300 border border-rose-500/30"
+                          : "bg-slate-800 text-slate-300 border border-slate-700"
                       }`}
                     >
+                      <span className={`w-1.5 h-1.5 rounded-full ${telemetry.status === "running" ? "bg-amber-400 animate-ping" : telemetry.status === "success" ? "bg-emerald-400" : telemetry.status === "error" ? "bg-rose-400" : "bg-slate-400"}`} />
                       {telemetry.status === "running" && <RefreshCw className="w-2.5 h-2.5 animate-spin" />}
                       {telemetry.runner}
                     </span>
                     {telemetry.durationMs !== null && (
-                      <span className="text-[10px] flex items-center gap-0.5 text-slate-400">
+                      <span className="text-[10px] flex items-center gap-1 text-slate-400 font-mono bg-slate-800/60 px-1.5 py-0.5 rounded border border-slate-700/50">
                         <Clock className="w-2.5 h-2.5" /> {telemetry.durationMs}ms
                       </span>
                     )}
@@ -1762,21 +1761,37 @@ export const CodespaceView: React.FC<CodespaceViewProps> = ({
                 )}
 
                 {/* Console Stream Output */}
-                <div className="flex-1 p-3 overflow-y-auto space-y-1.5 touch-scroll select-text">
-                  {consoleLogs.map((log) => {
-                    let colorClass = "text-emerald-300";
-                    if (log.type === "stderr") colorClass = "text-rose-400 font-semibold";
-                    else if (log.type === "warn") colorClass = "text-amber-300";
-                    else if (log.type === "info") colorClass = "text-slate-400";
-                    else if (log.type === "success") colorClass = "text-emerald-400 font-semibold";
+                <div className="flex-1 p-3 overflow-y-auto space-y-1.5 touch-scroll select-text font-mono text-xs leading-relaxed">
+                  {consoleLogs.length === 0 ? (
+                    <div className="text-slate-500 text-[11px] py-6 text-center italic">
+                      Terminal is idle. Click &ldquo;Run&rdquo; or press Ctrl+Enter to execute code.
+                    </div>
+                  ) : (
+                    consoleLogs.map((log) => {
+                      let colorClass = "text-slate-200";
+                      let prefix = "";
+                      if (log.type === "stderr") {
+                        colorClass = "text-rose-400 font-medium";
+                        prefix = "✕ ";
+                      } else if (log.type === "warn") {
+                        colorClass = "text-amber-300";
+                        prefix = "⚠ ";
+                      } else if (log.type === "info") {
+                        colorClass = "text-blue-300";
+                        prefix = "ℹ ";
+                      } else if (log.type === "success") {
+                        colorClass = "text-emerald-400 font-semibold";
+                        prefix = "✓ ";
+                      }
 
-                    return (
-                      <div key={log.id} className="leading-relaxed whitespace-pre-wrap break-all">
-                        <span className="text-slate-600 text-[10px] mr-1.5 select-none">[{log.timestamp}]</span>
-                        <span className={colorClass}>{log.text}</span>
-                      </div>
-                    );
-                  })}
+                      return (
+                        <div key={log.id} className="whitespace-pre-wrap break-all flex items-start gap-1.5">
+                          <span className="text-slate-600 text-[10px] select-none shrink-0 mt-0.5">[{log.timestamp}]</span>
+                          <span className={colorClass}>{prefix}{log.text}</span>
+                        </div>
+                      );
+                    })
+                  )}
                   <div ref={consoleBottomRef} />
                 </div>
               </div>

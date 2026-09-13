@@ -34,12 +34,35 @@ import {
   Search,
   Folder,
   HardDrive,
+  Headphones,
+  Volume2,
+  Mic,
+  Play,
+  Square,
 } from "lucide-react";
-import { AppSettings, OllamaModel, ThemeType, FontFamilyType, ThinkingMode, Skill } from "@/lib/types";
+import {
+  AppSettings,
+  OllamaModel,
+  ThemeType,
+  FontFamilyType,
+  ThinkingMode,
+  Skill,
+  VoiceSettingsConfig,
+} from "@/lib/types";
 import { checkOllamaHealth } from "@/lib/ollama";
 import { storage } from "@/lib/storage";
 import { DEFAULT_SKILLS } from "@/lib/skills";
 import { CONTEXT_SIZE_PRESETS, KEEP_ALIVE_PRESETS, DEFAULT_CUSTOM_THEME } from "@/lib/constants";
+import {
+  VOICE_PRESETS,
+  TONE_OPTIONS,
+  getAllSystemVoices,
+  getIndonesianVoices,
+  resolveVoiceForConfig,
+  speakUniversal,
+  stopSpeaking,
+  speakOpenAiTts,
+} from "@/lib/voiceEngine";
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -56,6 +79,7 @@ interface SettingsModalProps {
 export type SettingsSection =
   | "personalization"
   | "chat"
+  | "voice"
   | "skills"
   | "cloud"
   | "server"
@@ -229,6 +253,96 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [newSkillDesc, setNewSkillDesc] = useState("");
   const [newSkillPrompt, setNewSkillPrompt] = useState("");
 
+  // Voice Preview State in Settings
+  const [previewVoicePlaying, setPreviewVoicePlaying] = useState(false);
+  const [allSystemVoices, setAllSystemVoices] = useState<SpeechSynthesisVoice[]>([]);
+
+  React.useEffect(() => {
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      const updateVoices = () => {
+        setAllSystemVoices(getAllSystemVoices());
+      };
+      updateVoices();
+      window.speechSynthesis.onvoiceschanged = updateVoices;
+      return () => {
+        if (window.speechSynthesis) {
+          window.speechSynthesis.onvoiceschanged = null;
+        }
+      };
+    }
+  }, []);
+
+  const handleTestVoice = async () => {
+    if (previewVoicePlaying) {
+      stopSpeaking();
+      setPreviewVoicePlaying(false);
+      return;
+    }
+
+    setPreviewVoicePlaying(true);
+    const voiceCfg = formData.voice || {
+      presetId: "female_gadis",
+      pitch: 1.05,
+      rate: 1.05,
+      tone: "casual",
+      engine: "natural",
+      autoSilenceMs: 1400,
+      openaiVoice: "nova",
+    };
+
+    const sample =
+      voiceCfg.tone === "casual"
+        ? "Halo! Aku asisten AI kamu. Suaraku sekarang jauh lebih natural, komunikatif, dan fasih kan?"
+        : voiceCfg.tone === "concise"
+        ? "Siap. Menjawab langsung dengan cepat, ringkas, dan akurat."
+        : "Halo! Senang bisa membantu Anda hari ini. Ada hal yang ingin Anda tanyakan?";
+
+    if (voiceCfg.engine === "openai" && formData.apiKeys?.openaiApiKey) {
+      await speakOpenAiTts({
+        text: sample,
+        apiKey: formData.apiKeys.openaiApiKey,
+        voice: voiceCfg.openaiVoice || "nova",
+        speed: voiceCfg.rate,
+        onEnd: () => setPreviewVoicePlaying(false),
+        onError: () => setPreviewVoicePlaying(false),
+      });
+    } else {
+      const target = resolveVoiceForConfig(
+        {
+          presetId: voiceCfg.presetId as any,
+          voiceName: voiceCfg.voiceName,
+          pitch: voiceCfg.pitch,
+          rate: voiceCfg.rate,
+        },
+        allSystemVoices
+      );
+      speakUniversal({
+        text: sample,
+        voice: target,
+        pitch: voiceCfg.pitch,
+        rate: voiceCfg.rate,
+        onEnd: () => setPreviewVoicePlaying(false),
+        onError: () => setPreviewVoicePlaying(false),
+      });
+    }
+  };
+
+  const updateVoice = (updates: Partial<VoiceSettingsConfig>) => {
+    const current: VoiceSettingsConfig = formData.voice || {
+      presetId: "female_gadis",
+      pitch: 1.05,
+      rate: 1.05,
+      tone: "casual",
+      engine: "natural",
+      autoSilenceMs: 1400,
+      openaiVoice: "nova",
+    };
+    setFormData({
+      ...formData,
+      voice: { ...current, ...updates },
+    });
+  };
+
   if (!isOpen) return null;
 
   const toggleKeyVisibility = (provider: string) => {
@@ -354,6 +468,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       badgeBg: "bg-amber-500/15 text-amber-400",
     },
     {
+      id: "voice",
+      label: "Voice & Speech Engine",
+      sublabel: `${(formData.voice?.presetId || "female_gadis").replace("female_", "").replace("male_", "")} • ${formData.voice?.engine === "openai" ? "OpenAI TTS" : "Natural Voice"}`,
+      icon: Headphones,
+      color: "text-purple-400",
+      badgeBg: "bg-purple-500/15 text-purple-400",
+    },
+    {
       id: "skills",
       label: "Agentic Skills Hub",
       sublabel: `${currentSkills.filter((s) => s.enabled).length} of ${currentSkills.length} active`,
@@ -424,15 +546,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto flex items-end sm:items-center justify-center p-0 sm:p-4">
+    <div className="fixed inset-0 z-50 overflow-hidden flex items-center justify-center p-0 sm:p-2 md:p-3">
       {/* Backdrop */}
       <div
-        className="fixed inset-0 bg-black/65 backdrop-blur-xs transition-opacity animate-in fade-in"
+        className="fixed inset-0 bg-black/75 backdrop-blur-xs transition-opacity animate-in fade-in"
         onClick={handleExit}
       />
 
-      {/* iOS-Style Modal Container */}
-      <div className="relative w-full max-w-5xl xl:max-w-6xl bg-[var(--card-bg)] text-[var(--foreground)] rounded-t-3xl sm:rounded-3xl border-t sm:border border-[var(--card-border)] shadow-2xl overflow-hidden flex flex-col z-10 h-[94dvh] sm:h-[90vh] animate-in slide-in-from-bottom sm:zoom-in-95 duration-200">
+      {/* Full-Fit Desktop Window Container */}
+      <div className="relative w-full sm:w-[98vw] md:w-[97vw] max-w-[1720px] bg-[var(--card-bg)] text-[var(--foreground)] rounded-none sm:rounded-3xl border-0 sm:border border-[var(--card-border)] shadow-2xl overflow-hidden flex flex-col z-10 h-[100dvh] sm:h-[96vh] animate-in slide-in-from-bottom sm:zoom-in-95 duration-200">
         {/* Top Header Bar */}
         <div className="px-5 py-3.5 border-b border-[var(--sidebar-border)] flex items-center justify-between flex-shrink-0 bg-[var(--sidebar-bg)]">
           <div className="flex items-center gap-2">
@@ -1255,6 +1377,401 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     onChange={(e) => setFormData({ ...formData, chatFullWidth: e.target.checked })}
                     className="w-4 h-4 rounded accent-emerald-500 cursor-pointer"
                   />
+                </div>
+              </div>
+            )}
+
+            {/* VOICE & SPEECH ENGINE SECTION */}
+            {activeSection === "voice" && (
+              <div className="space-y-5 animate-in fade-in duration-150">
+                {/* Header Banner */}
+                <div className="p-4 rounded-2xl bg-gradient-to-r from-purple-500/10 via-indigo-500/10 to-blue-500/10 border border-purple-500/20 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <Headphones className="w-5 h-5 text-purple-400" />
+                      <h3 className="text-sm font-bold text-[var(--foreground)]">Voice Call & Speech Synthesis Studio</h3>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-purple-500/20 text-purple-300">
+                        Ultra-Fluent Speech
+                      </span>
+                    </div>
+                    <p className="text-xs text-[var(--muted)]">
+                      Pilihan suara manusia alami (Microsoft Natural, Google Neural, OpenAI TTS), gaya bicara santai/akrab, dan kontrol artikulasi.
+                    </p>
+                  </div>
+
+                  {/* Quick Test Audio Button */}
+                  <button
+                    type="button"
+                    onClick={handleTestVoice}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all shadow-md shrink-0 cursor-pointer ${
+                      previewVoicePlaying
+                        ? "bg-rose-600 hover:bg-rose-700 text-white animate-pulse"
+                        : "bg-purple-600 hover:bg-purple-700 text-white"
+                    }`}
+                  >
+                    {previewVoicePlaying ? (
+                      <>
+                        <Square className="w-3.5 h-3.5 fill-current" />
+                        <span>Hentikan Suara</span>
+                      </>
+                    ) : (
+                      <>
+                        <Play className="w-3.5 h-3.5 fill-current" />
+                        <span>Tes Suara Sekarang</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                {/* 1. Speech Engine Architecture */}
+                <div className="p-4 rounded-2xl bg-[var(--sidebar-bg)] border border-[var(--card-border)] space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="text-xs font-bold text-[var(--foreground)]">Voice Engine Provider</div>
+                      <div className="text-[11px] text-[var(--muted)]">
+                        Pilih modul sintesis suara untuk percakapan lisan
+                      </div>
+                    </div>
+                    <span className="text-[11px] font-mono font-medium text-purple-400 bg-purple-500/10 px-2 py-0.5 rounded-md">
+                      {formData.voice?.engine === "openai"
+                        ? "OpenAI Neural Audio"
+                        : formData.voice?.engine === "browser"
+                        ? "Browser Standard"
+                        : "Microsoft / Google Natural"}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5 pt-1">
+                    {/* Engine 1: Natural Neural */}
+                    <button
+                      type="button"
+                      onClick={() => updateVoice({ engine: "natural" })}
+                      className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                        (formData.voice?.engine || "natural") === "natural"
+                          ? "border-purple-500 bg-purple-500/10 text-[var(--foreground)] shadow-sm"
+                          : "border-[var(--card-border)] bg-[var(--card-bg)] text-[var(--muted)] hover:text-[var(--foreground)]"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs font-bold text-purple-300 flex items-center gap-1.5">
+                          <Sparkles className="w-3.5 h-3.5 text-purple-400" />
+                          Natural Neural (Rekomendasi)
+                        </span>
+                        {(formData.voice?.engine || "natural") === "natural" && (
+                          <Check className="w-3.5 h-3.5 text-purple-400" />
+                        )}
+                      </div>
+                      <p className="text-[10px] leading-relaxed text-[var(--muted)]">
+                        Memprioritaskan suara modern Microsoft Online Natural & Google Neural tanpa robotik. 100% Gratis & tanpa kuota API.
+                      </p>
+                    </button>
+
+                    {/* Engine 2: OpenAI TTS */}
+                    <button
+                      type="button"
+                      onClick={() => updateVoice({ engine: "openai" })}
+                      className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                        formData.voice?.engine === "openai"
+                          ? "border-emerald-500 bg-emerald-500/10 text-[var(--foreground)] shadow-sm"
+                          : "border-[var(--card-border)] bg-[var(--card-bg)] text-[var(--muted)] hover:text-[var(--foreground)]"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs font-bold text-emerald-300 flex items-center gap-1.5">
+                          <Zap className="w-3.5 h-3.5 text-emerald-400" />
+                          OpenAI Ultra-Fluent TTS
+                        </span>
+                        {formData.voice?.engine === "openai" && (
+                          <Check className="w-3.5 h-3.5 text-emerald-400" />
+                        )}
+                      </div>
+                      <p className="text-[10px] leading-relaxed text-[var(--muted)]">
+                        Model tts-1 super fasih setara manusia sungguhan.{" "}
+                        {formData.apiKeys?.openaiApiKey ? (
+                          <span className="text-emerald-400 font-semibold">API Key Aktif ✓</span>
+                        ) : (
+                          <span className="text-amber-400 font-semibold">Perlu OpenAI Key di Cloud</span>
+                        )}
+                      </p>
+                    </button>
+
+                    {/* Engine 3: Standard Browser */}
+                    <button
+                      type="button"
+                      onClick={() => updateVoice({ engine: "browser" })}
+                      className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                        formData.voice?.engine === "browser"
+                          ? "border-blue-500 bg-blue-500/10 text-[var(--foreground)] shadow-sm"
+                          : "border-[var(--card-border)] bg-[var(--card-bg)] text-[var(--muted)] hover:text-[var(--foreground)]"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs font-bold text-blue-300 flex items-center gap-1.5">
+                          <Volume2 className="w-3.5 h-3.5 text-blue-400" />
+                          Browser Offline Default
+                        </span>
+                        {formData.voice?.engine === "browser" && (
+                          <Check className="w-3.5 h-3.5 text-blue-400" />
+                        )}
+                      </div>
+                      <p className="text-[10px] leading-relaxed text-[var(--muted)]">
+                        Menggunakan suara bawaan SpeechSynthesis OS/browser lokal secara langsung.
+                      </p>
+                    </button>
+                  </div>
+
+                  {/* OpenAI Voice Persona Selection if OpenAI engine active */}
+                  {formData.voice?.engine === "openai" && (
+                    <div className="mt-3 p-3 rounded-xl bg-[var(--card-bg)] border border-emerald-500/30 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-emerald-400">OpenAI Voice Persona:</span>
+                        <span className="text-[10px] text-[var(--muted)]">Model tts-1</span>
+                      </div>
+                      <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+                        {[
+                          { id: "nova", name: "Nova", desc: "Perempuan ceria" },
+                          { id: "shimmer", name: "Shimmer", desc: "Perempuan lembut" },
+                          { id: "alloy", name: "Alloy", desc: "Netral seimbang" },
+                          { id: "echo", name: "Echo", desc: "Pria hangat" },
+                          { id: "fable", name: "Fable", desc: "Ekspresif" },
+                          { id: "onyx", name: "Onyx", desc: "Pria wibawa" },
+                        ].map((v) => (
+                          <button
+                            key={v.id}
+                            type="button"
+                            onClick={() => updateVoice({ openaiVoice: v.id })}
+                            className={`p-2 rounded-lg text-center border transition-all cursor-pointer ${
+                              (formData.voice?.openaiVoice || "nova") === v.id
+                                ? "border-emerald-500 bg-emerald-500/20 text-emerald-300 font-bold"
+                                : "border-[var(--card-border)] bg-[var(--sidebar-bg)] text-[var(--muted)] hover:text-[var(--foreground)]"
+                            }`}
+                          >
+                            <div className="text-xs">{v.name}</div>
+                            <div className="text-[9px] opacity-75">{v.desc}</div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* 2. Character Persona Grid (Moved from Voice Call screen) */}
+                <div className="p-4 rounded-2xl bg-[var(--sidebar-bg)] border border-[var(--card-border)] space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="text-xs font-bold text-[var(--foreground)]">Karakter & Profil Suara</div>
+                      <div className="text-[11px] text-[var(--muted)]">
+                        Pilih kepribadian suara AI untuk panggilan suara dan text-to-speech
+                      </div>
+                    </div>
+                    <span className="text-[11px] font-semibold text-purple-400">
+                      {VOICE_PRESETS.find((p) => p.id === (formData.voice?.presetId || "female_gadis"))?.label}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+                    {VOICE_PRESETS.filter((p) => p.id !== "system_custom").map((preset) => {
+                      const isSelected = (formData.voice?.presetId || "female_gadis") === preset.id;
+                      return (
+                        <button
+                          key={preset.id}
+                          type="button"
+                          onClick={() =>
+                            updateVoice({
+                              presetId: preset.id,
+                              pitch: preset.defaultPitch,
+                              rate: preset.defaultRate,
+                            })
+                          }
+                          className={`p-3 rounded-xl border text-left transition-all relative overflow-hidden cursor-pointer ${
+                            isSelected
+                              ? "border-purple-500 bg-purple-500/10 shadow-sm"
+                              : "border-[var(--card-border)] bg-[var(--card-bg)] hover:border-purple-500/40"
+                          }`}
+                        >
+                          {isSelected && (
+                            <div className="absolute top-2 right-2">
+                              <Check className="w-4 h-4 text-purple-400" />
+                            </div>
+                          )}
+                          <div className="flex items-center gap-2.5 mb-2">
+                            <span className="text-2xl">{preset.icon}</span>
+                            <div>
+                              <div className="text-xs font-bold text-[var(--foreground)]">{preset.name}</div>
+                              <div className="text-[10px] text-[var(--muted)]">{preset.gender === "female" ? "Perempuan" : preset.gender === "male" ? "Laki-laki" : "Robot"}</div>
+                            </div>
+                          </div>
+                          <p className="text-[11px] text-[var(--muted)] line-clamp-2 leading-relaxed">
+                            {preset.desc}
+                          </p>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* System Voice Picker Dropdown */}
+                  <div className="pt-2 border-t border-[var(--card-border)]">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="text-xs font-semibold text-[var(--foreground)] flex items-center gap-1.5">
+                        <Globe className="w-3.5 h-3.5 text-indigo-400" />
+                        Pilih Spesifik dari Suara Sistem Browser ({allSystemVoices.length} suara terdeteksi)
+                      </label>
+                      {formData.voice?.voiceName && (
+                        <button
+                          type="button"
+                          onClick={() => updateVoice({ voiceName: "" })}
+                          className="text-[10px] text-purple-400 hover:underline cursor-pointer"
+                        >
+                          Gunakan Suara Rekomendasi Otomatis
+                        </button>
+                      )}
+                    </div>
+                    <select
+                      value={formData.voice?.voiceName || ""}
+                      onChange={(e) => updateVoice({ voiceName: e.target.value })}
+                      className="w-full px-3 py-2 text-xs rounded-xl border border-[var(--card-border)] bg-[var(--card-bg)] text-[var(--foreground)] focus:outline-none focus:ring-1 focus:ring-purple-500"
+                    >
+                      <option value="">-- Otomatis Pilih Suara Paling Natural (Neural / Online) --</option>
+                      {allSystemVoices.map((v) => {
+                        const isNatural =
+                          v.name.toLowerCase().includes("natural") ||
+                          v.name.toLowerCase().includes("online") ||
+                          v.name.toLowerCase().includes("neural") ||
+                          v.name.toLowerCase().includes("google");
+                        const isId = v.lang.toLowerCase().startsWith("id");
+                        return (
+                          <option key={v.name} value={v.name}>
+                            {isNatural ? "⭐ " : ""}{v.name} ({v.lang}) {isId ? "• Bahasa Indonesia" : ""}
+                          </option>
+                        );
+                      })}
+                    </select>
+                    <p className="text-[10px] text-[var(--muted)] mt-1">
+                      Tip: Suara bertanda ⭐ memiliki artikulasi neural berkualitas tinggi yang tidak terdengar kaku.
+                    </p>
+                  </div>
+                </div>
+
+                {/* 3. Conversational Tone Mode */}
+                <div className="p-4 rounded-2xl bg-[var(--sidebar-bg)] border border-[var(--card-border)] space-y-3">
+                  <div>
+                    <div className="text-xs font-bold text-[var(--foreground)]">Gaya Percakapan (Tone)</div>
+                    <div className="text-[11px] text-[var(--muted)]">
+                      Mengatur bagaimana AI merangkai kata dan intonasi saat menjawab suara
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                    {TONE_OPTIONS.map((t) => {
+                      const isSelected = (formData.voice?.tone || "casual") === t.id;
+                      return (
+                        <button
+                          key={t.id}
+                          type="button"
+                          onClick={() => updateVoice({ tone: t.id })}
+                          className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                            isSelected
+                              ? "border-purple-500 bg-purple-500/10 shadow-sm"
+                              : "border-[var(--card-border)] bg-[var(--card-bg)] hover:border-purple-500/30"
+                          }`}
+                        >
+                          <div className="flex items-center justify-between mb-1.5">
+                            <span className="text-base">{t.icon}</span>
+                            <span
+                              className={`text-[9px] px-2 py-0.5 rounded-full font-semibold ${
+                                isSelected
+                                  ? "bg-purple-500/20 text-purple-300"
+                                  : "bg-[var(--sidebar-bg)] text-[var(--muted)]"
+                              }`}
+                            >
+                              {t.badge}
+                            </span>
+                          </div>
+                          <div className="text-xs font-bold text-[var(--foreground)]">{t.label}</div>
+                          <p className="text-[10px] text-[var(--muted)] mt-1 leading-relaxed">{t.desc}</p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* 4. Fine-Tuning: Pitch, Speed & Silence Sensitivity */}
+                <div className="p-4 rounded-2xl bg-[var(--sidebar-bg)] border border-[var(--card-border)] space-y-4">
+                  <div className="text-xs font-bold text-[var(--foreground)]">Kontrol Artikulasi & Deteksi Suara</div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    {/* Pitch */}
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between text-xs">
+                        <label className="text-[var(--foreground)] font-semibold">Pitch (Tinggi-Rendah)</label>
+                        <span className="font-mono text-purple-400 font-semibold">
+                          {(formData.voice?.pitch ?? 1.05).toFixed(2)}x
+                        </span>
+                      </div>
+                      <input
+                        type="range"
+                        min="0.75"
+                        max="1.4"
+                        step="0.05"
+                        value={formData.voice?.pitch ?? 1.05}
+                        onChange={(e) => updateVoice({ pitch: parseFloat(e.target.value) })}
+                        className="w-full h-1.5 bg-[var(--card-border)] rounded-lg appearance-none cursor-pointer accent-purple-500"
+                      />
+                      <div className="flex justify-between text-[9px] text-[var(--muted)]">
+                        <span>Bass (0.75x)</span>
+                        <span>Normal (1.0x)</span>
+                        <span>Tinggi (1.40x)</span>
+                      </div>
+                    </div>
+
+                    {/* Speed / Rate */}
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between text-xs">
+                        <label className="text-[var(--foreground)] font-semibold">Kecepatan Bicara</label>
+                        <span className="font-mono text-purple-400 font-semibold">
+                          {(formData.voice?.rate ?? 1.05).toFixed(2)}x
+                        </span>
+                      </div>
+                      <input
+                        type="range"
+                        min="0.8"
+                        max="1.5"
+                        step="0.05"
+                        value={formData.voice?.rate ?? 1.05}
+                        onChange={(e) => updateVoice({ rate: parseFloat(e.target.value) })}
+                        className="w-full h-1.5 bg-[var(--card-border)] rounded-lg appearance-none cursor-pointer accent-purple-500"
+                      />
+                      <div className="flex justify-between text-[9px] text-[var(--muted)]">
+                        <span>Santai (0.8x)</span>
+                        <span>Normal (1.0x)</span>
+                        <span>Cepat (1.5x)</span>
+                      </div>
+                    </div>
+
+                    {/* Auto-Silence Sensitivity */}
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between text-xs">
+                        <label className="text-[var(--foreground)] font-semibold">Jeda Hening Deteksi Bicara</label>
+                        <span className="font-mono text-purple-400 font-semibold">
+                          {(formData.voice?.autoSilenceMs ?? 1400)} ms
+                        </span>
+                      </div>
+                      <input
+                        type="range"
+                        min="800"
+                        max="3000"
+                        step="100"
+                        value={formData.voice?.autoSilenceMs ?? 1400}
+                        onChange={(e) => updateVoice({ autoSilenceMs: parseInt(e.target.value) })}
+                        className="w-full h-1.5 bg-[var(--card-border)] rounded-lg appearance-none cursor-pointer accent-purple-500"
+                      />
+                      <div className="flex justify-between text-[9px] text-[var(--muted)]">
+                        <span>Responsif (0.8s)</span>
+                        <span>Standar (1.4s)</span>
+                        <span>Tenang (3.0s)</span>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
             )}

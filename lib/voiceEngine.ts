@@ -174,28 +174,55 @@ export function getAllSystemVoices(): SpeechSynthesisVoice[] {
 /**
  * Returns only Indonesian voices (lang starts with "id" or "id-ID").
  */
+/**
+ * Calculates a fluency score for voice selection.
+ * Voices with "Natural", "Online", "Neural", or "Google" sound significantly more human.
+ */
+export function getVoiceFluencyScore(name: string): number {
+  const lower = name.toLowerCase();
+  let score = 0;
+  if (lower.includes("natural") || lower.includes("online")) score += 100;
+  if (lower.includes("neural")) score += 80;
+  if (lower.includes("google")) score += 60;
+  if (lower.includes("microsoft")) score += 40;
+  if (lower.includes("desktop") || lower.includes("sapi") || lower.includes("espeak")) score -= 50;
+  return score;
+}
+
+/**
+ * Returns only Indonesian voices (lang starts with "id" or "id-ID") sorted by fluency.
+ */
 export function getIndonesianVoices(): SpeechSynthesisVoice[] {
   const all = getAllSystemVoices();
-  return all.filter(
-    (v) => v.lang.toLowerCase().startsWith("id") || v.lang.toLowerCase() === "id-id"
-  );
+  return all
+    .filter(
+      (v) => v.lang.toLowerCase().startsWith("id") || v.lang.toLowerCase() === "id-id"
+    )
+    .sort((a, b) => getVoiceFluencyScore(b.name) - getVoiceFluencyScore(a.name));
 }
 
 /**
  * Resolves the best SpeechSynthesisVoice matching the provided VoiceConfig.
+ * Strongly prioritizes Natural Neural voices (Microsoft Natural, Google Neural)
+ * over mechanical desktop voices.
  */
 export function resolveVoiceForConfig(
   config: VoiceConfig,
   allVoices?: SpeechSynthesisVoice[]
 ): SpeechSynthesisVoice | null {
-  const voices = allVoices && allVoices.length > 0 ? allVoices : getAllSystemVoices();
-  if (voices.length === 0) return null;
+  const rawVoices = allVoices && allVoices.length > 0 ? allVoices : getAllSystemVoices();
+  if (rawVoices.length === 0) return null;
 
   // 1. If a specific voiceName is specified, find it first
   if (config.voiceName) {
-    const matched = voices.find((v) => v.name === config.voiceName);
+    const matched = rawVoices.find((v) => v.name === config.voiceName);
     if (matched) return matched;
   }
+
+  // Sort candidate voices by fluency score
+  const voices = [...rawVoices].sort(
+    (a, b) => getVoiceFluencyScore(b.name) - getVoiceFluencyScore(a.name)
+  );
 
   const idVoices = voices.filter(
     (v) => v.lang.toLowerCase().startsWith("id") || v.lang.toLowerCase() === "id-id"
@@ -220,9 +247,9 @@ export function resolveVoiceForConfig(
     if (idVoices.length > 0) return idVoices[0];
   }
 
-  // 3. Fallback: Any Indonesian voice or default system voice
+  // 3. Fallback: Most fluent Indonesian voice or top fluent system voice
   if (idVoices.length > 0) return idVoices[0];
-  return voices.find((v) => v.default) || voices[0] || null;
+  return voices.find((v) => getVoiceFluencyScore(v.name) > 0) || voices.find((v) => v.default) || voices[0] || null;
 }
 
 /**
@@ -276,6 +303,91 @@ export function speakUniversal({
 
   window.speechSynthesis.speak(utterance);
   return utterance;
+}
+
+let activeAudioElement: HTMLAudioElement | null = null;
+
+export function stopSpeaking(): void {
+  if (typeof window !== "undefined") {
+    if ("speechSynthesis" in window) {
+      window.speechSynthesis.cancel();
+    }
+    if (activeAudioElement) {
+      try {
+        activeAudioElement.pause();
+        activeAudioElement.src = "";
+      } catch {}
+      activeAudioElement = null;
+    }
+  }
+}
+
+/**
+ * Speaks text using OpenAI's high-fidelity neural audio API (tts-1).
+ * Produces hyper-realistic, fluent speech with human-like breathing and natural prosody.
+ */
+export async function speakOpenAiTts({
+  text,
+  apiKey,
+  voice = "nova",
+  speed = 1.0,
+  onStart,
+  onEnd,
+  onError,
+}: {
+  text: string;
+  apiKey: string;
+  voice?: string;
+  speed?: number;
+  onStart?: () => void;
+  onEnd?: () => void;
+  onError?: (e: any) => void;
+}): Promise<HTMLAudioElement | null> {
+  if (typeof window === "undefined" || !text.trim() || !apiKey) return null;
+  const cleaned = cleanTextForSpeech(text);
+  if (!cleaned) return null;
+
+  stopSpeaking();
+
+  try {
+    const res = await fetch("https://api.openai.com/v1/audio/speech", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "tts-1",
+        input: cleaned,
+        voice: voice || "nova",
+        speed: Math.max(0.75, Math.min(1.5, speed)),
+      }),
+    });
+
+    if (!res.ok) throw new Error(`OpenAI TTS status ${res.status}`);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const audio = new Audio(url);
+    activeAudioElement = audio;
+
+    if (onStart) audio.onplay = () => onStart();
+    audio.onended = () => {
+      URL.revokeObjectURL(url);
+      if (activeAudioElement === audio) activeAudioElement = null;
+      if (onEnd) onEnd();
+    };
+    audio.onerror = (e) => {
+      URL.revokeObjectURL(url);
+      if (activeAudioElement === audio) activeAudioElement = null;
+      if (onError) onError(e);
+    };
+
+    await audio.play();
+    return audio;
+  } catch (err) {
+    if (onError) onError(err);
+    return null;
+  }
 }
 
 /**
@@ -365,10 +477,4 @@ export function speakIndonesianFemale({
     onEnd,
     onError,
   });
-}
-
-export function stopSpeaking(): void {
-  if (typeof window !== "undefined" && "speechSynthesis" in window) {
-    window.speechSynthesis.cancel();
-  }
 }

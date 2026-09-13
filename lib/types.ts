@@ -436,6 +436,20 @@ export interface PersonaPreset {
   topP?: number;
 }
 
+export type VoicePresetId = "female_gadis" | "male_ardi" | "robot_pixel" | "female_siti" | "system_custom";
+export type ToneMode = "casual" | "warm" | "concise";
+
+export interface VoiceSettingsConfig {
+  presetId: VoicePresetId;
+  voiceName?: string;
+  pitch: number;
+  rate: number;
+  tone: ToneMode;
+  engine: "natural" | "browser" | "openai";
+  autoSilenceMs: number;
+  openaiVoice?: string;
+}
+
 export interface AppSettings {
   ollamaUrl: string;
   searxngUrl: string;
@@ -487,6 +501,7 @@ export interface AppSettings {
    */
   ollamaKeepAlive?: string;
   customTheme?: CustomThemePalette;
+  voice?: VoiceSettingsConfig;
 }
 
 // ============================================================================

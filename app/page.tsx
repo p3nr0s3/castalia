@@ -2740,6 +2740,12 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
         selectedModel={selectedModel}
         models={models}
         apiKeys={settings.apiKeys}
+        voiceSettings={settings.voice}
+        onOpenSettings={() => {
+          setIsVoiceCallOpen(false);
+          setSettingsSection("voice");
+          setIsSettingsOpen(true);
+        }}
         onSendMessage={handleVoiceCallSendMessage}
       />
 

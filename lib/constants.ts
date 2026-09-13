@@ -99,6 +99,16 @@ export const DEFAULT_SETTINGS: AppSettings = {
     accent: "#38bdf8",
     muted: "#9ca3af",
   },
+  voice: {
+    presetId: "female_gadis",
+    voiceName: "",
+    pitch: 1.05,
+    rate: 1.05,
+    tone: "casual",
+    engine: "natural",
+    autoSilenceMs: 1400,
+    openaiVoice: "nova",
+  },
 };
 
 export const DEFAULT_CUSTOM_THEME = {

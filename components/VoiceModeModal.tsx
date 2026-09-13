@@ -24,10 +24,11 @@ import {
   VoiceConfig,
   speakUniversal,
   stopSpeaking,
+  speakOpenAiTts,
   resolveVoiceForConfig,
   getAllSystemVoices,
 } from "@/lib/voiceEngine";
-import { OllamaModel, ApiKeysConfig } from "@/lib/types";
+import { OllamaModel, ApiKeysConfig, VoiceSettingsConfig } from "@/lib/types";
 import { apiFetch } from "@/lib/apiClient";
 
 interface VoiceModeModalProps {
@@ -37,6 +38,8 @@ interface VoiceModeModalProps {
   models: OllamaModel[];
   apiKeys?: ApiKeysConfig;
   systemPrompt?: string;
+  voiceSettings?: VoiceSettingsConfig;
+  onOpenSettings?: () => void;
   onTranscriptMessage?: (role: "user" | "assistant", text: string) => void;
   onSendMessage?: (text: string, tone?: string) => Promise<string>;
 }
@@ -48,6 +51,8 @@ export const VoiceModeModal: React.FC<VoiceModeModalProps> = ({
   models,
   apiKeys,
   systemPrompt = "Jawablah dengan ramah, komunikatif, alami, dan ringkas dalam 1-3 kalimat saja karena ini percakapan suara langsung.",
+  voiceSettings,
+  onOpenSettings,
   onTranscriptMessage,
   onSendMessage,
 }) => {
@@ -55,7 +60,21 @@ export const VoiceModeModal: React.FC<VoiceModeModalProps> = ({
   const [status, setStatus] = useState<"idle" | "listening" | "thinking" | "speaking">("idle");
   const [isMuted, setIsMuted] = useState<boolean>(false);
   const [lang, setLang] = useState<"id-ID" | "en-US">("id-ID");
-  const [selectedPresetId, setSelectedPresetId] = useState<VoicePresetId>("female_gadis");
+
+  // Effective voice configuration (from Settings)
+  const activeVoice: VoiceSettingsConfig = voiceSettings || {
+    presetId: "female_gadis",
+    pitch: 1.05,
+    rate: 1.05,
+    tone: "casual",
+    engine: "natural",
+    autoSilenceMs: 1400,
+    openaiVoice: "nova",
+  };
+
+  // Active voice preset
+  const currentPreset =
+    VOICE_PRESETS.find((p) => p.id === activeVoice.presetId) || VOICE_PRESETS[0];
 
   // Transcript logs during call
   const [userTranscript, setUserTranscript] = useState<string>("");
@@ -77,9 +96,6 @@ export const VoiceModeModal: React.FC<VoiceModeModalProps> = ({
   const aiUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const isComponentActiveRef = useRef<boolean>(false);
   const activeAiAbortRef = useRef<AbortController | null>(null);
-
-  // Active voice preset
-  const currentPreset = VOICE_PRESETS.find((p) => p.id === selectedPresetId) || VOICE_PRESETS[0];
 
   // Helper to send query to AI
   const handleProcessSpeech = useCallback(
@@ -108,59 +124,68 @@ export const VoiceModeModal: React.FC<VoiceModeModalProps> = ({
         const isCloudModel = !models.some((m) => m.name === selectedModel);
         let fullAiResponse = "";
 
+        const effectiveTone = activeVoice.tone || "casual";
         if (onSendMessage) {
-          fullAiResponse = await onSendMessage(speechText, "casual");
+          fullAiResponse = await onSendMessage(speechText, effectiveTone);
           setAiTranscript(fullAiResponse);
         } else {
+          const toneInstruction =
+            effectiveTone === "casual"
+              ? "Gunakan bahasa santai, akrab, dan luwes (aku-kamu, partikel ya, nih, deh). Jawab ringkas 1-3 kalimat saja."
+              : effectiveTone === "concise"
+              ? "Jawab langsung to the point, ringkas dan akurat dalam 1-2 kalimat tanpa basa-basi."
+              : "Jawablah dengan ramah, hangat, komunikatif, dan ringkas dalam 1-3 kalimat saja.";
+          const defaultVoiceSys = `${systemPrompt || ""}\n${toneInstruction}`.trim();
+
           const messages = [
-            { role: "system", content: systemPrompt },
+            { role: "system", content: defaultVoiceSys },
             ...callHistory.slice(-4).map((m) => ({ role: m.role, content: m.text })),
             { role: "user", content: speechText },
           ];
 
           if (isCloudModel) {
-          const res = await apiFetch("/api/cloud/chat", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              messages,
-              model: selectedModel,
-              apiKeys,
-              stream: true,
-            }),
-            signal: abortController.signal,
-          });
+            const res = await apiFetch("/api/cloud/chat", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                messages,
+                model: selectedModel,
+                apiKeys,
+                stream: true,
+              }),
+              signal: abortController.signal,
+            });
 
-          if (!res.ok) throw new Error(`Cloud API error status ${res.status}`);
-          const reader = res.body?.getReader();
-          const decoder = new TextDecoder();
+            if (!res.ok) throw new Error(`Cloud API error status ${res.status}`);
+            const reader = res.body?.getReader();
+            const decoder = new TextDecoder();
 
-          if (reader) {
-            while (true) {
-              const { done, value } = await reader.read();
-              if (done) break;
-              fullAiResponse += decoder.decode(value);
-              setAiTranscript(fullAiResponse);
+            if (reader) {
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                fullAiResponse += decoder.decode(value);
+                setAiTranscript(fullAiResponse);
+              }
             }
-          }
-        } else {
-          const res = await apiFetch("/api/ollama/api/chat", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              model: selectedModel || models[0]?.name || "llama3.1:latest",
-              messages,
-              stream: false,
-            }),
-            signal: abortController.signal,
-          });
+          } else {
+            const res = await apiFetch("/api/ollama/api/chat", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                model: selectedModel || models[0]?.name || "llama3.1:latest",
+                messages,
+                stream: false,
+              }),
+              signal: abortController.signal,
+            });
 
-          if (!res.ok) throw new Error("Ollama model error");
-          const data = await res.json();
-          fullAiResponse = data.message?.content || "Maaf, tidak ada respon.";
-          setAiTranscript(fullAiResponse);
+            if (!res.ok) throw new Error("Ollama model error");
+            const data = await res.json();
+            fullAiResponse = data.message?.content || "Maaf, tidak ada respon.";
+            setAiTranscript(fullAiResponse);
+          }
         }
-      }
 
         if (!isComponentActiveRef.current) return;
 
@@ -168,46 +193,72 @@ export const VoiceModeModal: React.FC<VoiceModeModalProps> = ({
         setCallHistory((prev) => [...prev, { role: "assistant", text: fullAiResponse, id: aiMsgId }]);
         if (onTranscriptMessage) onTranscriptMessage("assistant", fullAiResponse);
 
-        // Speak response via VoiceEngine
+        // Speak response via configured VoiceEngine
         setStatus("speaking");
 
-        const voiceConfig: VoiceConfig = {
-          presetId: currentPreset.id,
-          pitch: currentPreset.defaultPitch,
-          rate: currentPreset.defaultRate,
-        };
+        if (activeVoice.engine === "openai" && apiKeys?.openaiApiKey) {
+          await speakOpenAiTts({
+            text: fullAiResponse,
+            apiKey: apiKeys.openaiApiKey,
+            voice: activeVoice.openaiVoice || "nova",
+            speed: activeVoice.rate,
+            onStart: () => {
+              if (!isComponentActiveRef.current) return;
+              setStatus("speaking");
+            },
+            onEnd: () => {
+              if (!isComponentActiveRef.current) return;
+              setStatus("listening");
+              setUserTranscript("");
+              setAiTranscript("");
+              startSpeechRecognition();
+            },
+            onError: () => {
+              if (!isComponentActiveRef.current) return;
+              setStatus("listening");
+              startSpeechRecognition();
+            },
+          });
+        } else {
+          const targetVoice = resolveVoiceForConfig(
+            {
+              presetId: activeVoice.presetId,
+              voiceName: activeVoice.voiceName,
+              pitch: activeVoice.pitch,
+              rate: activeVoice.rate,
+            },
+            getAllSystemVoices()
+          );
 
-        const targetVoice = resolveVoiceForConfig(voiceConfig, getAllSystemVoices());
-
-        aiUtteranceRef.current = speakUniversal({
-          text: fullAiResponse,
-          voice: targetVoice,
-          pitch: voiceConfig.pitch,
-          rate: voiceConfig.rate,
-          onStart: () => {
-            setStatus("speaking");
-          },
-          onEnd: () => {
-            if (!isComponentActiveRef.current) return;
-            setStatus("listening");
-            setUserTranscript("");
-            setAiTranscript("");
-            // Auto restart recognition for hands-free loop
-            startSpeechRecognition();
-          },
-          onError: () => {
-            if (!isComponentActiveRef.current) return;
-            setStatus("listening");
-            startSpeechRecognition();
-          },
-        });
+          aiUtteranceRef.current = speakUniversal({
+            text: fullAiResponse,
+            voice: targetVoice,
+            pitch: activeVoice.pitch,
+            rate: activeVoice.rate,
+            onStart: () => {
+              setStatus("speaking");
+            },
+            onEnd: () => {
+              if (!isComponentActiveRef.current) return;
+              setStatus("listening");
+              setUserTranscript("");
+              setAiTranscript("");
+              startSpeechRecognition();
+            },
+            onError: () => {
+              if (!isComponentActiveRef.current) return;
+              setStatus("listening");
+              startSpeechRecognition();
+            },
+          });
+        }
       } catch (err: any) {
         if (err.name === "AbortError") return;
         setStatus("listening");
         startSpeechRecognition();
       }
     },
-    [selectedModel, models, apiKeys, systemPrompt, callHistory, currentPreset, onTranscriptMessage]
+    [selectedModel, models, apiKeys, systemPrompt, callHistory, activeVoice, onTranscriptMessage, onSendMessage]
   );
 
   // Initialize and start Speech Recognition
@@ -260,13 +311,14 @@ export const VoiceModeModal: React.FC<VoiceModeModalProps> = ({
         if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
         handleProcessSpeech(final.trim());
       } else if (interim.trim()) {
-        // Auto-silence timer: if user pauses for 1.4s after speaking, process speech
+        // Auto-silence timer: respects sensitivity configured in Settings
         if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+        const silenceDelay = activeVoice.autoSilenceMs || 1400;
         silenceTimerRef.current = setTimeout(() => {
           if (interim.trim()) {
             handleProcessSpeech(interim.trim());
           }
-        }, 1400);
+        }, silenceDelay);
       }
     };
 
@@ -288,7 +340,7 @@ export const VoiceModeModal: React.FC<VoiceModeModalProps> = ({
       recognition.start();
       recognitionRef.current = recognition;
     } catch {}
-  }, [isMuted, lang, status, handleProcessSpeech]);
+  }, [isMuted, lang, status, handleProcessSpeech, activeVoice.autoSilenceMs]);
 
   // Setup Web Audio API for Mic Waveform Visualization
   const setupAudioVisualizer = async () => {
@@ -412,22 +464,34 @@ export const VoiceModeModal: React.FC<VoiceModeModalProps> = ({
       <header className="absolute top-0 inset-x-0 p-4 sm:p-6 flex items-center justify-between z-20">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-2xl bg-white/10 border border-white/20 flex items-center justify-center shadow-lg backdrop-blur-md">
-            <Volume2 className="w-5 h-5 text-emerald-400" />
+            <Volume2 className="w-5 h-5 text-purple-400" />
           </div>
           <div>
             <div className="flex items-center gap-2">
               <h2 className="text-sm font-bold tracking-tight">Ollama Voice Mode</h2>
-              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 uppercase tracking-wider">
-                Live Hands-Free
+              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30 uppercase tracking-wider">
+                Hands-Free
               </span>
             </div>
             <p className="text-xs text-slate-400 font-mono">
-              Model: {selectedModel || "Local AI"} • Voice: {currentPreset.name}
+              Model: {selectedModel || "Local AI"} • Karakter: {currentPreset.name} • {activeVoice.engine === "openai" ? "OpenAI TTS" : "Natural Voice"}
             </p>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Settings Shortcut Button */}
+          {onOpenSettings && (
+            <button
+              onClick={onOpenSettings}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 border border-white/15 text-xs font-medium transition-colors cursor-pointer text-purple-300 hover:text-white"
+              title="Pengaturan Suara & Artikulasi"
+            >
+              <Settings2 className="w-3.5 h-3.5 text-purple-400" />
+              <span className="hidden sm:inline">Pengaturan Suara</span>
+            </button>
+          )}
+
           {/* Language Toggle */}
           <button
             onClick={() => {
@@ -448,7 +512,7 @@ export const VoiceModeModal: React.FC<VoiceModeModalProps> = ({
           <button
             onClick={onClose}
             className="p-2 rounded-xl bg-white/10 hover:bg-rose-600/80 border border-white/15 hover:border-rose-500 text-white transition-all cursor-pointer"
-            title="End voice call"
+            title="Tutup Panggilan Suara"
           >
             <X className="w-5 h-5" />
           </button>
@@ -456,114 +520,155 @@ export const VoiceModeModal: React.FC<VoiceModeModalProps> = ({
       </header>
 
       {/* Center Animated Voice Orb */}
-      <div className="relative flex flex-col items-center justify-center space-y-8 z-10">
-        {/* Dynamic Glowing Sphere */}
-        <div className="relative flex items-center justify-center">
-          {/* Ambient Outer Halo Rings */}
+      <div className="relative flex flex-col items-center justify-center space-y-8 z-10 max-w-xl mx-auto px-4">
+        {/* Dynamic 3D Glowing Gradient Sphere (Orb) - NO mic icon inside */}
+        <div className="relative flex items-center justify-center py-6">
+          {/* Ambient Outer Aura Blur */}
           <div
-            style={{ transform: `scale(${orbScale * 1.35})` }}
-            className={`absolute w-56 h-56 sm:w-64 sm:h-64 rounded-full border transition-all duration-150 ${
+            style={{
+              transform: `scale(${orbScale * 1.4})`,
+            }}
+            className={`absolute w-64 h-64 sm:w-80 sm:h-80 rounded-full blur-[70px] opacity-70 transition-all duration-300 pointer-events-none ${
               status === "speaking"
-                ? "border-purple-500/40 shadow-[0_0_80px_rgba(168,85,247,0.35)]"
+                ? "bg-gradient-to-tr from-purple-600 via-fuchsia-500 to-indigo-600"
                 : status === "thinking"
-                ? "border-amber-400/40 shadow-[0_0_80px_rgba(251,191,36,0.3)] animate-spin"
-                : "border-emerald-500/40 shadow-[0_0_80px_rgba(16,185,129,0.35)]"
+                ? "bg-gradient-to-tr from-amber-500 via-orange-500 to-yellow-400"
+                : "bg-gradient-to-tr from-cyan-500 via-teal-400 to-indigo-600"
+            }`}
+          />
+
+          {/* Harmonic Ripple Shockwaves (Expands dynamically on Audio Energy) */}
+          <div
+            style={{ transform: `scale(${orbScale * 1.25})` }}
+            className={`absolute w-56 h-56 sm:w-72 sm:h-72 rounded-full border transition-all duration-150 pointer-events-none ${
+              status === "speaking"
+                ? "border-purple-400/40 shadow-[0_0_50px_rgba(168,85,247,0.4)]"
+                : status === "thinking"
+                ? "border-amber-400/40 shadow-[0_0_50px_rgba(251,191,36,0.35)] animate-spin"
+                : "border-cyan-400/40 shadow-[0_0_50px_rgba(6,182,212,0.35)]"
             }`}
           />
 
           <div
-            style={{ transform: `scale(${orbScale * 1.15})` }}
-            className={`absolute w-44 h-44 sm:w-52 sm:h-52 rounded-full border transition-all duration-200 ${
+            style={{ transform: `scale(${orbScale * 1.12})` }}
+            className={`absolute w-48 h-48 sm:w-64 sm:h-64 rounded-full border transition-all duration-200 pointer-events-none ${
               status === "speaking"
-                ? "border-indigo-400/50"
+                ? "border-pink-400/30"
                 : status === "thinking"
-                ? "border-amber-300/50"
-                : "border-teal-400/50"
+                ? "border-yellow-300/30"
+                : "border-teal-300/30"
             }`}
           />
 
-          {/* Central Fluid Gradient Orb */}
+          {/* The 3D Fluid Gradient Sphere Body - Pure visual liquid orb, ZERO mic icon inside */}
           <div
             style={{ transform: `scale(${orbScale})` }}
-            className={`w-36 h-36 sm:w-44 sm:h-44 rounded-full shadow-2xl transition-transform duration-100 ease-out flex items-center justify-center overflow-hidden cursor-pointer ${
-              status === "speaking"
-                ? "bg-gradient-to-tr from-indigo-600 via-purple-500 to-pink-500 shadow-purple-500/50"
-                : status === "thinking"
-                ? "bg-gradient-to-tr from-amber-600 via-yellow-500 to-orange-400 shadow-amber-500/50 animate-pulse"
-                : "bg-gradient-to-tr from-emerald-600 via-teal-500 to-cyan-400 shadow-emerald-500/50"
-            }`}
+            className="w-48 h-48 sm:w-60 sm:h-60 rounded-full relative overflow-hidden transition-transform duration-100 ease-out select-none shadow-[0_30px_70px_-10px_rgba(0,0,0,0.9),_inset_0_-20px_40px_rgba(0,0,0,0.6),_inset_0_12px_28px_rgba(255,255,255,0.45)] cursor-pointer"
           >
-            {status === "thinking" ? (
-              <RefreshCw className="w-12 h-12 text-white animate-spin opacity-90" />
-            ) : status === "speaking" ? (
-              <Volume2 className="w-12 h-12 text-white animate-pulse opacity-90" />
-            ) : (
-              <Mic className={`w-12 h-12 text-white opacity-90 ${micLevel > 0.15 ? "scale-110" : "scale-100"} transition-transform`} />
-            )}
+            {/* Layer 1: Base rich 3D sphere gradient */}
+            <div
+              className={`absolute inset-0 transition-colors duration-700 ${
+                status === "speaking"
+                  ? "bg-gradient-to-br from-indigo-700 via-purple-700 to-pink-600"
+                  : status === "thinking"
+                  ? "bg-gradient-to-br from-amber-600 via-orange-600 to-rose-600"
+                  : "bg-gradient-to-br from-blue-700 via-teal-600 to-indigo-900"
+              }`}
+            />
+
+            {/* Layer 2: Rotating Ethereal Fluid Conic Swirl */}
+            <div
+              className={`absolute inset-[-40%] rounded-full opacity-80 blur-lg transition-all ${
+                status === "thinking"
+                  ? "animate-[spin_4s_linear_infinite]"
+                  : status === "speaking"
+                  ? "animate-[spin_6s_linear_infinite]"
+                  : "animate-[spin_10s_linear_infinite]"
+              } ${
+                status === "speaking"
+                  ? "bg-[conic-gradient(from_0deg,#9333ea,#ec4899,#06b6d4,#a855f7,#ec4899,#9333ea)]"
+                  : status === "thinking"
+                  ? "bg-[conic-gradient(from_0deg,#d97706,#f59e0b,#ef4444,#eab308,#f97316,#d97706)]"
+                  : "bg-[conic-gradient(from_0deg,#06b6d4,#3b82f6,#8b5cf6,#14b8a6,#06b6d4)]"
+              }`}
+            />
+
+            {/* Layer 3: Dynamic Pulsing Core Light */}
+            <div
+              className={`absolute inset-4 rounded-full blur-sm opacity-70 transition-all duration-150 ${
+                status === "speaking"
+                  ? "bg-radial from-white via-fuchsia-400/40 to-transparent"
+                  : status === "thinking"
+                  ? "bg-radial from-white via-amber-300/40 to-transparent"
+                  : "bg-radial from-white via-cyan-300/40 to-transparent"
+              }`}
+              style={{
+                transform: `scale(${0.85 + (status === "speaking" ? aiLevel * 0.35 : micLevel * 0.45)})`,
+              }}
+            />
+
+            {/* Layer 4: 3D Glossy Specular Highlight Sheen */}
+            <div className="absolute top-2.5 left-5 w-24 h-14 rounded-[100%_100%_60%_60%] bg-gradient-to-b from-white/60 via-white/20 to-transparent blur-[1px] rotate-[-28deg] pointer-events-none" />
+
+            {/* Layer 5: Internal Edge Ambient Shadow for true Spherical 3D Volume */}
+            <div className="absolute inset-0 rounded-full shadow-[inset_0_0_30px_rgba(0,0,0,0.5),_inset_0_-15px_30px_rgba(0,0,0,0.7)] pointer-events-none" />
           </div>
         </div>
 
         {/* Live Status Label */}
-        <div className="text-center space-y-1.5 max-w-md px-4">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 border border-white/15 text-xs font-semibold">
+        <div className="text-center space-y-2 max-w-md px-4">
+          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white/10 border border-white/15 text-xs font-semibold backdrop-blur-md">
             <span
               className={`w-2 h-2 rounded-full ${
                 status === "speaking"
                   ? "bg-purple-400 animate-pulse"
                   : status === "thinking"
                   ? "bg-amber-400 animate-spin"
-                  : "bg-emerald-400 animate-pulse"
+                  : "bg-cyan-400 animate-pulse"
               }`}
             />
             <span>
               {status === "speaking"
-                ? `${currentPreset.name} is speaking...`
+                ? `${currentPreset.name} sedang berbicara...`
                 : status === "thinking"
-                ? "Thinking..."
-                : "Listening to your voice..."}
+                ? "Sedang berpikir..."
+                : "Mendengarkan suaramu..."}
             </span>
           </div>
 
           {/* Live User Interim Transcript */}
           {interimTranscript && (
-            <p className="text-sm font-medium text-emerald-300 italic animate-in fade-in">
+            <p className="text-sm font-medium text-cyan-300 italic animate-in fade-in">
               &ldquo;{interimTranscript}&rdquo;
             </p>
           )}
 
           {/* AI Response Preview */}
           {aiTranscript && status === "speaking" && (
-            <p className="text-xs sm:text-sm text-slate-300 line-clamp-3 leading-relaxed">
+            <p className="text-xs sm:text-sm text-slate-200 line-clamp-3 leading-relaxed">
               &ldquo;{aiTranscript}&rdquo;
             </p>
           )}
 
           {!interimTranscript && !aiTranscript && status === "listening" && (
             <p className="text-xs text-slate-400">
-              Silakan bicara langsung. AI akan otomatis mendengarkan dan menjawab tanpa perlu mengetik.
+              Bicara langsung secara alami. AI akan merespon otomatis begitu kamu berhenti bicara.
             </p>
           )}
-        </div>
 
-        {/* Voice Character Persona Switcher */}
-        <div className="flex items-center justify-center gap-1.5 p-1 rounded-2xl bg-white/10 border border-white/15 backdrop-blur-md">
-          {VOICE_PRESETS.slice(0, 4).map((preset) => {
-            const isSelected = preset.id === selectedPresetId;
-            return (
+          {/* Quick link to settings */}
+          {onOpenSettings && (
+            <div className="pt-2">
               <button
-                key={preset.id}
-                onClick={() => setSelectedPresetId(preset.id)}
-                className={`px-3 py-1.5 rounded-xl text-xs font-medium transition-all cursor-pointer flex items-center gap-1.5 ${
-                  isSelected
-                    ? "bg-white text-slate-900 font-bold shadow-md"
-                    : "text-slate-300 hover:text-white hover:bg-white/10"
-                }`}
+                type="button"
+                onClick={onOpenSettings}
+                className="text-[11px] text-slate-400 hover:text-purple-300 transition-colors inline-flex items-center gap-1.5 cursor-pointer"
               >
-                <span>{preset.icon}</span>
-                <span>{preset.name}</span>
+                <Settings2 className="w-3 h-3" />
+                <span>Karakter, intonasi & kecepatan suara dapat disetel di Pengaturan</span>
               </button>
-            );
-          })}
+            </div>
+          )}
         </div>
       </div>
 
