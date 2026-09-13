@@ -520,9 +520,9 @@ export const VoiceModeModal: React.FC<VoiceModeModalProps> = ({
       </header>
 
       {/* Center Animated Voice Orb */}
-      <div className="relative flex flex-col items-center justify-center space-y-8 z-10 max-w-xl mx-auto px-4">
+      <div className="relative flex flex-col items-center justify-center z-10 max-w-xl mx-auto px-4 py-4">
         {/* Dynamic 3D Glowing Gradient Sphere (Orb) - NO mic icon inside */}
-        <div className="relative flex items-center justify-center pt-2 pb-14 sm:pb-18">
+        <div className="relative flex items-center justify-center w-72 h-72 sm:w-84 sm:h-84">
           {/* Ambient Outer Aura Blur */}
           <div
             style={{
@@ -615,8 +615,8 @@ export const VoiceModeModal: React.FC<VoiceModeModalProps> = ({
           </div>
         </div>
 
-        {/* Live Status Label - Positioned comfortably below the sphere ripples */}
-        <div className="text-center space-y-2.5 max-w-md px-4 mt-6 sm:mt-8">
+        {/* Live Status Label - Placed comfortably with full clearance from ripple waves */}
+        <div className="text-center space-y-2.5 max-w-md px-4 mt-16 sm:mt-24">
           <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white/10 border border-white/15 text-xs font-semibold backdrop-blur-md">
             <span
               className={`w-2 h-2 rounded-full ${
