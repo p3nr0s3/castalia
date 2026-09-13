@@ -515,8 +515,6 @@ export interface VoiceSettingsConfig {
 
 export interface AppSettings {
   ollamaUrl: string;
-  searxngUrl: string;
-  searchProvider?: "auto" | "searxng" | "builtin";
   deepScrapeEnabled?: boolean;
   webSearchDefault: boolean;
   defaultModel: string;

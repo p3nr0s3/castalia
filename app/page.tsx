@@ -519,7 +519,6 @@ export default function HomePage() {
     try {
       const result = await executeAgent(targetAgent, {
         ollamaUrl: settings.ollamaUrl,
-        searxngUrl: settings.searxngUrl,
         projects,
         apiKeys: settings.apiKeys,
       });
@@ -1446,8 +1445,6 @@ export default function HomePage() {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               query: cleanSearchQueryStr,
-              searxngUrl: settings.searxngUrl,
-              provider: settings.searchProvider || "auto",
               deepScrape: settings.deepScrapeEnabled !== false,
             }),
           });

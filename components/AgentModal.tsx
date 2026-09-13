@@ -346,7 +346,7 @@ export const AgentModal: React.FC<AgentModalProps> = ({
               <Globe className="w-4 h-4 text-blue-400" />
               <div>
                 <span className="text-xs font-semibold text-[var(--foreground)] block">
-                  Autonomous Web Search (SearXNG)
+                  Autonomous Web Search (Built-in Precision)
                 </span>
                 <span className="text-[11px] text-[var(--muted)]">
                   Allows the agent to search the live web for real-time information before generating.

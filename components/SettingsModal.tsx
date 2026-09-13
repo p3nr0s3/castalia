@@ -2139,7 +2139,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <div>
                   <h3 className="text-sm font-bold text-[var(--foreground)]">Local Server Connections</h3>
                   <p className="text-xs text-[var(--muted)] mt-0.5">
-                    Configure local endpoints for Ollama engine and SearXNG web search.
+                    Configure local endpoint for Ollama engine.
                   </p>
                 </div>
 
@@ -2187,28 +2187,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         </label>
                       </div>
                       <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
-                        Zero Docker Required
+                        Built-in Zero Config
                       </span>
                     </div>
 
-                    <div className="space-y-1.5">
-                      <label className="text-[11px] font-medium text-[var(--muted)]">
-                        Search Engine Provider
-                      </label>
-                      <select
-                        value={formData.searchProvider || "auto"}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            searchProvider: e.target.value as any,
-                          })
-                        }
-                        className="w-full px-3 py-2 text-xs rounded-xl border border-[var(--card-border)] bg-[var(--card-bg)] text-[var(--foreground)] focus:ring-1 focus:ring-emerald-500 focus:outline-none"
-                      >
-                        <option value="auto">Auto (Built-in Web Scraper + SearXNG fallback)</option>
-                        <option value="builtin">Built-in Web Scraper & Reader Only (Zero Setup)</option>
-                        <option value="searxng">SearXNG Docker Only</option>
-                      </select>
+                    <div className="p-2.5 rounded-xl bg-[var(--card-bg)] border border-[var(--card-border)] text-xs text-[var(--muted)] space-y-1">
+                      <div className="flex items-center gap-1.5 font-semibold text-[var(--foreground)]">
+                        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                        <span>Native Google News & Precision Organic Search</span>
+                      </div>
+                      <p className="text-[11px]">
+                        Mesin pencari built-in aktif dengan dukungan Google News RSS real-time, deteksi intent cerdas, dan deep scraper tanpa perlu Docker atau konfigurasi eksternal.
+                      </p>
                     </div>
 
                     <label className="flex items-center gap-2.5 p-2 rounded-xl bg-[var(--card-bg)] border border-[var(--card-border)] cursor-pointer text-xs">
@@ -2229,24 +2219,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         </span>
                       </div>
                     </label>
-
-                    {(formData.searchProvider === "searxng" || formData.searchProvider === "auto" || !formData.searchProvider) && (
-                      <div className="space-y-1 pt-1">
-                        <label className="block text-[11px] font-medium text-[var(--muted)]">
-                          SearXNG Endpoint URL (Optional)
-                        </label>
-                        <input
-                          type="text"
-                          value={formData.searxngUrl}
-                          onChange={(e) => setFormData({ ...formData, searxngUrl: e.target.value })}
-                          placeholder="http://localhost:8080"
-                          className="w-full px-3 py-2 text-xs font-mono rounded-xl border border-[var(--card-border)] bg-[var(--card-bg)] text-[var(--foreground)] focus:ring-1 focus:ring-emerald-500 focus:outline-none"
-                        />
-                        <p className="text-[10px] text-[var(--muted)]">
-                          If SearXNG is not running, the built-in search engine & page scraper seamlessly takes over.
-                        </p>
-                      </div>
-                    )}
                   </div>
 
                   {/* Local Disk Explorer Launcher */}

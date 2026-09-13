@@ -261,7 +261,6 @@ export async function executeAgent(
   agent: AgentTask,
   options: {
     ollamaUrl: string;
-    searxngUrl: string;
     projects: Project[];
     apiKeys?: ApiKeysConfig;
     onProgress?: (tokenChunk: string) => void;
@@ -285,7 +284,6 @@ export async function executeAgent(
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           query: agent.prompt,
-          searxngUrl: options.searxngUrl,
         }),
       });
 

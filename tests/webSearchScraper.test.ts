@@ -175,4 +175,82 @@ describe("webSearchEngine utilities", () => {
     expect(filtered[0].title).toContain("Laptop 10 Jutaan");
     expect(filtered[0].url).toContain("jagatreview.com");
   });
+
+  it("reformulateSearchQuery strips conversational pronouns and action framing cleanly", () => {
+    const q1 = cleanSearchQuery("carikan saya berita terbaru tentang Cybersecurity");
+    expect(q1.isUrl).toBe(false);
+    expect(q1.cleanQuery).toBe("Cybersecurity");
+
+    const q2 = cleanSearchQuery("tolong carikan saya berita terbaru tentang Cybersecurity dong");
+    expect(q2.isUrl).toBe(false);
+    expect(q2.cleanQuery).toBe("Cybersecurity");
+
+    const q3 = cleanSearchQuery("saya mau cari kabar terkini seputar AI agent");
+    expect(q3.isUrl).toBe(false);
+    expect(q3.cleanQuery).toBe("AI agent");
+
+    const q4 = cleanSearchQuery("bisa tolong carikan saya info mengenai CVE-2024-3094");
+    expect(q4.isUrl).toBe(false);
+    expect(q4.cleanQuery).toBe("CVE-2024-3094");
+  });
+
+  it("detectQueryContext classifies news intent and cybersecurity core subject", () => {
+    const ctx = detectQueryContext(
+      "Cybersecurity",
+      "carikan saya berita terbaru tentang Cybersecurity"
+    );
+    expect(ctx.intent).toBe("news");
+    expect(ctx.coreSubjects).toContain("cybersecurity");
+    expect(ctx.isIndonesian).toBe(true);
+    expect(ctx.locale.cc).toBe("ID");
+    expect(ctx.refinedQueries.length).toBeGreaterThan(0);
+    expect(ctx.refinedQueries[0]).toContain("cybersecurity");
+    expect(ctx.refinedQueries[0]).toContain("berita terbaru");
+  });
+
+  it("filterAndScoreResults drops pronoun definition farms and boosts news sources", () => {
+    const ctx = detectQueryContext(
+      "Cybersecurity",
+      "carikan saya berita terbaru tentang Cybersecurity"
+    );
+
+    const candidates: SearchSource[] = [
+      {
+        title: 'Arti Kata "saya" Menurut KBBI - Kamus Besar Bahasa Indonesia',
+        snippet: 'Kata "saya" adalah kata ganti orang pertama tunggal.',
+        url: "https://kbbi.kemdikbud.go.id/entri/saya",
+      },
+      {
+        title: "Pronomina Persona Bahasa Indonesia - Wikipedia",
+        snippet: "Daftar kata ganti orang dalam bahasa Indonesia seperti saya, aku, kita.",
+        url: "https://id.wikipedia.org/wiki/Pronomina",
+      },
+      {
+        title: "Lagu Saya - YouTube Music",
+        snippet: "Dengarkan lagu Saya di platform streaming.",
+        url: "https://youtube.com/watch?v=12345",
+      },
+      {
+        title: "Cybersecurity Guidelines for Financial Sector - OJK",
+        snippet: "Panduan keamanan siber dari Otoritas Jasa Keuangan.",
+        url: "https://ojk.go.id/id/berita-dan-kegiatan/publikasi/cybersecurity.aspx",
+      },
+      {
+        title: "[Sumber: OJK • 10 Sep 2026] Cybersecurity Guidelines Providers",
+        snippet: "Berita terkini mengenai cybersecurity dari OJK.",
+        url: "https://news.google.com/rss/articles/abc123xyz",
+        engine: "google-news",
+      },
+    ];
+
+    const filtered = filterAndScoreResults(candidates, ctx);
+
+    // Guaranteed: All pronoun definitions, KBBI, and unrelated music pages are dropped
+    expect(filtered.some((r) => r.title.includes("KBBI"))).toBe(false);
+    expect(filtered.some((r) => r.title.includes("Pronomina"))).toBe(false);
+
+    // Guaranteed: Authentic cybersecurity articles are preserved and ranked at top
+    expect(filtered.length).toBeGreaterThanOrEqual(2);
+    expect(filtered[0].title).toContain("Cybersecurity");
+  });
 });

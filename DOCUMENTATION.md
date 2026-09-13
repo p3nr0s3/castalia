@@ -1,6 +1,6 @@
 # 📖 Panduan Lengkap & Dokumentasi Arsitektur: Ollama Local AI Chat Web
 
-Dokumentasi komprehensif mengenai seluruh fitur, arsitektur, instalasi, konfigurasi SearXNG, dan cara akses aplikasi chat lokal Ollama dari mana saja.
+Dokumentasi komprehensif mengenai seluruh fitur, arsitektur, instalasi, mesin pencari web presisi bawaan (Google News & Organic), dan cara akses aplikasi chat lokal Ollama dari mana saja.
 
 ---
 
@@ -9,7 +9,7 @@ Dokumentasi komprehensif mengenai seluruh fitur, arsitektur, instalasi, konfigur
 2. [Fitur-Fitur Utama](#-fitur-fitur-utama)
 3. [Arsitektur Sistem & Alur Kerja](#-arsitektur-sistem--alur-kerja)
 4. [Panduan Instalasi & Menjalankan Aplikasi](#-panduan-instalasi--menjalankan-aplikasi)
-5. [Setup SearXNG di Docker (Web Search RAG)](#-setup-searxng-di-docker-web-search-rag)
+5. [Mesin Pencari Web Built-in (Google News & Organic)](#-mesin-pencari-web-built-in-google-news--organic)
 6. [Panduan Akses Jaringan (Lokal Wi-Fi & Luar Rumah)](#-panduan-akses-jaringan-lokal-wi-fi--luar-rumah)
 7. [Struktur Folder Proyek](#-struktur-folder-proyek)
 
@@ -23,7 +23,7 @@ Aplikasi ini adalah antarmuka web modern, cepat, privat, dan *local-first* untuk
 - **Frontend / Fullstack**: [Next.js 14](https://nextjs.org/) (App Router), React 18, TypeScript.
 - **Styling & UI**: Tailwind CSS, Lucide Icons, KaTeX (LaTeX Math), React Markdown.
 - **AI Engine**: [Ollama](https://ollama.ai/) REST API (Streaming NDJSON).
-- **Search Engine**: [SearXNG](https://docs.searxng.org/) (Self-hosted Docker Meta-Search Engine).
+- **Search Engine**: Built-in Zero-Config (Google News RSS + Organic Bing + Deep Page Reader).
 - **Storage**: *Local-first* (Browser LocalStorage) dengan fitur Backup/Restore JSON.
 - **Tunneling**: SSH Port 443 Tunnel + QR Code Generator.
 
@@ -78,7 +78,7 @@ Aplikasi ini adalah antarmuka web modern, cepat, privat, dan *local-first* untuk
   - *Harian pada Jam Tertentu*: Misal otomatis jalan setiap pagi jam `08:00`.
   - *Interval Berulang*: Misal jalan otomatis setiap `30 menit`, `1 jam`, `6 jam`, atau `24 jam`.
   - *Manual (On-Demand)*: Eksekusi seketika kapan pun dengan tombol **"⚡ Run Now"**.
-- **Pencarian Web Otonom (SearXNG)**: Agen AI dapat browsing internet secara mandiri untuk mengumpulkan data fakta sebelum menulis laporan.
+- **Pencarian Web Otonom (Built-in Precision)**: Agen AI dapat browsing internet secara mandiri untuk mengumpulkan data fakta sebelum menulis laporan.
 - **Routing Output ke Project**: Hasil eksekusi agen dapat otomatis disimpan ke Project tertentu atau ke chat baru dengan badge khusus `🤖 Agent`.
 - **Log Riwayat & Notifikasi**: Menyimpan riwayat eksekusi (durasi, jumlah token, status) dan memicu notifikasi desktop ketika tugas selesai.
 - **Template Siap Pakai**: *Morning AI News Digest*, *Crypto & Market Pulse*, *Daily Startup Ideas*, *Productivity Planner*.
@@ -103,9 +103,9 @@ Aplikasi ini adalah antarmuka web modern, cepat, privat, dan *local-first* untuk
 
 ---
 
-### 3. 🌐 Live Web Search via SearXNG (RAG)
+### 3. 🌐 Live Web Search Built-in Presisi Tinggi (RAG)
 - **Toggle "Search ON / OFF"**: Tombol bola dunia 🌐 di samping kolom input chat.
-- **Pencarian Multi-Engine Real-Time**: Mengambil informasi terkini dari Google, Bing, DuckDuckGo, Wikipedia, Reddit, dan GitHub melalui SearXNG lokal.
+- **Pencarian Multi-Engine Real-Time**: Mengambil berita aktual dari Google News RSS (lengkap dengan tanggal dan nama penerbit) serta informasi spesifik melalui mesin organik & Wikipedia tanpa perlu Docker atau konfigurasi eksternal.
 - **Grounding Context**: Hasil pencarian disuntikkan ke prompt Ollama untuk menjawab pertanyaan berbasis fakta terkini.
 - **Sitasi Sumber yang Dapat Diklik**: Menampilkan daftar sumber referensi artikel lengkap dengan judul, domain, dan link aktif.
 
@@ -152,7 +152,7 @@ graph TD
 
     subgraph BackendLocal ["Backend Lokal"]
         Ollama["Ollama Engine (Port 11434)"]
-        SearXNG["SearXNG Docker (Port 8080)"]
+        WebEngine["Google News RSS & Organic Engine"]
     end
 
     subgraph JaringanLuar ["Akses Luar Rumah"]
@@ -161,7 +161,7 @@ graph TD
 
     UI <--> Storage
     UI --> Proxy --> Ollama
-    UI --> SearchRoute --> SearXNG
+    UI --> SearchRoute --> WebEngine
     JaringanLuar --> Tunnel --> ServerNext
 ```
 
@@ -184,52 +184,21 @@ Aplikasi akan aktif di:
 
 ---
 
-## 🐳 Setup SearXNG di Docker (Web Search RAG)
+## 🌐 Mesin Pencari Web Built-in (Google News & Organic)
 
-### 1. File `docker-compose.yml`
-Buat folder `C:\searxng` dan buat file `docker-compose.yml`:
-```yaml
-version: '3.7'
+Sistem menggunakan **Built-in Precision Web Engine** mandiri yang terintegrasi langsung di aplikasi tanpa memerlukan Docker atau konfigurasi tambahan (*zero-config*):
 
-services:
-  searxng:
-    image: docker.io/searxng/searxng:latest
-    container_name: searxng
-    ports:
-      - "8080:8080"
-    volumes:
-      - ./searxng:/etc/searxng:rw
-    environment:
-      - SEARXNG_BASE_URL=http://localhost:8080/
-    restart: unless-stopped
-```
+### 1. Klasifikasi Intent Cerdas (*Intent Routing*):
+- **Berita & Aktualita (`intent: news`)**: Mengambil artikel aktual dari **Google News RSS**, menyertakan stempel waktu terbit (`pubDate`) dan nama media resmi (misal: *OJK*, *Detik*, *Kompas*, *BleepingComputer*).
+- **Keamanan Siber & CVE (`intent: security`)**: Mengisolasi kode advisory NVD/CVE dan domain otoritas keamanan (`cve.org`, `nvd.nist.gov`, dll).
+- **Hardware & Produk (`intent: hardware`)**: Merestrukturisasi kueri spesifikasi dan harga laptop/gadget dengan subject noun di awal kueri.
+- **Konsep & Dokumentasi (`intent: coding / general`)**: Pencarian referensi web dan Wikipedia secara terarah.
 
-### 2. Konfigurasi `searxng/settings.yml`
-Buka file `C:\searxng\searxng\settings.yml` dan pastikan format JSON diaktifkan:
-```yaml
-# Read the documentation before extending the defaults:
-# https://docs.searxng.org/admin/settings/
+### 2. Deep Webpage Reader Mode:
+- Mengambil isi teks artikel secara mendalam (`maxChars: 2500`) menggunakan parser konten utama dan isolasi tag `<article>` / `<main>` sehingga model lokal Ollama dapat membaca seluruh isi artikel.
 
-use_default_settings: true
-
-server:
-  secret_key: "PcBeC3izoMsIDvN9NcH95n0Q4pOjL0y8"
-  image_proxy: true
-
-search:
-  safe_search: 0
-  autocomplete: "duckduckgo"
-  formats:
-    - html
-    - json
-```
-
-### 3. Jalankan & Restart Docker:
-```powershell
-cd C:\searxng
-docker compose up -d
-docker compose restart
-```
+### 3. Universal Spam Blacklist:
+- Secara otomatis memfilter dan membuang hasil kamus definisi kata (KBBI, *arti kata*, *pronomina*), template surat lamaran/rekomendasi, dan spam portal lainnya.
 
 ---
 
@@ -261,7 +230,7 @@ ollama-chat-web/
 ├── app/
 │   ├── api/
 │   │   ├── ollama/[...path]/route.ts  # Proxy streaming Ollama API (tanpa isu CORS)
-│   │   └── search/route.ts            # Handler API SearXNG Web Search
+│   │   └── search/route.ts            # Handler API Web Search presisi built-in
 │   ├── globals.css                    # Definisi variabel CSS 8 tema & scroll
 │   ├── icon.svg                       # Favicon vektor dinamis Next.js
 │   ├── layout.tsx                     # Metadata, viewport cover, & anti-zoom
@@ -274,7 +243,7 @@ ollama-chat-web/
 │   ├── ModelSelector.tsx              # Dropdown model Ollama dinamis
 │   ├── ParametersDrawer.tsx           # Pengaturan suhu, Top-P, & preset persona
 │   ├── ProjectModal.tsx               # Editor Claude-style Project & Knowledge Base
-│   ├── SettingsModal.tsx              # Pengaturan server Ollama, SearXNG, & tema
+│   ├── SettingsModal.tsx              # Pengaturan server Ollama, search, & tema
 │   └── Sidebar.tsx                    # Navigasi riwayat chat, pencarian, & tab Projects
 ├── lib/
 │   ├── constants.ts                   # Nilai default setting, prompt, & tema

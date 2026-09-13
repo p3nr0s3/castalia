@@ -317,8 +317,7 @@ GROQ_API_KEY=
 DEEPSEEK_API_KEY=
 OPENROUTER_API_KEY=
 
-# SearXNG Web Search Engine (Opsional untuk /search)
-SEARXNG_URL=
+# Web Search Engine (Built-in Zero-Config, no Docker required)
 ```
 
 ---
@@ -327,7 +326,8 @@ SEARXNG_URL=
 
 | Perintah | Deskripsi Aksi | Contoh Penggunaan |
 | :--- | :--- | :--- |
-| `/search` | Pencarian web real-time melalui SearXNG | `/search dokumentasi terbaru Next.js 15` |
+| `/search` | Pencarian web real-time built-in presisi tinggi (Google News & Web) | `/search berita terbaru tentang Cybersecurity` |
+| `/scan` | Audit keamanan pasif standar OWASP Top 10 | `/scan https://target-web.com` |
 | `/think` | Mengaktifkan mode penalaran berantai mendalam (Chain-of-Thought) | `/think analisis celah keamanan arsitektur ini` |
 | `/code` | Format output bersih berstandar clean-code arsitektur perangkat lunak | `/code buat algoritma A* pathfinding di TypeScript` |
 | `/summarize`| Merangkum teks panjang ke dalam poin-poin terstruktur | `/summarize <teks panjang>` |
@@ -350,7 +350,8 @@ ollama-chat-web/
 │   │   ├── db/stream/route.ts           # Server-Sent Events (SSE) live database watcher
 │   │   ├── fs/route.ts                  # Sandboxed file explorer untuk sistem lokal
 │   │   ├── ollama/[...path]/            # Proxy streaming transmisi Ollama lokal
-│   │   ├── search/route.ts              # Integrasi mesin pencari SearXNG
+│   │   ├── scan/route.ts                # Endpoint scanner pasif OWASP Top 10
+│   │   ├── search/route.ts              # Mesin pencari presisi built-in & deep page scraper
 │   │   └── tools/                       # Eksekutor disk tools (manual chat & background agent)
 │   ├── globals.css                      # Tailwind, KaTeX, font typography & definisi tema CSS
 │   ├── layout.tsx                       # Root layout & penyedia konteks tema

@@ -7,6 +7,7 @@ import {
   filterAndScoreResults,
   scrapePageContent,
   searchBingEngine,
+  searchGoogleNews,
   searchWikipedia,
 } from "@/lib/webSearchEngine";
 
@@ -27,8 +28,6 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const {
       query,
-      searxngUrl = "http://localhost:8080",
-      provider = "auto",
       deepScrape = true,
     } = body;
 
@@ -58,111 +57,101 @@ export async function POST(req: NextRequest) {
     }
 
     // 2. Contextual Query Analysis (Language, Intent, Core Subjects)
-    const queryCtx = detectQueryContext(cleanQuery);
+    const queryCtx = detectQueryContext(cleanQuery, query);
     const primarySearchQuery =
-      queryCtx.intent === "hardware" && queryCtx.refinedQueries.length > 0
+      queryCtx.refinedQueries.length > 0
         ? queryCtx.refinedQueries[0]
         : cleanQuery;
 
     let results: SearchSource[] = [];
     let usedEngine = "builtin";
 
-    // 3. Try SearXNG first if provider is 'auto' or 'searxng'
-    if (provider === "searxng" || provider === "auto") {
-      try {
-        let host = searxngUrl.replace(/\/+$/, "");
-        try {
-          const parsed = new URL(host);
-          if (parsed.hostname === "localhost") {
-            parsed.hostname = "127.0.0.1";
-            host = parsed.origin;
-          }
-        } catch {
-          host = host.replace("localhost", "127.0.0.1");
-        }
+    // 3. Precision Engine Routing by Query Intent
+    if (queryCtx.intent === "news") {
+      usedEngine = "google-news";
+      // Fetch fresh, authentic news via Google News RSS
+      const newsResults = await searchGoogleNews(cleanQuery, queryCtx.locale);
+      const filteredNews = filterAndScoreResults(newsResults, queryCtx);
+      results = filteredNews.slice(0, 5);
 
-        const targetSearchUrl = `${host}/search?q=${encodeURIComponent(
-          primarySearchQuery
-        )}&format=json&language=${queryCtx.locale.lang}`;
-
-        const res = await fetch(targetSearchUrl, {
-          method: "GET",
-          headers: {
-            Accept: "application/json",
-            "User-Agent":
-              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-          },
-          cache: "no-store",
-          signal: AbortSignal.timeout(1800),
-        });
-
-        if (res.ok) {
-          const data = await res.json();
-          const rawResults = data.results || [];
-          if (rawResults.length > 0) {
-            const mapped: SearchSource[] = rawResults.map((r: any) => ({
-              title: r.title || "Untitled",
-              url: r.url || "",
-              snippet: r.content || r.snippet || "",
-              engine: r.engine ? `searxng-${r.engine}` : "searxng",
-            }));
-            const filtered = filterAndScoreResults(mapped, queryCtx);
-            if (filtered.length > 0) {
-              results = filtered.slice(0, 5);
-              usedEngine = "searxng";
-            }
+      // If news results are sparse (< 3), supplement with organic web search
+      if (results.length < 3) {
+        const organicNews = await searchBingEngine(primarySearchQuery, queryCtx.locale);
+        const filteredOrganic = filterAndScoreResults(organicNews, queryCtx);
+        for (const item of filteredOrganic) {
+          if (!results.some((r) => r.url === item.url) && results.length < 5) {
+            results.push(item);
           }
         }
-      } catch {
-        // SearXNG is unavailable or timed out; will fall back to built-in search
       }
-    }
+    } else if (queryCtx.intent === "hardware") {
+      usedEngine = "builtin-hardware";
+      // Hardware product reviews & price comparisons
+      const organicHardware = await searchBingEngine(primarySearchQuery, queryCtx.locale);
+      let filteredHardware = filterAndScoreResults(organicHardware, queryCtx);
 
-    // 4. Fall back to Precision Built-in Web Search Engine (Zero Docker required)
-    if (results.length === 0) {
-      usedEngine = "builtin-web";
-      // First attempt with primary query and regional locale
-      const rawOrganic = await searchBingEngine(primarySearchQuery, queryCtx.locale);
-      let filteredOrganic = filterAndScoreResults(rawOrganic, queryCtx);
-
-      // If results are sparse (< 2) and we have alternative refined queries, execute second targeted search
-      if (filteredOrganic.length < 2 && queryCtx.refinedQueries.length > 1) {
-        const secondQuery = queryCtx.refinedQueries[1];
-        const secondOrganic = await searchBingEngine(secondQuery, queryCtx.locale);
+      // Second query attempt if first is sparse
+      if (filteredHardware.length < 2 && queryCtx.refinedQueries.length > 1) {
+        const secondOrganic = await searchBingEngine(
+          queryCtx.refinedQueries[1],
+          queryCtx.locale
+        );
         const secondFiltered = filterAndScoreResults(secondOrganic, queryCtx);
-
-        // Merge without duplicate URLs
         for (const item of secondFiltered) {
-          if (!filteredOrganic.some((r) => r.url === item.url)) {
-            filteredOrganic.push(item);
+          if (!filteredHardware.some((r) => r.url === item.url)) {
+            filteredHardware.push(item);
           }
         }
       }
+      results = filteredHardware.slice(0, 5);
+    } else if (queryCtx.intent === "security") {
+      usedEngine = "builtin-security";
+      // Cybersecurity & CVE advisories
+      const organicSec = await searchBingEngine(primarySearchQuery, queryCtx.locale);
+      let filteredSec = filterAndScoreResults(organicSec, queryCtx);
 
-      // If still empty, fall back to clean query with strict filtering
-      if (filteredOrganic.length === 0) {
-        const fallbackOrganic = await searchBingEngine(cleanQuery, queryCtx.locale);
-        filteredOrganic = filterAndScoreResults(fallbackOrganic, queryCtx);
+      if (filteredSec.length < 3 && queryCtx.refinedQueries.length > 1) {
+        const secondSec = await searchBingEngine(
+          queryCtx.refinedQueries[1],
+          queryCtx.locale
+        );
+        const secondFiltered = filterAndScoreResults(secondSec, queryCtx);
+        for (const item of secondFiltered) {
+          if (!filteredSec.some((r) => r.url === item.url)) {
+            filteredSec.push(item);
+          }
+        }
       }
+      results = filteredSec.slice(0, 5);
+    } else {
+      usedEngine = "builtin-web";
+      // General web search & programming documentation
+      const organic = await searchBingEngine(cleanQuery, queryCtx.locale);
+      let filtered = filterAndScoreResults(organic, queryCtx);
 
-      results = filteredOrganic.slice(0, 5);
-
-      // 5. Wikipedia: Only query for general or security encyclopedia concepts, NEVER for hardware shopping
-      if (results.length < 2 && queryCtx.intent !== "hardware") {
+      // Wikipedia concept search for encyclopedic definitions
+      if (filtered.length < 3) {
         const wikiResults = await searchWikipedia(cleanQuery);
         for (const w of wikiResults) {
-          if (!results.some((r) => r.url === w.url)) {
-            results.push(w);
+          if (!filtered.some((r) => r.url === w.url)) {
+            filtered.push(w);
           }
         }
       }
+      results = filtered.slice(0, 5);
     }
 
-    // 6. Deep Page Scraping (Reader Mode): fetch and extract full text for top results with content validation
+    // 4. Deep Page Scraping (Reader Mode): fetch and extract full text for top results
     if (deepScrape && results.length > 0) {
       let scrapedCount = 0;
       const scrapeTasks = results.map(async (r) => {
-        if (scrapedCount < 2 && r.url && r.url.startsWith("http")) {
+        // Only scrape standard URLs (skip Google News redirect URLs to avoid SPA hangs)
+        if (
+          scrapedCount < 2 &&
+          r.url &&
+          r.url.startsWith("http") &&
+          !r.url.includes("news.google.com/rss/articles")
+        ) {
           const content = await scrapePageContent(r.url, 2500);
           if (content && content.length >= 150) {
             // Validate that scraped content is actually about the core subject
