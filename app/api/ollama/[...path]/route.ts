@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { tryAcquireGenerationSlot, releaseGenerationSlot } from "@/lib/ollamaRateLimit";
+import { assertOllamaHostUrl, SsrfBlockedError } from "@/lib/ssrfGuard";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -32,6 +33,26 @@ function getOllamaHost(req: NextRequest): string {
   }
 }
 
+/**
+ * Validates the resolved Ollama host before this route relays anything to
+ * it. `?host=` is user-configurable (settings.ollamaUrl for a remote
+ * Ollama on the LAN), so RFC1918/loopback stay allowed — see
+ * assertOllamaHostUrl's own comment for why this is a different policy
+ * than the other SSRF guards in this app. Returns an error NextResponse to
+ * short-circuit with if validation fails, or null if the host is fine.
+ */
+async function validateOllamaHost(host: string): Promise<NextResponse | null> {
+  try {
+    await assertOllamaHostUrl(host);
+    return null;
+  } catch (err: any) {
+    if (err instanceof SsrfBlockedError) {
+      return NextResponse.json({ error: err.message }, { status: 403, headers: CORS_HEADERS });
+    }
+    throw err;
+  }
+}
+
 export async function GET(
   req: NextRequest,
   { params }: { params: { path: string[] } }
@@ -39,6 +60,9 @@ export async function GET(
   const path = params.path.join("/");
   const host = getOllamaHost(req);
   const targetUrl = `${host}/${path}`;
+
+  const blocked = await validateOllamaHost(host);
+  if (blocked) return blocked;
 
   try {
     const response = await fetch(targetUrl, {
@@ -75,6 +99,9 @@ export async function POST(
   const path = params.path.join("/");
   const host = getOllamaHost(req);
   const targetUrl = `${host}/${path}`;
+
+  const blocked = await validateOllamaHost(host);
+  if (blocked) return blocked;
 
   // Only the actual generation endpoints need the concurrency/burst guard —
   // lightweight calls (pull progress checks, embeddings, etc.) pass through.
@@ -185,6 +212,9 @@ export async function DELETE(
   const path = params.path.join("/");
   const host = getOllamaHost(req);
   const targetUrl = `${host}/${path}`;
+
+  const blocked = await validateOllamaHost(host);
+  if (blocked) return blocked;
 
   try {
     const body = await req.json().catch(() => ({}));

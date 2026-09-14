@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { SearchSource } from "@/lib/types";
 import { getCorsHeaders } from "@/lib/corsHeaders";
+import { assertPublicUrl, SsrfBlockedError } from "@/lib/ssrfGuard";
 import {
   cleanSearchQuery,
   detectQueryContext,
@@ -53,6 +54,21 @@ export async function POST(req: NextRequest) {
 
     // 1. Direct URL Reader Mode: If query contains a direct URL, scrape it immediately
     if (isUrl && targetUrl) {
+      // The URL here comes straight from what the user (or a prompt-injected
+      // agent reading untrusted content) typed as the search query — same
+      // risk shape as /api/scan's target URL, so it gets the same guard.
+      try {
+        await assertPublicUrl(targetUrl.trim());
+      } catch (err) {
+        if (err instanceof SsrfBlockedError) {
+          return NextResponse.json(
+            { error: `Direct URL blocked: ${err.message}` },
+            { status: 403, headers: CORS_HEADERS }
+          );
+        }
+        throw err;
+      }
+
       const scrapedText = await scrapePageContent(targetUrl, 4000);
       const directSource: SearchSource = {
         title: targetUrl,
@@ -192,7 +208,13 @@ export async function POST(req: NextRequest) {
           r.url.startsWith("http") &&
           !r.url.includes("news.google.com/rss/articles")
         ) {
-          const content = await scrapePageContent(r.url, 2500);
+          let isUrlSafe = true;
+          try {
+            await assertPublicUrl(r.url);
+          } catch {
+            isUrlSafe = false;
+          }
+          const content = isUrlSafe ? await scrapePageContent(r.url, 2500) : null;
           if (content && content.length >= 150) {
             // Validate that scraped content is actually about the core subject
             if (queryCtx.coreSubjects.length > 0) {

@@ -127,3 +127,50 @@ export async function assertBlenderUrl(rawUrl: string): Promise<void> {
     );
   }
 }
+
+function ipIsLinkLocalOrMetadata(ip: string): boolean {
+  const kind = net.isIP(ip);
+  if (kind === 4) {
+    const [a, b] = ip.split(".").map(Number);
+    return a === 169 && b === 254; // covers the 169.254.169.254 cloud metadata address
+  }
+  if (kind === 6) {
+    const lower = ip.toLowerCase();
+    if (lower.startsWith("fe80:") || lower.startsWith("fe80::")) return true;
+    if (lower.startsWith("::ffff:")) {
+      const mapped = lower.replace("::ffff:", "");
+      if (net.isIP(mapped) === 4) return ipIsLinkLocalOrMetadata(mapped);
+    }
+  }
+  return false;
+}
+
+/**
+ * For the Ollama proxy's `?host=` query param (app/api/ollama/[...path]).
+ * This one is deliberately NOT the same as assertPublicUrl: `?host=` is a
+ * legitimate, user-configured feature for running Ollama on another
+ * machine on the same LAN (settings.ollamaUrl gets passed straight
+ * through as this param) — RFC1918 private addresses (192.168.x.x,
+ * 10.x.x.x, 172.16-31.x.x) and loopback are expected, normal values here
+ * and must stay allowed.
+ *
+ * What's NOT legitimate is link-local (169.254.x.x, which includes the
+ * cloud metadata address 169.254.169.254) — nobody configures their
+ * Ollama host to a link-local address on purpose, and an attacker
+ * supplying `?host=169.254.169.254` to probe cloud metadata through this
+ * proxy is the actual risk being closed here. Arbitrary external hosts
+ * are also blocked, same reasoning as assertPublicUrl: this proxy has no
+ * legitimate reason to relay to some third party's server.
+ */
+export async function assertOllamaHostUrl(rawUrl: string): Promise<void> {
+  const url = await parseAndValidate(rawUrl);
+  const ips = await resolveAllIps(url.hostname);
+
+  for (const ip of ips) {
+    if (ipIsLinkLocalOrMetadata(ip)) {
+      throw new SsrfBlockedError(
+        `'${rawUrl}' resolves to a link-local/metadata address (${ip}). Refusing to proxy to it.`
+      );
+    }
+  }
+}
