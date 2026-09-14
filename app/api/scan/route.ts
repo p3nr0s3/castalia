@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCorsHeaders } from "@/lib/corsHeaders";
 import { runOwaspScan } from "@/lib/owaspScanner";
+import { assertPublicUrl, SsrfBlockedError } from "@/lib/ssrfGuard";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,6 +25,24 @@ export async function POST(req: NextRequest) {
         { error: "Target URL is required (e.g. https://example.com)" },
         { status: 400, headers: CORS_HEADERS }
       );
+    }
+
+    // Same SSRF guard used for connectors: blocks loopback, RFC1918 private
+    // ranges, link-local, and cloud metadata addresses. Without this, the
+    // scanner is a generic authenticated proxy that fetches and reflects
+    // back the content of anything reachable from the server — including
+    // internal-only services (e.g. Ollama on :11434, or other localhost
+    // admin panels) that were never meant to be exposed to the browser.
+    try {
+      await assertPublicUrl(url.trim());
+    } catch (err) {
+      if (err instanceof SsrfBlockedError) {
+        return NextResponse.json(
+          { error: `Target URL blocked: ${err.message}` },
+          { status: 403, headers: CORS_HEADERS }
+        );
+      }
+      throw err;
     }
 
     const scanResult = await runOwaspScan(url.trim());

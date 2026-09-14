@@ -91,6 +91,33 @@ function findPythonBinary(customBin?: string): string | null {
   return null;
 }
 
+// Minimal env passed to executed user code. Deliberately NOT `...process.env`
+// spread — that would hand every secret the Next.js server process holds
+// (APP_ACCESS_TOKEN, cloud provider API keys from .env.local, etc.) to
+// whatever script gets run here. Only the handful of vars actually needed
+// to find interpreters/binaries and behave predictably are passed through.
+function buildChildEnv(): NodeJS.ProcessEnv {
+  const passthroughKeys = [
+    "PATH",
+    "HOME",
+    "USERPROFILE",
+    "TEMP",
+    "TMP",
+    "SystemRoot",
+    "windir",
+    "PATHEXT",
+    "ComSpec",
+    "SystemDrive",
+  ];
+  const env: Record<string, string> = {};
+  for (const key of passthroughKeys) {
+    const val = process.env[key];
+    if (val) env[key] = val;
+  }
+  env.PYTHONUNBUFFERED = "1";
+  return { ...env, NODE_ENV: "development" };
+}
+
 export async function POST(req: NextRequest) {
   let tempFilePath: string | null = null;
   const startTime = Date.now();
@@ -181,11 +208,7 @@ export async function POST(req: NextRequest) {
 
       const child = spawn(executable, runArgs, {
         cwd: tempDir,
-        env: {
-          ...process.env,
-          PYTHONUNBUFFERED: "1",
-          NODE_ENV: "development",
-        },
+        env: buildChildEnv(),
       });
 
       const timer = setTimeout(() => {
