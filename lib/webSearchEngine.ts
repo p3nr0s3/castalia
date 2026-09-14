@@ -285,9 +285,10 @@ export function detectQueryContext(query: string, rawQuery?: string): QueryConte
 
   // Axis 1: Temporal Mode Detection
   const isRealtime =
-    /\b(berita|news|terbaru|terkini|kabar|hari ini|terupdate|breaking|headlines?|update|updates|teranyar|rilis terbaru|latest|today|recent|\b2026\b)\b/i.test(
-      combinedText
-    );
+    new RegExp(
+      `\\b(berita|news|terbaru|terkini|kabar|hari ini|terupdate|breaking|headlines?|update|updates|teranyar|rilis terbaru|latest|today|recent|${currentYear})\\b`,
+      "i"
+    ).test(combinedText);
   const temporalMode: "realtime" | "evergreen" = isRealtime ? "realtime" : "evergreen";
 
   // Axis 2: Domain Target Detection
@@ -548,6 +549,26 @@ export function filterAndScoreResults(
     "bssn.go.id",
   ];
 
+  const trustedTechnicalDomains = [
+    "stackoverflow.com",
+    "developer.mozilla.org",
+    "github.com",
+    "github.io",
+    "nextjs.org",
+    "react.dev",
+    "vuejs.org",
+    "angular.dev",
+    "tailwindcss.com",
+    "npmjs.com",
+    "pypi.org",
+    "docs.python.org",
+    "docs.docker.com",
+    "kubernetes.io",
+    "postgresql.org",
+    "dev.to",
+    "medium.com",
+  ];
+
   for (const item of results) {
     const lowerTitle = (item.title || "").toLowerCase();
     const lowerSnippet = (item.snippet || "").toLowerCase();
@@ -589,15 +610,19 @@ export function filterAndScoreResults(
     }
 
     // Temporal recency scoring (boost current year, penalize stale years on realtime queries)
-    const currentYearStr = new Date().getFullYear().toString();
-    const prevYearStr = (new Date().getFullYear() - 1).toString();
+    const currentYearNum = new Date().getFullYear();
+    const currentYearStr = currentYearNum.toString();
+    const prevYearStr = (currentYearNum - 1).toString();
     if (context.temporalMode === "realtime") {
       if (lowerTitle.includes(currentYearStr) || lowerSnippet.includes(currentYearStr)) {
         score += 40;
       } else if (lowerTitle.includes(prevYearStr) || lowerSnippet.includes(prevYearStr)) {
         score += 20;
       }
-      const olderYears = ["2020", "2021", "2022", "2023", "2024"];
+      const olderYears: string[] = [];
+      for (let y = currentYearNum - 6; y <= currentYearNum - 2; y++) {
+        olderYears.push(String(y));
+      }
       for (const y of olderYears) {
         if (lowerTitle.includes(y) && !lowerTitle.includes(currentYearStr)) {
           score -= 30;
@@ -642,6 +667,11 @@ export function filterAndScoreResults(
     }
     if (context.intent === "security" || context.domain === "security") {
       if (trustedSecurityDomains.some((d) => lowerUrl.includes(d))) {
+        score += 45;
+      }
+    }
+    if (context.intent === "coding" || context.domain === "technical") {
+      if (trustedTechnicalDomains.some((d) => lowerUrl.includes(d))) {
         score += 45;
       }
     }

@@ -352,4 +352,29 @@ describe("webSearchEngine utilities", () => {
     expect(unrelated.cleanQuery).toBe("masak soto ayam lamongan");
     expect(unrelated.cleanQuery).not.toContain("CVE");
   });
+
+  it("detectQueryContext builds a non-trivial refined query for coding/technical intent (regression: this used to be silently discarded in route.ts)", () => {
+    const ctx = detectQueryContext("next.js hydration error");
+    expect(ctx.intent).toBe("coding");
+    expect(ctx.domain).toBe("technical");
+    expect(ctx.refinedQueries.length).toBeGreaterThan(0);
+    // The refined query should add search-quality qualifiers beyond the bare query
+    expect(ctx.refinedQueries[0]).toContain("documentation");
+  });
+
+  it("detectQueryContext builds a non-trivial refined query for general intent too", () => {
+    const ctx = detectQueryContext("cara membuat kompos");
+    expect(ctx.intent).toBe("general");
+    expect(ctx.refinedQueries.length).toBeGreaterThan(0);
+  });
+
+  it("isRealtime detection uses the current year dynamically, not a hardcoded literal", () => {
+    const currentYear = new Date().getFullYear();
+    const ctxCurrentYear = detectQueryContext(`laptop rilis ${currentYear}`);
+    expect(ctxCurrentYear.temporalMode).toBe("realtime");
+    // A query mentioning a year far in the future relative to "today" should NOT
+    // spuriously trigger realtime mode just because some old hardcoded literal matched.
+    const ctxFarFuture = detectQueryContext("sejarah laptop tahun 2099");
+    expect(ctxFarFuture.temporalMode).toBe("evergreen");
+  });
 });

@@ -146,9 +146,28 @@ export async function POST(req: NextRequest) {
       results = filteredSec.slice(0, 5);
     } else {
       usedEngine = "builtin-web";
-      // General web search & programming documentation
-      const organic = await searchBingEngine(cleanQuery, queryCtx.locale);
+      // General web search & programming documentation.
+      // Was using bare `cleanQuery` here — silently discarding the refined
+      // query (e.g. "<query> documentation solution tutorial") that
+      // detectQueryContext() builds specifically for "coding"/"general"
+      // intent. Every other intent branch (news/hardware/security) already
+      // uses primarySearchQuery; this was the one gap, and it covers the
+      // two most common intents (anything that isn't shopping or a
+      // realtime/security query lands here).
+      const organic = await searchBingEngine(primarySearchQuery, queryCtx.locale);
       let filtered = filterAndScoreResults(organic, queryCtx);
+
+      // If the refined query came up short, retry with the plain cleanQuery
+      // as a fallback — the refinement can occasionally over-narrow things.
+      if (filtered.length < 2 && primarySearchQuery !== cleanQuery) {
+        const plainOrganic = await searchBingEngine(cleanQuery, queryCtx.locale);
+        const plainFiltered = filterAndScoreResults(plainOrganic, queryCtx);
+        for (const item of plainFiltered) {
+          if (!filtered.some((r) => r.url === item.url)) {
+            filtered.push(item);
+          }
+        }
+      }
 
       // Wikipedia concept search for encyclopedic definitions
       if (filtered.length < 3) {
