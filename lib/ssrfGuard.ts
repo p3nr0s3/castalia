@@ -34,6 +34,29 @@ import net from "net";
 
 export class SsrfBlockedError extends Error {}
 
+/**
+ * Decodes the embedded IPv4 address from an IPv4-mapped IPv6 address
+ * ("::ffff:x.x.x.x"). Handles both forms Node can hand back: dotted-quad
+ * (what dns.lookup typically returns) and the two-hex-group form that
+ * new URL() normalizes a dotted-quad literal to (e.g. "::ffff:7f00:1").
+ * Returns null if `ip` isn't an IPv4-mapped IPv6 address.
+ */
+function mappedIPv4(ip: string): string | null {
+  const lower = ip.toLowerCase();
+  if (!lower.startsWith("::ffff:")) return null;
+  const suffix = lower.slice("::ffff:".length);
+
+  if (net.isIP(suffix) === 4) return suffix;
+
+  const hexGroups = suffix.split(":");
+  if (hexGroups.length === 2 && /^[0-9a-f]{1,4}$/.test(hexGroups[0]) && /^[0-9a-f]{1,4}$/.test(hexGroups[1])) {
+    const hi = parseInt(hexGroups[0], 16);
+    const lo = parseInt(hexGroups[1], 16);
+    return [hi >> 8, hi & 0xff, lo >> 8, lo & 0xff].join(".");
+  }
+  return null;
+}
+
 function ipIsPrivateOrLocal(ip: string): boolean {
   const kind = net.isIP(ip);
 
@@ -55,9 +78,9 @@ function ipIsPrivateOrLocal(ip: string): boolean {
     if (lower.startsWith("fe80:") || lower.startsWith("fe80::")) return true; // link-local
     if (lower.startsWith("fc") || lower.startsWith("fd")) return true; // unique local (fc00::/7)
     if (lower.startsWith("::ffff:")) {
-      // IPv4-mapped IPv6 — check the embedded IPv4 address too
-      const mapped = lower.replace("::ffff:", "");
-      if (net.isIP(mapped) === 4) return ipIsPrivateOrLocal(mapped);
+      // IPv4-mapped IPv6 — check the embedded IPv4 address too.
+      const mapped = mappedIPv4(lower);
+      if (mapped) return ipIsPrivateOrLocal(mapped);
     }
     return false;
   }
@@ -67,7 +90,16 @@ function ipIsPrivateOrLocal(ip: string): boolean {
 
 async function resolveAllIps(hostname: string): Promise<string[]> {
   // If it's already a literal IP, no DNS lookup needed.
-  if (net.isIP(hostname)) return [hostname];
+  // url.hostname keeps the brackets for IPv6 literals (e.g. "[::1]"),
+  // which net.isIP() does not recognize — strip them before the IP check
+  // so bracketed IPv6 literals are treated as literal IPs (no DNS lookup)
+  // instead of falling through to a DNS lookup on the literal string
+  // "[::1]", which always fails and would incorrectly block a legitimate
+  // IPv6 loopback/LAN URL.
+  const bareHostname =
+    hostname.startsWith("[") && hostname.endsWith("]") ? hostname.slice(1, -1) : hostname;
+
+  if (net.isIP(bareHostname)) return [bareHostname];
 
   try {
     const results = await dns.lookup(hostname, { all: true, verbatim: true });
@@ -138,8 +170,8 @@ function ipIsLinkLocalOrMetadata(ip: string): boolean {
     const lower = ip.toLowerCase();
     if (lower.startsWith("fe80:") || lower.startsWith("fe80::")) return true;
     if (lower.startsWith("::ffff:")) {
-      const mapped = lower.replace("::ffff:", "");
-      if (net.isIP(mapped) === 4) return ipIsLinkLocalOrMetadata(mapped);
+      const mapped = mappedIPv4(lower);
+      if (mapped) return ipIsLinkLocalOrMetadata(mapped);
     }
   }
   return false;
