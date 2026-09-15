@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { rankChunksHybrid, buildOptimizedKnowledgeContextAsync } from "../lib/rag";
+import { clearEmbeddingCache } from "../lib/embeddings";
 import type { DocumentChunk } from "../lib/rag";
 import type { ProjectFile } from "../lib/types";
 
@@ -20,6 +21,7 @@ function makeChunk(id: string, text: string): DocumentChunk {
 describe("rankChunksHybrid", () => {
   const originalFetch = global.fetch;
 
+  beforeEach(() => clearEmbeddingCache());
   afterEach(() => {
     global.fetch = originalFetch;
     vi.restoreAllMocks();
@@ -76,6 +78,7 @@ describe("rankChunksHybrid", () => {
 describe("buildOptimizedKnowledgeContextAsync", () => {
   const originalFetch = global.fetch;
 
+  beforeEach(() => clearEmbeddingCache());
   afterEach(() => {
     global.fetch = originalFetch;
     vi.restoreAllMocks();
