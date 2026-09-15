@@ -546,7 +546,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-hidden flex items-center justify-center p-0 sm:p-2 md:p-3">
+    <div className="fixed inset-0 z-50 overflow-hidden flex items-center justify-center p-0 sm:p-1.5 md:p-2">
       {/* Backdrop */}
       <div
         className="fixed inset-0 bg-black/75 backdrop-blur-xs transition-opacity animate-in fade-in"
@@ -554,7 +554,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       />
 
       {/* Full-Fit Desktop Window Container */}
-      <div className="relative w-full sm:w-[98vw] md:w-[97vw] max-w-[1720px] bg-[var(--card-bg)] text-[var(--foreground)] rounded-none sm:rounded-3xl border-0 sm:border border-[var(--card-border)] shadow-2xl overflow-hidden flex flex-col z-10 h-[100dvh] sm:h-[96vh] animate-in slide-in-from-bottom sm:zoom-in-95 duration-200">
+      <div className="relative w-full sm:w-[99vw] md:w-[98vw] max-w-[2200px] bg-[var(--card-bg)] text-[var(--foreground)] rounded-none sm:rounded-3xl border-0 sm:border border-[var(--card-border)] shadow-2xl overflow-hidden flex flex-col z-10 h-[100dvh] sm:h-[98vh] animate-in slide-in-from-bottom sm:zoom-in-95 duration-200">
         {/* Top Header Bar */}
         <div className="px-5 py-3.5 border-b border-[var(--sidebar-border)] flex items-center justify-between flex-shrink-0 bg-[var(--sidebar-bg)]">
           <div className="flex items-center gap-2">
