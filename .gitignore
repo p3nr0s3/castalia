@@ -44,3 +44,10 @@ Thumbs.db
 
 # Secret generated at Blender bridge install time — must never be committed.
 /data/blender-bridge-token.json
+
+# Session handoff patch files — accidentally committed 5 times (afc7d23,
+# 070d1e2, 1022176, and twice more folded into other commits). Workflow is
+# generate patch -> user applies -> delete before git add -A; this makes
+# the "forgot to delete" case harmless too.
+*.patch
+*.diff

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { apiFetch } from "../lib/apiClient";
 import { Check, Copy, Download, Play, Eye, Code, RotateCcw, Terminal, X, Box, Loader2, AlertCircle } from "lucide-react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
@@ -125,6 +125,33 @@ export const CodeBlock: React.FC<CodeBlockProps> = ({ language = "text", value }
   const [activeTab, setActiveTab] = useState<"code" | "preview">("code");
   const [runLogs, setRunLogs] = useState<string[] | null>(null);
   const [isRunning, setIsRunning] = useState(false);
+
+  // Sandboxed iframe runner for the "Run" button below — same isolation
+  // pattern as CodespaceView.tsx's runner: code from chat (AI-generated,
+  // possibly influenced by web content/RAG) must never execute with this
+  // page's own window/localStorage/cookies/fetch access. A distinct
+  // __codeBlockRunner message tag keeps this isolated from any
+  // CodespaceView runner that might be mounted elsewhere on the page.
+  const runnerIframeRef = useRef<HTMLIFrameElement>(null);
+  const runIdRef = useRef(0);
+  const [runnerDoc, setRunnerDoc] = useState<string | null>(null);
+
+  useEffect(() => {
+    function handleRunnerMessage(event: MessageEvent) {
+      if (runnerIframeRef.current && event.source !== runnerIframeRef.current.contentWindow) return;
+      const data = event.data;
+      if (!data || data.__codeBlockRunner !== true || data.runId !== runIdRef.current) return;
+
+      if (data.type === "log") {
+        setRunLogs((prev) => [...(prev || []), data.text]);
+      } else if (data.type === "done") {
+        setIsRunning(false);
+        setRunLogs((prev) => (prev && prev.length > 0 ? prev : ["(Executed successfully with no output)"]));
+      }
+    }
+    window.addEventListener("message", handleRunnerMessage);
+    return () => window.removeEventListener("message", handleRunnerMessage);
+  }, []);
   const [isInjecting, setIsInjecting] = useState(false);
   const [injectStatus, setInjectStatus] = useState<"success" | "error" | null>(null);
   const [injectMessage, setInjectMessage] = useState<string>("");
@@ -214,35 +241,50 @@ export const CodeBlock: React.FC<CodeBlockProps> = ({ language = "text", value }
 
   const handleRunJs = () => {
     setIsRunning(true);
-    const logs: string[] = [];
-    const customConsole = {
-      log: (...args: any[]) => {
-        logs.push(args.map((a) => (typeof a === "object" ? JSON.stringify(a, null, 2) : String(a))).join(" "));
-      },
-      error: (...args: any[]) => {
-        logs.push("[ERROR] " + args.map((a) => (typeof a === "object" ? JSON.stringify(a, null, 2) : String(a))).join(" "));
-      },
-      warn: (...args: any[]) => {
-        logs.push("[WARN] " + args.map((a) => (typeof a === "object" ? JSON.stringify(a, null, 2) : String(a))).join(" "));
-      },
-    };
+    setRunLogs([]);
+    runIdRef.current += 1;
+    const runId = runIdRef.current;
+    const escaped = JSON.stringify(value);
 
-    try {
-      // Execute in isolated function scope
-      const runFn = new Function("console", value);
-      const result = runFn(customConsole);
-      if (result !== undefined) {
-        logs.push("[RETURN] " + (typeof result === "object" ? JSON.stringify(result, null, 2) : String(result)));
-      }
-      if (logs.length === 0) {
-        logs.push("(Executed successfully with no output)");
-      }
-    } catch (err: any) {
-      logs.push(`[RUNTIME ERROR] ${err.message || String(err)}`);
-    }
+    // Runs in a sandboxed iframe (allow-scripts only, no allow-same-origin)
+    // instead of this page's own scope — the code here comes from chat
+    // messages, which can be influenced by web search results or RAG'd
+    // documents (prompt injection), so it must not get access to this
+    // app's window, localStorage, cookies, or authenticated fetch.
+    const doc = `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8" /></head>
+<body>
+<script>
+(function() {
+  var runId = ${runId};
+  function send(type, text) {
+    try { parent.postMessage({ __codeBlockRunner: true, runId: runId, type: type, text: text }, "*"); } catch (e) {}
+  }
+  function fmt(a) {
+    try { return typeof a === "object" ? JSON.stringify(a, null, 2) : String(a); } catch (e) { return String(a); }
+  }
+  var customConsole = {
+    log: function() { send("log", Array.prototype.slice.call(arguments).map(fmt).join(" ")); },
+    error: function() { send("log", "[ERROR] " + Array.prototype.slice.call(arguments).map(fmt).join(" ")); },
+    warn: function() { send("log", "[WARN] " + Array.prototype.slice.call(arguments).map(fmt).join(" ")); }
+  };
+  try {
+    var code = ${escaped};
+    var runFn = new Function("console", code);
+    var result = runFn(customConsole);
+    if (result !== undefined) send("log", "[RETURN] " + fmt(result));
+    send("done");
+  } catch (err) {
+    send("log", "[RUNTIME ERROR] " + (err && err.message ? err.message : String(err)));
+    send("done");
+  }
+})();
+</script>
+</body>
+</html>`;
 
-    setRunLogs(logs);
-    setIsRunning(false);
+    setRunnerDoc(doc);
   };
 
   return (
@@ -404,6 +446,18 @@ export const CodeBlock: React.FC<CodeBlockProps> = ({ language = "text", value }
             {value.trimEnd()}
           </SyntaxHighlighter>
         </div>
+      )}
+
+      {/* Hidden sandboxed runner iframe for the JS "Run" button */}
+      {runnerDoc !== null && (
+        <iframe
+          ref={runnerIframeRef}
+          key={runIdRef.current}
+          title="Code Execution Sandbox"
+          srcDoc={runnerDoc}
+          sandbox="allow-scripts"
+          style={{ display: "none" }}
+        />
       )}
 
       {/* JavaScript Execution Console Output Drawer */}
