@@ -223,6 +223,55 @@ npm run tunnel
 
 ---
 
+## 🔌 Local App Bridge — Framework untuk Koneksi ke Aplikasi Lokal
+
+Beberapa fitur (misalnya integrasi Blender via MCP) butuh menghubungkan aplikasi web ini ke aplikasi desktop lain yang berjalan di komputer yang sama, lewat HTTP bridge lokal. `lib/localAppBridge.ts` adalah lapisan generic yang menangani pola yang sama untuk semua bridge semacam ini, diekstrak dari implementasi Blender bridge yang sudah ada:
+
+1. **Token otentikasi per-instalasi** — token acak (`crypto.randomBytes(24)`) dibuat sekali saat bridge di-install, disimpan di `data/<bridge-id>-bridge-token.json`, dan dikirim di setiap request lewat header `X-Bridge-Token`.
+2. **SSRF guard loopback-only** — `assertLoopbackOnlyUrl()` (di `lib/ssrfGuard.ts`) memastikan URL bridge selalu `127.0.0.1`/`::1`, tidak pernah alamat LAN atau publik. Ini penting karena bridge biasanya menerima perintah yang powerful (eksekusi kode, kontrol aplikasi) — kalau bisa diakses dari luar loopback, itu jadi RCE terbuka.
+3. **Test koneksi** dengan timeout, untuk cek bridge hidup atau tidak sebelum mengirim perintah.
+4. **Eksekusi aksi** dengan fallback endpoint, timeout, dan pembedaan jelas antara "bridge menolak karena token salah" (401) vs "bridge memang mati/tidak terjangkau".
+5. **Fallback offline** — kalau bridge mati, caller dapat payload yang tadinya mau dikirim, supaya bisa dijalankan manual oleh user (misal: paste script Python langsung ke Blender).
+
+### Yang TIDAK digeneralisasi (tetap spesifik per-aplikasi)
+
+- Instalasi startup-script (path OS-specific — Blender pakai `AppData/Blender Foundation` di Windows, `.config/blender` di Linux, dst). Tidak semua aplikasi desktop punya mekanisme "jalankan script ini saat startup" yang sama, jadi ini tetap ditulis manual per-bridge.
+- Isi script/payload yang dikirim ke bridge (Blender: Python via `bpy`; bridge lain: format apapun yang aplikasi itu terima).
+- Port default dan path endpoint — masing-masing bridge mendefinisikan `BridgeDefinition` sendiri.
+
+### Cara menambahkan bridge baru
+
+Bridge Blender yang sudah ada di `app/api/connectors/route.ts` **belum** dipindah ke framework ini (sengaja — supaya tidak berisiko meregresi fitur yang sudah teruji), jadi framework ini murni untuk bridge yang akan ditambahkan setelahnya. Contoh skeleton untuk bridge baru:
+
+```typescript
+import { BridgeDefinition, testBridgeConnection, executeBridgeAction, generateAndStoreBridgeToken } from "@/lib/localAppBridge";
+
+const OBS_BRIDGE: BridgeDefinition = {
+  id: "obs-studio",
+  displayName: "OBS Studio",
+  defaultUrl: "http://127.0.0.1:4455", // OBS WebSocket default port
+  executePath: "/request",
+  timeoutMs: 3000,
+};
+
+// Saat user klik "Connect" di UI:
+const { reachable, details } = await testBridgeConnection(OBS_BRIDGE, userProvidedUrl);
+
+// Saat user minta aksi (misal: mulai recording):
+const result = await executeBridgeAction(OBS_BRIDGE, userProvidedUrl, {
+  requestType: "StartRecord",
+});
+if (result.isBridgeOffline) {
+  // tampilkan pesan "OBS tidak terjangkau, pastikan OBS WebSocket server aktif"
+} else if (result.isAuthRejected) {
+  // tampilkan pesan "token salah, cek pengaturan OBS WebSocket"
+} else if (result.success) {
+  // tampilkan result.message
+}
+```
+
+Test suite framework ini ada di `tests/localAppBridge.test.ts` (18 test — lifecycle token, fallback endpoint, deteksi 401 vs offline, SSRF guard).
+
 ## 📂 Struktur Folder Proyek
 
 ```text

@@ -142,6 +142,36 @@ export async function assertPublicUrl(rawUrl: string): Promise<void> {
 }
 
 /** For blender_execute/blender test. ONLY localhost/loopback is allowed — that's the feature; anything else is refused. */
+/**
+ * Enforces that a local-app-bridge endpoint resolves to loopback only
+ * (127.0.0.1 / ::1) — never a LAN address, never a public host. This is
+ * the generic policy for ANY local bridge that accepts arbitrary code
+ * execution or privileged actions (Blender's Python MCP bridge is the
+ * first caller, but the policy itself has nothing Blender-specific in
+ * it — see lib/localAppBridge.ts for the framework this backs).
+ */
+export async function assertLoopbackOnlyUrl(rawUrl: string): Promise<void> {
+  const url = await parseAndValidate(rawUrl);
+  const ips = await resolveAllIps(url.hostname);
+
+  const allLoopback = ips.length > 0 && ips.every((ip) => {
+    const kind = net.isIP(ip);
+    if (kind === 4) return ip.startsWith("127.");
+    if (kind === 6) return ip.toLowerCase() === "::1";
+    return false;
+  });
+
+  if (!allLoopback) {
+    throw new SsrfBlockedError(
+      `This bridge must be on localhost (127.0.0.1 or ::1) — '${rawUrl}' does not resolve to loopback. Refusing to connect to a non-local endpoint.`
+    );
+  }
+}
+
+/** @deprecated Use assertLoopbackOnlyUrl — kept as an alias so the
+ * existing Blender call site (app/api/connectors/route.ts) and its
+ * error message wording don't need to change. New bridges should call
+ * assertLoopbackOnlyUrl directly via lib/localAppBridge.ts. */
 export async function assertBlenderUrl(rawUrl: string): Promise<void> {
   const url = await parseAndValidate(rawUrl);
   const ips = await resolveAllIps(url.hostname);
