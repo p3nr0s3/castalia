@@ -39,6 +39,24 @@ const nextConfig = {
       // found" warning when the package isn't present) — Node's own
       // require() handles it correctly either way at runtime.
       config.externals = [...(config.externals || []), "better-sqlite3"];
+    } else {
+      // lib/embeddings.ts is reachable from the client bundle (imported via
+      // lib/rag.ts <- app/page.tsx) but lazily require()s 'fs'/'path' only
+      // inside a `typeof window === "undefined"` runtime guard, so that
+      // code never actually executes in the browser. `next build`'s
+      // production optimizer dead-code-eliminates the guarded branch
+      // before module resolution, so it's silent there — but `next dev`
+      // does not perform the same elimination and still tries to resolve
+      // 'fs'/'path' for the client bundle, producing a persistent
+      // "Module not found: Can't resolve 'fs'" warning (harmless, but
+      // noisy on every compile). Telling webpack to stub these out for
+      // the client bundle fixes it in both dev and prod, independent of
+      // whatever dead-code elimination happens to do.
+      config.resolve.fallback = {
+        ...config.resolve.fallback,
+        fs: false,
+        path: false,
+      };
     }
     return config;
   },
