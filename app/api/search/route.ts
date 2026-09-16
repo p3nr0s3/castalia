@@ -8,6 +8,7 @@ import {
   filterAndScoreResults,
   scrapePageContent,
   searchBingEngine,
+  searchDualEngine,
   searchGoogleNews,
   searchWikipedia,
 } from "@/lib/webSearchEngine";
@@ -114,7 +115,7 @@ export async function POST(req: NextRequest) {
       results = filteredNews.slice(0, 3);
 
       // 2. Hybrid enhancement: fetch 1-2 organic direct news articles (which can be deep-scraped)
-      const organicNews = await searchBingEngine(primarySearchQuery, queryCtx.locale);
+      const organicNews = await searchDualEngine(primarySearchQuery, queryCtx.locale);
       const filteredOrganic = filterAndScoreResults(organicNews, queryCtx);
       for (const item of filteredOrganic) {
         if (!results.some((r) => r.url === item.url) && results.length < 5) {
@@ -124,7 +125,7 @@ export async function POST(req: NextRequest) {
     } else if (queryCtx.intent === "hardware") {
       usedEngine = "builtin-hardware";
       // Hardware product reviews & price comparisons
-      const organicHardware = await searchBingEngine(primarySearchQuery, queryCtx.locale);
+      const organicHardware = await searchDualEngine(primarySearchQuery, queryCtx.locale);
       let filteredHardware = filterAndScoreResults(organicHardware, queryCtx);
 
       // Second query attempt if first is sparse
@@ -144,7 +145,7 @@ export async function POST(req: NextRequest) {
     } else if (queryCtx.intent === "security") {
       usedEngine = "builtin-security";
       // Cybersecurity & CVE advisories
-      const organicSec = await searchBingEngine(primarySearchQuery, queryCtx.locale);
+      const organicSec = await searchDualEngine(primarySearchQuery, queryCtx.locale);
       let filteredSec = filterAndScoreResults(organicSec, queryCtx);
 
       if (filteredSec.length < 3 && queryCtx.refinedQueries.length > 1) {
@@ -170,7 +171,7 @@ export async function POST(req: NextRequest) {
       // uses primarySearchQuery; this was the one gap, and it covers the
       // two most common intents (anything that isn't shopping or a
       // realtime/security query lands here).
-      const organic = await searchBingEngine(primarySearchQuery, queryCtx.locale);
+      const organic = await searchDualEngine(primarySearchQuery, queryCtx.locale);
       let filtered = filterAndScoreResults(organic, queryCtx);
 
       // If the refined query came up short, retry with the plain cleanQuery

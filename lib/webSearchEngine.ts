@@ -751,10 +751,125 @@ export async function searchBingEngine(
       }
     }
 
+    if (results.length === 0 && /unusual traffic|verify you are a human|are you a robot/i.test(html)) {
+      console.warn("[search] Bing appears to have blocked/challenged this request (0 results parsed).");
+    }
+
     return results;
   } catch {
     return [];
   }
+}
+
+/**
+ * Decodes DuckDuckGo's HTML-endpoint redirect URLs (//duckduckgo.com/l/?uddg=...)
+ * directly into target destination URLs.
+ */
+export function decodeDuckDuckGoUrl(rawUrl: string): string {
+  try {
+    const withScheme = rawUrl.startsWith("//") ? `https:${rawUrl}` : rawUrl;
+    const parsed = new URL(withScheme);
+    const uddg = parsed.searchParams.get("uddg");
+    if (uddg) {
+      const decoded = decodeURIComponent(uddg);
+      if (decoded.startsWith("http")) return decoded;
+    }
+  } catch {}
+  return rawUrl;
+}
+
+/**
+ * Independent second organic-search source (DuckDuckGo's no-JS HTML endpoint).
+ * Run alongside searchBingEngine so a block/markup-change/degraded response on
+ * one engine doesn't leave the whole search with zero or low-quality results —
+ * the two sources are merged and deduped by the caller.
+ */
+export async function searchDuckDuckGoEngine(
+  cleanQuery: string,
+  locale?: { lang: string; cc: string; acceptLang: string }
+): Promise<SearchSource[]> {
+  try {
+    const acceptLang = locale?.acceptLang || "en-US,en;q=0.9";
+    const region = locale?.lang === "id" ? "id-id" : "us-en";
+
+    const ddgUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(cleanQuery)}&kl=${region}`;
+
+    const res = await fetch(ddgUrl, {
+      method: "POST",
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept-Language": acceptLang,
+        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: `q=${encodeURIComponent(cleanQuery)}&kl=${region}`,
+      signal: AbortSignal.timeout(4500),
+    });
+
+    if (!res.ok) return [];
+    const html = await res.text();
+    const results: SearchSource[] = [];
+
+    const resultRegex = /<div class="result[^"]*results_links[^"]*"[^>]*>([\s\S]*?)<\/div>\s*<\/div>\s*<\/div>/gi;
+    let match: RegExpExecArray | null;
+
+    while ((match = resultRegex.exec(html)) !== null) {
+      const block = match[1];
+      const linkMatch = block.match(/<a[^>]*class="result__a"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/i);
+      if (!linkMatch) continue;
+
+      const decodedUrl = decodeDuckDuckGoUrl(linkMatch[1]);
+      const title = cleanHtml(linkMatch[2]);
+
+      const snippetMatch = block.match(/<a[^>]*class="result__snippet"[^>]*>([\s\S]*?)<\/a>/i);
+      const snippet = snippetMatch ? cleanHtml(snippetMatch[1]) : "";
+
+      if (decodedUrl.startsWith("http") && title && !results.some((r) => r.url === decodedUrl)) {
+        results.push({
+          title,
+          url: decodedUrl,
+          snippet,
+          engine: "builtin-duckduckgo",
+        });
+      }
+    }
+
+    if (results.length === 0 && /anomaly|unusual activity/i.test(html)) {
+      console.warn("[search] DuckDuckGo appears to have blocked/challenged this request (0 results parsed).");
+    }
+
+    return results;
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Runs Bing and DuckDuckGo in parallel and merges/dedupes the results, so a
+ * block or markup change on one engine doesn't starve the whole query — the
+ * two unofficial scrapers cover each other's blind spots instead of being
+ * tried one after another with the same failure mode.
+ */
+export async function searchDualEngine(
+  cleanQuery: string,
+  locale?: { lang: string; cc: string; acceptLang: string }
+): Promise<SearchSource[]> {
+  const [bingSettled, ddgSettled] = await Promise.allSettled([
+    searchBingEngine(cleanQuery, locale),
+    searchDuckDuckGoEngine(cleanQuery, locale),
+  ]);
+
+  const bing = bingSettled.status === "fulfilled" ? bingSettled.value : [];
+  const ddg = ddgSettled.status === "fulfilled" ? ddgSettled.value : [];
+
+  const merged: SearchSource[] = [...bing];
+  for (const item of ddg) {
+    if (!merged.some((r) => r.url === item.url)) {
+      merged.push(item);
+    }
+  }
+  return merged;
 }
 
 /**
