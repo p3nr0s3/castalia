@@ -33,3 +33,26 @@ export function resolveWithinBase(baseDir: string, inputPath?: string): string {
 
   return resolved;
 }
+
+/**
+ * Shared "is this a plain-text/code file we're willing to read as UTF-8
+ * text" extension set. Originally duplicated between app/api/fs/route.ts
+ * (file explorer) and lib/fileWatcher.ts (ambient project-folder
+ * indexing) — centralized here so the two don't quietly drift apart on
+ * which extensions are considered text.
+ */
+export const TEXT_FILE_EXTENSIONS = new Set([
+  ".txt", ".md", ".json", ".csv", ".tsv", ".log", ".env", ".yml", ".yaml", ".xml",
+  ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".py", ".html", ".htm", ".css",
+  ".scss", ".sass", ".less", ".java", ".c", ".cpp", ".h", ".hpp", ".cs", ".rs",
+  ".go", ".php", ".rb", ".sql", ".sh", ".bash", ".bat", ".cmd", ".ps1", ".ini",
+  ".toml", ".conf", ".cfg", ".dockerfile", ".gitignore", ".prisma", ".vue", ".svelte",
+  ".markdown",
+]);
+
+export function isTextFile(filePath: string): boolean {
+  const ext = path.extname(filePath).toLowerCase();
+  const basename = path.basename(filePath).toLowerCase();
+  if (basename === "dockerfile" || basename === "makefile" || basename === ".env") return true;
+  return TEXT_FILE_EXTENSIONS.has(ext);
+}

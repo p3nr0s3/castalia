@@ -220,6 +220,12 @@ export interface ProjectFile {
   mimeType?: string;
   textContent?: string;
   uploadedAt: number;
+  /** Present only for files synced in by the ambient file-watcher (see
+   * Project.watchedFolderPath) — the path relative to the watched folder
+   * root, used to match filesystem events back to this file and to know
+   * which files are watcher-owned vs manually uploaded. Manually uploaded
+   * files never have this field. */
+  watchedRelativePath?: string;
 }
 
 export interface Project {
@@ -251,6 +257,15 @@ export interface Project {
   ragChunkOverlapChars?: number;
   ragTopK?: number;
   ragSemanticWeight?: number;
+  /** Ambient file-watcher indexing (server-side, opt-in per project).
+   * Path is resolved and sandboxed relative to the server's home directory
+   * the same way disk tools are (see lib/pathSandbox.ts) — never an
+   * absolute filesystem root. When set, the server watches this folder and
+   * keeps `files` synced with its plain-text contents automatically;
+   * manually uploaded files (via the Knowledge tab's Upload button) are
+   * left untouched and continue to coexist alongside watched ones. */
+  watchedFolderPath?: string;
+  watchedFolderEnabled?: boolean;
   createdAt: number;
   updatedAt: number;
 }

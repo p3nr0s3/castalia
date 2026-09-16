@@ -2,26 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import fs from "fs/promises";
 import path from "path";
 import os from "os";
-import { resolveWithinBase } from "@/lib/pathSandbox";
+import { resolveWithinBase, isTextFile } from "@/lib/pathSandbox";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-// Helper to determine if file is text/code readable
-const TEXT_EXTENSIONS = new Set([
-  ".txt", ".md", ".json", ".csv", ".tsv", ".log", ".env", ".yml", ".yaml", ".xml",
-  ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".py", ".html", ".htm", ".css",
-  ".scss", ".sass", ".less", ".java", ".c", ".cpp", ".h", ".hpp", ".cs", ".rs",
-  ".go", ".php", ".rb", ".sql", ".sh", ".bash", ".bat", ".cmd", ".ps1", ".ini",
-  ".toml", ".conf", ".cfg", ".dockerfile", ".gitignore", ".prisma", ".vue", ".svelte"
-]);
-
-function isTextFile(filePath: string): boolean {
-  const ext = path.extname(filePath).toLowerCase();
-  const basename = path.basename(filePath).toLowerCase();
-  if (basename === "dockerfile" || basename === "makefile" || basename === ".env") return true;
-  return TEXT_EXTENSIONS.has(ext);
-}
 
 // Security: every path this route touches must stay inside the user's home directory.
 // This is a file explorer by design (browsing outside the project dir is intended),

@@ -1,12 +1,13 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
-import { X, FolderPlus, Folder, FileText, Upload, Trash as Trash2, Faders as Sliders, Sparkle as Sparkles, Check, Plus, Brain, Lightning as Zap, MagicWand as Wand2, Hash, Prohibit as Ban } from "@phosphor-icons/react";
+import { X, FolderPlus, Folder, FileText, Upload, Trash as Trash2, Faders as Sliders, Sparkle as Sparkles, Check, Plus, Brain, Lightning as Zap, MagicWand as Wand2, Hash, Prohibit as Ban, Eye, EyeSlash } from "@phosphor-icons/react";
 import { Project, ProjectFile, OllamaModel, ThinkingMode } from "@/lib/types";
 import { formatBytes } from "@/lib/ollama";
 import { processSelectedFiles } from "@/lib/fileUtils";
 import { CLOUD_MODEL_PRESETS } from "@/lib/constants";
 import { estimateTokens, chunkDocument } from "@/lib/rag";
+import { apiFetch } from "@/lib/apiClient";
 
 interface ProjectModalProps {
   isOpen: boolean;
@@ -63,6 +64,10 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
   const [ragChunkOverlapChars, setRagChunkOverlapChars] = useState(project?.ragChunkOverlapChars ?? 200);
   const [ragTopK, setRagTopK] = useState(project?.ragTopK ?? 8);
   const [ragSemanticWeight, setRagSemanticWeight] = useState(project?.ragSemanticWeight ?? 0.55);
+  const [watchedFolderPath, setWatchedFolderPath] = useState(project?.watchedFolderPath ?? "");
+  const [watchedFolderEnabled, setWatchedFolderEnabled] = useState(Boolean(project?.watchedFolderEnabled));
+  const [watcherStatus, setWatcherStatus] = useState<"idle" | "starting" | "stopping" | "error">("idle");
+  const [watcherError, setWatcherError] = useState<string | null>(null);
   const [files, setFiles] = useState<ProjectFile[]>(project?.files || []);
   const [activeTab, setActiveTab] = useState<"general" | "parameters" | "knowledge">(initialTab);
 
@@ -91,6 +96,9 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
         setRagChunkOverlapChars(project.ragChunkOverlapChars ?? 200);
         setRagTopK(project.ragTopK ?? 8);
         setRagSemanticWeight(project.ragSemanticWeight ?? 0.55);
+        setWatchedFolderPath(project.watchedFolderPath ?? "");
+        setWatchedFolderEnabled(Boolean(project.watchedFolderEnabled));
+        setWatcherError(null);
         setFiles(project.files || []);
       } else {
         setName("");
@@ -113,6 +121,9 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
         setRagChunkOverlapChars(200);
         setRagTopK(8);
         setRagSemanticWeight(0.55);
+        setWatchedFolderPath("");
+        setWatchedFolderEnabled(false);
+        setWatcherError(null);
         setFiles([]);
       }
       if (initialTab) {
@@ -184,6 +195,57 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
     setFiles((prev) => prev.filter((f) => f.id !== id));
   };
 
+  const toggleWatcher = async () => {
+    if (!project?.id) {
+      alert("Save the project first — a project must exist before its folder can be watched.");
+      return;
+    }
+
+    setWatcherError(null);
+
+    if (watchedFolderEnabled) {
+      setWatcherStatus("stopping");
+      try {
+        await apiFetch("/api/projects/watcher", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ projectId: project.id, action: "stop" }),
+        });
+        setWatchedFolderEnabled(false);
+      } catch (err: any) {
+        setWatcherError(err.message || "Failed to stop the watcher.");
+      } finally {
+        setWatcherStatus("idle");
+      }
+      return;
+    }
+
+    if (!watchedFolderPath.trim()) {
+      setWatcherError("Enter a folder path first.");
+      return;
+    }
+
+    setWatcherStatus("starting");
+    try {
+      const res = await apiFetch("/api/projects/watcher", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId: project.id, action: "start", folderPath: watchedFolderPath.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setWatcherError(data.error || "Failed to start the watcher.");
+        setWatcherStatus("error");
+        return;
+      }
+      setWatchedFolderEnabled(true);
+      setWatcherStatus("idle");
+    } catch (err: any) {
+      setWatcherError(err.message || "Failed to start the watcher.");
+      setWatcherStatus("error");
+    }
+  };
+
   const handleSave = () => {
     if (!name.trim()) {
       alert("Please enter a project name.");
@@ -212,6 +274,8 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
       ragChunkOverlapChars,
       ragTopK,
       ragSemanticWeight,
+      watchedFolderPath: watchedFolderPath.trim() || undefined,
+      watchedFolderEnabled,
       files,
       createdAt: project?.createdAt || Date.now(),
       updatedAt: Date.now(),
@@ -771,6 +835,58 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
                         </p>
                       </div>
                     </div>
+                  </div>
+                </details>
+
+                {/* Ambient File-Watcher — server-side folder sync, additive to manual upload above. Only usable for saved projects (needs a project.id to attach the watcher to). */}
+                <details className="rounded-xl border border-[var(--card-border)] bg-[var(--card-bg)] px-3 py-2">
+                  <summary className="text-xs font-semibold text-[var(--foreground)] cursor-pointer select-none flex items-center gap-2">
+                    {watchedFolderEnabled ? (
+                      <Eye className="w-3.5 h-3.5 text-emerald-400" />
+                    ) : (
+                      <EyeSlash className="w-3.5 h-3.5 text-[var(--muted)]" />
+                    )}
+                    Ambient Folder Watcher
+                    {watchedFolderEnabled && (
+                      <span className="ml-auto text-[10px] font-mono text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded">
+                        Active
+                      </span>
+                    )}
+                  </summary>
+                  <div className="mt-3 space-y-3">
+                    <p className="text-[10px] text-[var(--muted)] leading-relaxed">
+                      Point this at a folder on the server's machine and it stays synced automatically — edit a file there and it's re-indexed within a second, no re-upload needed. Only plain-text/code files are watched (same types Upload accepts, minus PDF). Manually uploaded files above are untouched and continue to work alongside watched ones. The path is sandboxed to your home directory, same as the disk tools.
+                    </p>
+
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={watchedFolderPath}
+                        onChange={(e) => setWatchedFolderPath(e.target.value)}
+                        disabled={watchedFolderEnabled || watcherStatus !== "idle"}
+                        placeholder="e.g. Documents/my-project-notes"
+                        className="flex-1 px-3 py-2 rounded-xl bg-[var(--sidebar-bg)] border border-[var(--card-border)] text-xs text-[var(--foreground)] placeholder:text-[var(--muted)] disabled:opacity-60"
+                      />
+                      <button
+                        type="button"
+                        onClick={toggleWatcher}
+                        disabled={watcherStatus === "starting" || watcherStatus === "stopping" || !project?.id}
+                        className={`px-3 py-2 rounded-xl text-xs font-semibold whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed ${
+                          watchedFolderEnabled
+                            ? "bg-red-500/10 text-red-400 border border-red-500/25 hover:bg-red-500/20"
+                            : "bg-emerald-500/10 text-emerald-400 border border-emerald-500/25 hover:bg-emerald-500/20"
+                        }`}
+                      >
+                        {watcherStatus === "starting" ? "Starting…" : watcherStatus === "stopping" ? "Stopping…" : watchedFolderEnabled ? "Stop Watching" : "Start Watching"}
+                      </button>
+                    </div>
+
+                    {!project?.id && (
+                      <p className="text-[10px] text-amber-400">Save this project first — the watcher needs a project to attach to.</p>
+                    )}
+                    {watcherError && (
+                      <p className="text-[10px] text-red-400">{watcherError}</p>
+                    )}
                   </div>
                 </details>
 

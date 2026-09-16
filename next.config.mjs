@@ -21,6 +21,13 @@ const nextConfig = {
     // handful used per page) and keeps lucide-react covered too in case it
     // ever comes back.
     optimizePackageImports: ["@phosphor-icons/react", "lucide-react"],
+    // Next.js 14.2 requires this flag for instrumentation.ts's register()
+    // to be called at all (stable/no-flag-needed as of Next 15+, but this
+    // project is pinned to 14.2.x — see the CVE note above). Used to
+    // resume ambient file-watchers (lib/fileWatcher.ts) for any project
+    // that had one enabled in a previous server run, since fs.watch
+    // instances don't survive a process restart.
+    instrumentationHook: true,
   },
   webpack: (config, { isServer }) => {
     if (isServer) {
