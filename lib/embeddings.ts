@@ -5,6 +5,12 @@
 // isn't pulled, Ollama isn't reachable, or a request errors, callers fall
 // back to pure BM25 — nothing here should ever be able to break retrieval,
 // only improve it when available.
+//
+// NOTE: this module is imported from rag.ts, which is also imported from
+// client components (app/page.tsx) — so the disk-persistence code below
+// must never statically import 'fs'/'path' (that breaks the browser
+// webpack build, which can't resolve Node's fs module). It's required
+// lazily, only inside the `typeof window === "undefined"` (server) branch.
 
 export interface EmbeddingRequestOptions {
   ollamaUrl: string;
@@ -14,17 +20,77 @@ export interface EmbeddingRequestOptions {
 }
 
 const DEFAULT_EMBEDDING_MODEL = "nomic-embed-text";
+const IS_SERVER = typeof window === "undefined";
 
-// In-memory embedding cache. rankChunksHybrid re-embeds every project chunk
-// on every chat turn even when the file content hasn't changed — for a
-// project with many/large chunks this adds a full round of Ollama calls to
-// every message before generation can even start. Keyed by a hash of the
-// exact text + model (not chunk.id, which can be reused across edits — a
-// content hash means a stale hit is structurally impossible). Capped with
-// simple insertion-order eviction so long sessions with many distinct
-// projects/files don't grow this unboundedly.
+// In-memory embedding cache, backed by data/embeddings-cache.json on disk
+// (server-side only — in the browser this is just the in-memory Map).
+// rankChunksHybrid re-embeds every project chunk on every chat turn even
+// when the file content hasn't changed — for a project with many/large
+// chunks this adds a full round of Ollama calls to every message before
+// generation can even start. Keyed by a hash of the exact text + model (not
+// chunk.id, which can be reused across edits — a content hash means a stale
+// hit is structurally impossible). Capped with simple insertion-order
+// eviction so long sessions with many distinct projects/files don't grow
+// this unboundedly.
+//
+// Without disk persistence this cache was thrown away on every dev-server
+// restart, forcing a full project re-embed (one Ollama call per chunk) on
+// the very next query — this file keeps it warm across restarts, keyed by
+// content hash so edited files simply miss and re-embed individually rather
+// than invalidating anything else.
 const EMBEDDING_CACHE_MAX_ENTRIES = 5000;
 const embeddingCache = new Map<string, number[]>();
+
+const PERSIST_DEBOUNCE_MS = 2000;
+let persistTimer: ReturnType<typeof setTimeout> | null = null;
+let loadedFromDisk = false;
+
+function loadCacheFromDisk(): void {
+  if (!IS_SERVER || loadedFromDisk) return;
+  loadedFromDisk = true;
+  try {
+    const fs = require("fs");
+    const path = require("path");
+    const cacheFile = path.join(process.cwd(), "data", "embeddings-cache.json");
+    const raw = fs.readFileSync(cacheFile, "utf8");
+    const parsed = JSON.parse(raw) as Record<string, number[]>;
+    for (const key of Object.keys(parsed)) {
+      if (Array.isArray(parsed[key])) embeddingCache.set(key, parsed[key]);
+    }
+  } catch {
+    // No cache file yet, or it's corrupt — start empty. Never let a bad
+    // cache file break embedding/retrieval.
+  }
+}
+
+function persistCacheToDisk(): void {
+  if (!IS_SERVER) return;
+  try {
+    const fs = require("fs");
+    const path = require("path");
+    const dataDir = path.join(process.cwd(), "data");
+    const cacheFile = path.join(dataDir, "embeddings-cache.json");
+    if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
+    const obj: Record<string, number[]> = {};
+    embeddingCache.forEach((value, key) => {
+      obj[key] = value;
+    });
+    fs.writeFileSync(cacheFile, JSON.stringify(obj), "utf8");
+  } catch {
+    // Best-effort — a failed write just means the cache stays in-memory
+    // only for this process, same as before this change.
+  }
+}
+
+function schedulePersist(): void {
+  if (!IS_SERVER) return;
+  if (persistTimer) clearTimeout(persistTimer);
+  // Debounced: embedTexts() calls embedOne() once per chunk, often dozens
+  // per query — write once after the batch settles instead of once per
+  // chunk, so indexing a whole project doesn't turn into dozens of disk
+  // writes on the request path.
+  persistTimer = setTimeout(persistCacheToDisk, PERSIST_DEBOUNCE_MS);
+}
 
 /** Test/debug hook — clears the module-level embedding cache. */
 export function clearEmbeddingCache(): void {
@@ -49,6 +115,7 @@ function cacheKey(text: string, model: string): string {
 }
 
 async function embedOne(text: string, options: EmbeddingRequestOptions): Promise<number[] | null> {
+  loadCacheFromDisk();
   const model = options.model || DEFAULT_EMBEDDING_MODEL;
   const key = cacheKey(text, model);
   const cached = embeddingCache.get(key);
@@ -61,7 +128,15 @@ async function embedOne(text: string, options: EmbeddingRequestOptions): Promise
     const res = await fetch(`${options.ollamaUrl.replace(/\/+$/, "")}/api/embeddings`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model, prompt: text }),
+      // keep_alive kept short on purpose: the chat model and the embedding
+      // model are usually two different Ollama models competing for the
+      // same VRAM budget. If both ask to stay resident, every RAG-enabled
+      // turn forces Ollama to swap one out to load the other, and then
+      // swap back for the next chat turn — a load/unload cycle on *every*
+      // message. The embedding model is small and cheap to reload, so we
+      // let it drop from VRAM almost immediately after use instead of
+      // holding a slot the chat model needs back.
+      body: JSON.stringify({ model, prompt: text, keep_alive: "5s" }),
       signal: controller.signal,
     });
     if (!res.ok) return null;
@@ -76,6 +151,7 @@ async function embedOne(text: string, options: EmbeddingRequestOptions): Promise
         if (oldestKey !== undefined) embeddingCache.delete(oldestKey);
       }
       embeddingCache.set(key, embedding);
+      schedulePersist();
     }
 
     return embedding;

@@ -40,6 +40,7 @@ Thumbs.db
 # should never be committed. Untracked as of this commit; file stays on disk.
 /data/db.json
 /data/db.json.migrated.bak
+/data/embeddings-cache.json
 /data/*.sqlite3-*
 
 # Secret generated at Blender bridge install time — must never be committed.
