@@ -73,6 +73,38 @@ describe("rankChunksHybrid", () => {
     expect(ranked[0].id).toBe("semantic-match");
     expect(ranked[0].score).toBeGreaterThan(ranked[1].score);
   });
+
+  it("respects a custom semanticWeight — pure keyword (weight 0) flips the ranking back to BM25's favorite", async () => {
+    const embeddingsByText: Record<string, number[]> = {
+      "database migration guide": [1, 0, 0],
+      "How to move data between databases": [0.9, 0.1, 0],
+      "unrelated cooking recipe content database": [0, 1, 0],
+    };
+    global.fetch = vi.fn().mockImplementation(async (_url: string, init: any) => {
+      const body = JSON.parse(init.body);
+      const embedding = embeddingsByText[body.prompt] || [0, 0, 1];
+      return { ok: true, json: async () => ({ embedding }) } as Response;
+    });
+
+    const chunks = [
+      makeChunk("semantic-match", "How to move data between databases"),
+      // Loaded with the literal query keywords so BM25 favors it heavily,
+      // despite its embedding being semantically unrelated.
+      makeChunk("keyword-match", "database migration guide database migration guide"),
+    ];
+
+    const semanticRanked = await rankChunksHybrid(chunks, "database migration guide", 2, {
+      ollamaUrl: "http://localhost:11434",
+      semanticWeight: 1,
+    });
+    expect(semanticRanked[0].id).toBe("semantic-match");
+
+    const keywordRanked = await rankChunksHybrid(chunks, "database migration guide", 2, {
+      ollamaUrl: "http://localhost:11434",
+      semanticWeight: 0,
+    });
+    expect(keywordRanked[0].id).toBe("keyword-match");
+  });
 });
 
 describe("buildOptimizedKnowledgeContextAsync", () => {
@@ -105,5 +137,63 @@ describe("buildOptimizedKnowledgeContextAsync", () => {
         enabled: true,
       })
     ).resolves.toBeDefined();
+  });
+
+  it("respects a custom chunk size — smaller chunkSizeChars yields more, smaller chunks", async () => {
+    const bigContent = "keyword-alpha content sentence here. ".repeat(200) + "keyword-beta unique passage.";
+    const files: ProjectFile[] = [{ id: "f1", name: "big.md", textContent: bigContent } as ProjectFile];
+
+    const defaultResult = await buildOptimizedKnowledgeContextAsync(
+      files,
+      "keyword-beta",
+      500,
+      { ollamaUrl: "http://x", enabled: false },
+      { chunkSizeChars: 1800, chunkOverlapChars: 200 }
+    );
+    const smallChunkResult = await buildOptimizedKnowledgeContextAsync(
+      files,
+      "keyword-beta",
+      500,
+      { ollamaUrl: "http://x", enabled: false },
+      { chunkSizeChars: 400, chunkOverlapChars: 50 }
+    );
+
+    // Smaller target chunk size over the same content must produce chunks
+    // that are individually no larger than the configured size (plus a
+    // little slack for paragraph-boundary rounding), proving the custom
+    // value actually reached chunkDocument() rather than being ignored.
+    const maxDefaultChunkChars = Math.max(...(defaultResult.retrievedChunks || []).map((c) => c.estimatedTokens ?? 0));
+    const maxSmallChunkChars = Math.max(...(smallChunkResult.retrievedChunks || []).map((c) => c.estimatedTokens ?? 0));
+    expect(maxSmallChunkChars).toBeLessThan(maxDefaultChunkChars);
+  });
+
+  it("respects a custom topK — fewer requested chunks means fewer retrieved", async () => {
+    const bigContent = Array.from({ length: 20 }, (_, i) => `Section ${i}: keyword-target content block number ${i}.`).join("\n\n");
+    const files: ProjectFile[] = [{ id: "f1", name: "big.md", textContent: bigContent } as ProjectFile];
+
+    // tokenBudget must sit strictly below the file's own token count (to
+    // force chunking/ranking at all — otherwise CASE 1 in
+    // buildOptimizedKnowledgeContextAsync returns the whole file
+    // unchunked and topK is never consulted) while staying generous
+    // enough that topK -- not the token budget -- is the binding
+    // constraint on how many chunks make it through
+    // assembleContextFromRanked.
+    const fewResult = await buildOptimizedKnowledgeContextAsync(
+      files,
+      "keyword-target",
+      80,
+      { ollamaUrl: "http://x", enabled: false },
+      { chunkSizeChars: 200, chunkOverlapChars: 20, topK: 2 }
+    );
+    const manyResult = await buildOptimizedKnowledgeContextAsync(
+      files,
+      "keyword-target",
+      250,
+      { ollamaUrl: "http://x", enabled: false },
+      { chunkSizeChars: 200, chunkOverlapChars: 20, topK: 10 }
+    );
+
+    expect(fewResult.matchedChunksCount).toBeLessThanOrEqual(2);
+    expect(manyResult.matchedChunksCount).toBeGreaterThan(fewResult.matchedChunksCount);
   });
 });

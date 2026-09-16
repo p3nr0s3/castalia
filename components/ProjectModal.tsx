@@ -59,6 +59,10 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
   const [stopSequences, setStopSequences] = useState<string>(
     project?.stopSequences ? project.stopSequences.join(", ") : ""
   );
+  const [ragChunkSizeChars, setRagChunkSizeChars] = useState(project?.ragChunkSizeChars ?? 1800);
+  const [ragChunkOverlapChars, setRagChunkOverlapChars] = useState(project?.ragChunkOverlapChars ?? 200);
+  const [ragTopK, setRagTopK] = useState(project?.ragTopK ?? 8);
+  const [ragSemanticWeight, setRagSemanticWeight] = useState(project?.ragSemanticWeight ?? 0.55);
   const [files, setFiles] = useState<ProjectFile[]>(project?.files || []);
   const [activeTab, setActiveTab] = useState<"general" | "parameters" | "knowledge">(initialTab);
 
@@ -83,6 +87,10 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
         setThinkingMode(project.thinkingMode ?? "default");
         setSeed(project.seed !== undefined ? String(project.seed) : "");
         setStopSequences(project.stopSequences ? project.stopSequences.join(", ") : "");
+        setRagChunkSizeChars(project.ragChunkSizeChars ?? 1800);
+        setRagChunkOverlapChars(project.ragChunkOverlapChars ?? 200);
+        setRagTopK(project.ragTopK ?? 8);
+        setRagSemanticWeight(project.ragSemanticWeight ?? 0.55);
         setFiles(project.files || []);
       } else {
         setName("");
@@ -101,6 +109,10 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
         setThinkingMode("default");
         setSeed("");
         setStopSequences("");
+        setRagChunkSizeChars(1800);
+        setRagChunkOverlapChars(200);
+        setRagTopK(8);
+        setRagSemanticWeight(0.55);
         setFiles([]);
       }
       if (initialTab) {
@@ -196,6 +208,10 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
       stopSequences: stopSequences.trim()
         ? stopSequences.split(",").map((s) => s.trim()).filter(Boolean)
         : undefined,
+      ragChunkSizeChars,
+      ragChunkOverlapChars,
+      ragTopK,
+      ragSemanticWeight,
       files,
       createdAt: project?.createdAt || Date.now(),
       updatedAt: Date.now(),
@@ -654,6 +670,109 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
                     <strong className="font-semibold text-emerald-300">16K Context Guard Active:</strong> Large files are automatically split into semantic chunks and retrieved via in-memory BM25 ranker. Fully compatible with Gemma 4, Llama 3, and 16K models with zero GPU VRAM overhead.
                   </div>
                 </div>
+
+                {/* Advanced Retrieval Tuning — only matters once files exceed the token budget and chunking kicks in. Defaults match lib/rag.ts's previous hardcoded values, so leaving these untouched reproduces the old behavior exactly. */}
+                <details className="rounded-xl border border-[var(--card-border)] bg-[var(--card-bg)] px-3 py-2">
+                  <summary className="text-xs font-semibold text-[var(--foreground)] cursor-pointer select-none">
+                    Advanced Retrieval Tuning
+                  </summary>
+                  <div className="mt-3 space-y-3">
+                    <p className="text-[10px] text-[var(--muted)] leading-relaxed">
+                      Only applies once this project's files exceed the token budget and get chunked + ranked. Leave as-is unless retrieval quality needs adjusting for this specific project.
+                    </p>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {/* Chunk Size */}
+                      <div className="p-3 rounded-2xl bg-[var(--sidebar-bg)] border border-[var(--card-border)] space-y-2">
+                        <div className="flex items-center justify-between text-xs font-bold text-[var(--foreground)]">
+                          <span>Chunk Size</span>
+                          <span className="font-mono text-cyan-400 text-xs">{ragChunkSizeChars.toLocaleString()} chars</span>
+                        </div>
+                        <input
+                          type="range"
+                          min={500}
+                          max={4000}
+                          step={100}
+                          value={ragChunkSizeChars}
+                          onChange={(e) => setRagChunkSizeChars(parseInt(e.target.value, 10))}
+                          className="w-full h-1.5 bg-[var(--card-bg)] rounded-lg appearance-none cursor-pointer accent-cyan-500"
+                        />
+                        <div className="flex justify-between text-[10px] text-[var(--muted)]">
+                          <span>500 (Precise)</span>
+                          <span>4000 (Broad)</span>
+                        </div>
+                      </div>
+
+                      {/* Chunk Overlap */}
+                      <div className="p-3 rounded-2xl bg-[var(--sidebar-bg)] border border-[var(--card-border)] space-y-2">
+                        <div className="flex items-center justify-between text-xs font-bold text-[var(--foreground)]">
+                          <span>Chunk Overlap</span>
+                          <span className="font-mono text-cyan-400 text-xs">{ragChunkOverlapChars.toLocaleString()} chars</span>
+                        </div>
+                        <input
+                          type="range"
+                          min={0}
+                          max={Math.min(1000, Math.max(0, ragChunkSizeChars - 100))}
+                          step={50}
+                          value={Math.min(ragChunkOverlapChars, Math.max(0, ragChunkSizeChars - 100))}
+                          onChange={(e) => setRagChunkOverlapChars(parseInt(e.target.value, 10))}
+                          className="w-full h-1.5 bg-[var(--card-bg)] rounded-lg appearance-none cursor-pointer accent-cyan-500"
+                        />
+                        <div className="flex justify-between text-[10px] text-[var(--muted)]">
+                          <span>0 (None)</span>
+                          <span>Prevents context loss at chunk boundaries</span>
+                        </div>
+                      </div>
+
+                      {/* Retrieved Chunks (topK) */}
+                      <div className="p-3 rounded-2xl bg-[var(--sidebar-bg)] border border-[var(--card-border)] space-y-2">
+                        <div className="flex items-center justify-between text-xs font-bold text-[var(--foreground)]">
+                          <span>Chunks Retrieved (topK)</span>
+                          <span className="font-mono text-purple-400 text-xs">{ragTopK}</span>
+                        </div>
+                        <input
+                          type="range"
+                          min={2}
+                          max={20}
+                          step={1}
+                          value={ragTopK}
+                          onChange={(e) => setRagTopK(parseInt(e.target.value, 10))}
+                          className="w-full h-1.5 bg-[var(--card-bg)] rounded-lg appearance-none cursor-pointer accent-purple-500"
+                        />
+                        <div className="flex justify-between text-[10px] text-[var(--muted)]">
+                          <span>2 (Focused)</span>
+                          <span>20 (Comprehensive)</span>
+                        </div>
+                      </div>
+
+                      {/* Semantic vs Keyword Blend — only meaningful when hybrid RAG (Settings > semanticRagEnabled) is on */}
+                      <div className="p-3 rounded-2xl bg-[var(--sidebar-bg)] border border-[var(--card-border)] space-y-2">
+                        <div className="flex items-center justify-between text-xs font-bold text-[var(--foreground)]">
+                          <span>Semantic / Keyword Blend</span>
+                          <span className="font-mono text-emerald-400 text-xs">
+                            {Math.round(ragSemanticWeight * 100)}% / {Math.round((1 - ragSemanticWeight) * 100)}%
+                          </span>
+                        </div>
+                        <input
+                          type="range"
+                          min={0}
+                          max={1}
+                          step={0.05}
+                          value={ragSemanticWeight}
+                          onChange={(e) => setRagSemanticWeight(parseFloat(e.target.value))}
+                          className="w-full h-1.5 bg-[var(--card-bg)] rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                        />
+                        <div className="flex justify-between text-[10px] text-[var(--muted)]">
+                          <span>Keyword (exact terms)</span>
+                          <span>Semantic (meaning)</span>
+                        </div>
+                        <p className="text-[10px] text-[var(--muted)]">
+                          Only applies when hybrid semantic RAG is enabled in Settings — otherwise pure keyword (BM25) ranking is used regardless of this slider.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </details>
 
                 {/* Upload Button */}
                 <button

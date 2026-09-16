@@ -1004,11 +1004,22 @@ export default function HomePage() {
     // 1. Inject Project Knowledge Base (BM25, or hybrid BM25+embeddings when
     // Settings > semanticRagEnabled is on) with 16K Context Guard budgeting.
     if (proj && proj.files && proj.files.length > 0) {
-      const knowledgeResult = await buildOptimizedKnowledgeContextAsync(proj.files, userQuery, 3500, {
-        ollamaUrl: settings.ollamaUrl,
-        embeddingModel: settings.embeddingModel,
-        enabled: Boolean(settings.semanticRagEnabled),
-      });
+      const knowledgeResult = await buildOptimizedKnowledgeContextAsync(
+        proj.files,
+        userQuery,
+        3500,
+        {
+          ollamaUrl: settings.ollamaUrl,
+          embeddingModel: settings.embeddingModel,
+          enabled: Boolean(settings.semanticRagEnabled),
+          semanticWeight: proj.ragSemanticWeight,
+        },
+        {
+          chunkSizeChars: proj.ragChunkSizeChars,
+          chunkOverlapChars: proj.ragChunkOverlapChars,
+          topK: proj.ragTopK,
+        }
+      );
       if (knowledgeResult.contextText) {
         dynamicContext = knowledgeResult.contextText;
         retrievedChunks = knowledgeResult.retrievedChunks;

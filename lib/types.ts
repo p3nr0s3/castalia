@@ -242,6 +242,15 @@ export interface Project {
   stopSequences?: string[];
   files: ProjectFile[];
   memories?: MemoryItem[];
+  /** RAG retrieval tuning — all optional, all fall back to lib/rag.ts's
+   * existing defaults when unset. Chunk size/overlap are in characters
+   * (not tokens) to match chunkDocument()'s existing unit. semanticWeight
+   * + keywordWeight should sum to 1 but aren't enforced to at the type
+   * level — rankChunksHybrid clamps/normalizes defensively. */
+  ragChunkSizeChars?: number;
+  ragChunkOverlapChars?: number;
+  ragTopK?: number;
+  ragSemanticWeight?: number;
   createdAt: number;
   updatedAt: number;
 }

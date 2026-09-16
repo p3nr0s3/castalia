@@ -298,7 +298,7 @@ export async function rankChunksHybrid(
   chunks: DocumentChunk[],
   query: string,
   topK: number,
-  embeddingOptions: { ollamaUrl: string; embeddingModel?: string }
+  embeddingOptions: { ollamaUrl: string; embeddingModel?: string; semanticWeight?: number }
 ): Promise<RankedChunk[]> {
   // Full BM25 ranking (unsliced) so we have a score for every chunk to blend with.
   const bm25Ranked = rankChunksBM25(chunks, query, chunks.length);
@@ -315,14 +315,19 @@ export async function rankChunksHybrid(
   const bm25ScoreById = new Map(bm25Ranked.map((c) => [c.id, c.score / maxBm25]));
   const chunkEmbeddingById = new Map(chunks.map((c, i) => [c.id, chunkEmbeddings[i]]));
 
+  // Default blend keeps the semantic signal leading (catches
+  // paraphrases/synonyms BM25 misses) while keyword score still counts so
+  // exact identifiers/filenames aren't drowned out by embedding similarity
+  // alone. Clamped to [0, 1] so a bad config value (e.g. from a stale
+  // project setting) can't produce a negative or >1 weight.
+  const semanticWeight = Math.min(1, Math.max(0, embeddingOptions.semanticWeight ?? 0.55));
+  const keywordWeight = 1 - semanticWeight;
+
   const hybridScored: RankedChunk[] = chunks.map((chunk) => {
     const emb = chunkEmbeddingById.get(chunk.id);
     const semanticScore = emb ? cosineSimilarity(queryEmbedding, emb) : 0;
     const keywordScore = bm25ScoreById.get(chunk.id) || 0;
-    // Semantic signal leads (catches paraphrases/synonyms BM25 misses),
-    // keyword score still counts so exact identifiers/filenames aren't
-    // drowned out by embedding similarity alone.
-    const score = 0.55 * semanticScore + 0.45 * keywordScore;
+    const score = semanticWeight * semanticScore + keywordWeight * keywordScore;
     return { ...chunk, score };
   });
 
@@ -342,7 +347,13 @@ export async function buildOptimizedKnowledgeContextAsync(
   files: ProjectFile[],
   userQuery = "",
   tokenBudget = 3500,
-  embeddingOptions?: { ollamaUrl: string; embeddingModel?: string; enabled?: boolean }
+  embeddingOptions?: {
+    ollamaUrl: string;
+    embeddingModel?: string;
+    enabled?: boolean;
+    semanticWeight?: number;
+  },
+  ragOptions?: { chunkSizeChars?: number; chunkOverlapChars?: number; topK?: number }
 ): Promise<OptimizedKnowledgeResult> {
   if (!files || files.length === 0) {
     return {
@@ -361,15 +372,19 @@ export async function buildOptimizedKnowledgeContextAsync(
     return buildOptimizedKnowledgeContext(files, userQuery, tokenBudget);
   }
 
+  const chunkSizeChars = ragOptions?.chunkSizeChars ?? 1800;
+  const chunkOverlapChars = ragOptions?.chunkOverlapChars ?? 200;
+  const topK = ragOptions?.topK ?? 8;
+
   const allChunks: DocumentChunk[] = [];
   for (const file of files) {
-    allChunks.push(...chunkDocument(file));
+    allChunks.push(...chunkDocument(file, chunkSizeChars, chunkOverlapChars));
   }
 
   const ranked =
     embeddingOptions?.enabled && embeddingOptions.ollamaUrl
-      ? await rankChunksHybrid(allChunks, userQuery, 8, embeddingOptions)
-      : rankChunksBM25(allChunks, userQuery, 8);
+      ? await rankChunksHybrid(allChunks, userQuery, topK, embeddingOptions)
+      : rankChunksBM25(allChunks, userQuery, topK);
 
   return assembleContextFromRanked(files, ranked, tokenBudget);
 }
