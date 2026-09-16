@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { X, ShieldAlert, Check, XCircle, FileEdit, Trash2, Clock } from "lucide-react";
+import { X, ShieldWarning as ShieldAlert, Check, XCircle, NotePencil as FileEdit, Trash as Trash2, Clock } from "@phosphor-icons/react";
 import { PendingApproval } from "@/lib/types";
 import { DiffPreview } from "./DiffPreview";
 

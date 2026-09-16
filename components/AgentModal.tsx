@@ -1,20 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import {
-  X,
-  Bot,
-  Clock,
-  Globe,
-  Sliders,
-  Folder,
-  Sparkles,
-  Check,
-  Play,
-  Calendar,
-  Zap,
-  HardDrive,
-} from "lucide-react";
+import { X, Robot as Bot, Clock, Globe, Faders as Sliders, Folder, Sparkle as Sparkles, Check, Play, CalendarBlank as Calendar, Lightning as Zap, HardDrive } from "@phosphor-icons/react";
 import { AgentTask, AgentScheduleType, OllamaModel, Project } from "@/lib/types";
 import { AGENT_PRESET_TEMPLATES, calculateNextRun } from "@/lib/agentEngine";
 

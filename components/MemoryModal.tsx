@@ -1,20 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import {
-  X,
-  RotateCcw,
-  Sparkles,
-  ArrowUp,
-  Download,
-  Trash2,
-  Edit2,
-  Check,
-  Plus,
-  Info,
-  ShieldAlert,
-  Brain,
-} from "lucide-react";
+import { X, ArrowCounterClockwise as RotateCcw, Sparkle as Sparkles, ArrowUp, Download, Trash as Trash2, PencilSimple as Edit2, Check, Plus, Info, ShieldWarning as ShieldAlert, Brain } from "@phosphor-icons/react";
 import { MemoryConfig, MemoryItem } from "@/lib/types";
 
 interface MemoryModalProps {

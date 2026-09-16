@@ -1,23 +1,7 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
-import {
-  X,
-  FolderPlus,
-  Folder,
-  FileText,
-  Upload,
-  Trash2,
-  Sliders,
-  Sparkles,
-  Check,
-  Plus,
-  Brain,
-  Zap,
-  Wand2,
-  Hash,
-  Ban,
-} from "lucide-react";
+import { X, FolderPlus, Folder, FileText, Upload, Trash as Trash2, Faders as Sliders, Sparkle as Sparkles, Check, Plus, Brain, Lightning as Zap, MagicWand as Wand2, Hash, Prohibit as Ban } from "@phosphor-icons/react";
 import { Project, ProjectFile, OllamaModel, ThinkingMode } from "@/lib/types";
 import { formatBytes } from "@/lib/ollama";
 import { processSelectedFiles } from "@/lib/fileUtils";

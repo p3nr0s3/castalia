@@ -2,45 +2,7 @@
 
 import React, { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { apiFetch } from "../lib/apiClient";
-import {
-  Code2,
-  Play,
-  Copy,
-  Check,
-  Download,
-  Sparkles,
-  Bug,
-  Zap,
-  FileText,
-  FileCode,
-  Plus,
-  Trash2,
-  Terminal,
-  Eye,
-  RefreshCw,
-  Sliders,
-  Send,
-  PanelLeft,
-  PanelLeftClose,
-  PanelRight,
-  PanelRightClose,
-  Search,
-  X,
-  ChevronRight,
-  Edit2,
-  FilePlus,
-  GripVertical,
-  RotateCcw,
-  Clock,
-  CheckCircle2,
-  AlertCircle,
-  FolderCode,
-  FileArchive,
-  Maximize2,
-  Minimize2,
-  HelpCircle,
-  Cpu,
-} from "lucide-react";
+import { CodeSimple as Code2, Play, Copy, Check, Download, Sparkle as Sparkles, Bug, Lightning as Zap, FileText, FileCode, Plus, Trash as Trash2, Terminal, Eye, ArrowsClockwise as RefreshCw, Faders as Sliders, PaperPlaneTilt as Send, SidebarSimple as PanelLeft, CaretLineLeft as PanelLeftClose, SidebarSimple as PanelRight, CaretLineRight as PanelRightClose, MagnifyingGlass as Search, X, CaretRight as ChevronRight, PencilSimple as Edit2, FilePlus, DotsSixVertical as GripVertical, ArrowCounterClockwise as RotateCcw, Clock, CheckCircle as CheckCircle2, WarningCircle as AlertCircle, FolderSimple as FolderCode, FileZip as FileArchive, ArrowsOut as Maximize2, ArrowsIn as Minimize2, Question as HelpCircle, Cpu } from "@phosphor-icons/react";
 import { OllamaModel, ApiKeysConfig } from "@/lib/types";
 
 export interface CodeSnippet {

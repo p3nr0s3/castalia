@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { X, Sliders, Sparkles, RotateCcw, Database } from "lucide-react";
+import { X, Faders as Sliders, Sparkle as Sparkles, ArrowCounterClockwise as RotateCcw, Database } from "@phosphor-icons/react";
 import { PersonaPreset } from "@/lib/types";
 import { ContextBreakdown } from "@/lib/contextVisualizer";
 

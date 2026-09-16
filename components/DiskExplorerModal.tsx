@@ -2,24 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { apiFetch } from "../lib/apiClient";
-import {
-  X,
-  Folder,
-  FolderOpen,
-  FileText,
-  HardDrive,
-  ArrowUp,
-  Search,
-  Check,
-  Plus,
-  RefreshCw,
-  Sparkles,
-  Download,
-  AlertCircle,
-  FileCode,
-  FileSpreadsheet,
-  CornerDownRight,
-} from "lucide-react";
+import { X, Folder, FolderOpen, FileText, HardDrive, ArrowUp, MagnifyingGlass as Search, Check, Plus, ArrowsClockwise as RefreshCw, Sparkle as Sparkles, Download, WarningCircle as AlertCircle, FileCode, FileXls as FileSpreadsheet, ArrowBendDownRight as CornerDownRight } from "@phosphor-icons/react";
 import { formatBytes } from "@/lib/ollama";
 import { Attachment, Project, ProjectFile } from "@/lib/types";
 

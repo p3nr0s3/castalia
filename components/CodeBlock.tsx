@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import { apiFetch } from "../lib/apiClient";
-import { Check, Copy, Download, Play, Eye, Code, RotateCcw, Terminal, X, Box, Loader2, AlertCircle } from "lucide-react";
+import { Check, Copy, Download, Play, Eye, Code, ArrowCounterClockwise as RotateCcw, Terminal, X, Package as Box, SpinnerGap as Loader2, WarningCircle as AlertCircle } from "@phosphor-icons/react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/cjs/styles/prism";
 

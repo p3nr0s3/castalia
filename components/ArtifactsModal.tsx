@@ -1,21 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import {
-  X,
-  Sparkles,
-  Download,
-  Copy,
-  Check,
-  Share2,
-  FileCode,
-  Globe,
-  Eye,
-  FileText,
-  Layers,
-  Code2,
-  ExternalLink,
-} from "lucide-react";
+import { X, Sparkle as Sparkles, Download, Copy, Check, ShareNetwork as Share2, FileCode, Globe, Eye, FileText, Stack as Layers, CodeSimple as Code2, ArrowSquareOut as ExternalLink } from "@phosphor-icons/react";
 import { Conversation, ArtifactItem } from "@/lib/types";
 
 interface ArtifactsModalProps {

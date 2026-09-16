@@ -1,30 +1,7 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
-import {
-  ArrowRight,
-  Plus,
-  Search,
-  FileText,
-  Trash2,
-  Edit2,
-  Mic,
-  Sparkles,
-  ChevronRight,
-  Folder,
-  FileSpreadsheet,
-  FileCode,
-  Check,
-  X,
-  Pin,
-  Settings,
-  PanelLeft,
-  PanelLeftClose,
-  Sliders,
-  Brain,
-  Zap,
-  CheckCircle2,
-} from "lucide-react";
+import { ArrowRight, Plus, MagnifyingGlass as Search, FileText, Trash as Trash2, PencilSimple as Edit2, Microphone as Mic, Sparkle as Sparkles, CaretRight as ChevronRight, Folder, FileXls as FileSpreadsheet, FileCode, Check, X, PushPin as Pin, Gear as Settings, SidebarSimple as PanelLeft, CaretLineLeft as PanelLeftClose, Faders as Sliders, Brain, Lightning as Zap, CheckCircle as CheckCircle2 } from "@phosphor-icons/react";
 import { Project, Conversation, ProjectFile, MemoryItem } from "@/lib/types";
 import { estimateTokens } from "@/lib/rag";
 

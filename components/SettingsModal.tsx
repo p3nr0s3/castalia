@@ -2,44 +2,7 @@
 
 import React, { useState } from "react";
 import { apiFetch } from "../lib/apiClient";
-import {
-  X,
-  Palette,
-  Cloud,
-  Server,
-  Sliders,
-  Database,
-  Info,
-  ChevronRight,
-  ChevronLeft,
-  Sun,
-  Moon,
-  Sparkles,
-  Laptop,
-  CheckCircle2,
-  XCircle,
-  RefreshCw,
-  Eye,
-  EyeOff,
-  Download,
-  Upload,
-  Trash2,
-  Key,
-  Globe,
-  Zap,
-  Check,
-  Brain,
-  Wand2,
-  Plus,
-  Search,
-  Folder,
-  HardDrive,
-  Headphones,
-  Volume2,
-  Mic,
-  Play,
-  Square,
-} from "lucide-react";
+import { X, Palette, Cloud, HardDrives as Server, Faders as Sliders, Database, Info, CaretRight as ChevronRight, CaretLeft as ChevronLeft, Sun, Moon, Sparkle as Sparkles, Laptop, CheckCircle as CheckCircle2, XCircle, ArrowsClockwise as RefreshCw, Eye, EyeSlash as EyeOff, Download, Upload, Trash as Trash2, Key, Globe, Lightning as Zap, Check, Brain, MagicWand as Wand2, Plus, MagnifyingGlass as Search, Folder, HardDrive, Headphones, SpeakerHigh as Volume2, Microphone as Mic, Play, Square } from "@phosphor-icons/react";
 import {
   AppSettings,
   OllamaModel,
@@ -1861,7 +1824,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
 
                 {/* Skills List Cards */}
-                <div className="space-y-2 max-h-[380px] overflow-y-auto pr-1 touch-scroll">
+                <div className="space-y-2 pr-1">
                   {currentSkills
                     .filter(
                       (s) =>

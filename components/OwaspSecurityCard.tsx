@@ -1,21 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import {
-  ShieldCheck,
-  ShieldAlert,
-  Shield,
-  ExternalLink,
-  ChevronDown,
-  ChevronUp,
-  CheckCircle2,
-  AlertTriangle,
-  XCircle,
-  Lock,
-  Cookie,
-  Server,
-  FileCode,
-} from "lucide-react";
+import { ShieldCheck, ShieldWarning as ShieldAlert, Shield, ArrowSquareOut as ExternalLink, CaretDown as ChevronDown, CaretUp as ChevronUp, CheckCircle as CheckCircle2, Warning as AlertTriangle, XCircle, Lock, Cookie, HardDrives as Server, FileCode } from "@phosphor-icons/react";
 import { OwaspFinding, OwaspScanResult } from "@/lib/types";
 
 interface OwaspSecurityCardProps {

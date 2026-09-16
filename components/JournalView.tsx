@@ -1,49 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useMemo } from "react";
-import {
-  BookOpenText,
-  Plus,
-  Search,
-  Filter,
-  Trash2,
-  Edit3,
-  Check,
-  X,
-  Sparkles,
-  ArrowLeft,
-  ChevronRight,
-  ExternalLink,
-  Copy,
-  Calendar,
-  CheckSquare,
-  Square,
-  Tag,
-  Folder,
-  Sliders,
-  Columns3,
-  ListFilter,
-  Eye,
-  FileCode,
-  ListTodo,
-  Smile,
-  Palette,
-  Clock,
-  ArrowUpDown,
-  BookMarked,
-  Lightbulb,
-  Target,
-  Rocket,
-  Coffee,
-  PanelLeft,
-  PanelLeftClose,
-  Maximize2,
-  Minimize2,
-  FileText,
-  Link2,
-  Printer,
-  Download,
-} from "lucide-react";
+import { BookOpenText, Plus, MagnifyingGlass as Search, Funnel as Filter, Trash as Trash2, PencilSimpleLine as Edit3, Check, X, Sparkle as Sparkles, ArrowLeft, CaretRight as ChevronRight, ArrowSquareOut as ExternalLink, Copy, CalendarBlank as Calendar, CheckSquare, Square, Tag, Folder, Faders as Sliders, Columns as Columns3, ListMagnifyingGlass as ListFilter, Eye, FileCode, ListChecks as ListTodo, Smiley as Smile, Palette, Clock, ArrowsDownUp as ArrowUpDown, BookmarkSimple as BookMarked, Lightbulb, Target, Rocket, Coffee, SidebarSimple as PanelLeft, CaretLineLeft as PanelLeftClose, ArrowsOut as Maximize2, ArrowsIn as Minimize2, FileText, LinkSimple as Link2, Printer, Download } from "@phosphor-icons/react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {

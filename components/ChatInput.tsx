@@ -1,37 +1,7 @@
 "use client";
 
 import React, { useRef, useEffect, useState } from "react";
-import {
-  ArrowUp,
-  Square,
-  Sparkles,
-  Paperclip,
-  Plus,
-  ChevronDown,
-  X,
-  FileText,
-  Globe,
-  Mic,
-  MicOff,
-  Code2,
-  Brain,
-  Zap,
-  Folder,
-  Trash2,
-  Terminal,
-  Languages,
-  AlignLeft,
-  Lightbulb,
-  Wrench,
-  GitBranch,
-  MessageSquare,
-  MessageCircle,
-  Box,
-  Headphones,
-  PhoneCall,
-  AlertTriangle,
-  ShieldCheck,
-} from "lucide-react";
+import { ArrowUp, Square, Sparkle as Sparkles, Paperclip, Plus, CaretDown as ChevronDown, X, FileText, Globe, Microphone as Mic, MicrophoneSlash as MicOff, CodeSimple as Code2, Brain, Lightning as Zap, Folder, Trash as Trash2, Terminal, Translate as Languages, TextAlignLeft as AlignLeft, Lightbulb, Wrench, GitBranch, ChatText as MessageSquare, ChatCircle as MessageCircle, Package as Box, Headphones, PhoneCall, Warning as AlertTriangle, ShieldCheck } from "@phosphor-icons/react";
 import { Attachment, ThinkingMode, OllamaModel, ApiKeysConfig, Skill } from "@/lib/types";
 import { formatBytes, detectModelProvider, getApiKeyForProvider } from "@/lib/ollama";
 import { processSelectedFiles } from "@/lib/fileUtils";

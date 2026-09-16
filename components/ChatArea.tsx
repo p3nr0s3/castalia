@@ -1,29 +1,7 @@
 "use client";
 
 import React, { useRef, useEffect, useState } from "react";
-import {
-  PanelLeft,
-  PanelLeftClose,
-  Sliders,
-  Download,
-  ArrowDown,
-  Bot,
-  Folder,
-  FileText,
-  Zap,
-  Sparkles,
-  Code2,
-  ChevronDown,
-  ChevronRight,
-  Check,
-  Edit2,
-  Pin,
-  Mail,
-  Trash2,
-  Headphones,
-  Swords,
-  Settings,
-} from "lucide-react";
+import { SidebarSimple as PanelLeft, CaretLineLeft as PanelLeftClose, Faders as Sliders, Download, ArrowDown, Robot as Bot, Folder, FileText, Lightning as Zap, Sparkle as Sparkles, CodeSimple as Code2, CaretDown as ChevronDown, CaretRight as ChevronRight, Check, PencilSimple as Edit2, PushPin as Pin, EnvelopeSimple as Mail, Trash as Trash2, Headphones, Sword as Swords, Gear as Settings } from "@phosphor-icons/react";
 import { Conversation, OllamaModel, Attachment, Project, ApiKeysConfig, ThinkingMode, Skill } from "@/lib/types";
 import { STARTER_PROMPTS } from "@/lib/constants";
 import { processSelectedFiles } from "@/lib/fileUtils";

@@ -1,15 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import {
-  Mic,
-  PhoneOff,
-  Volume2,
-  ChevronDown,
-  RotateCcw,
-  Play,
-  Check,
-} from "lucide-react";
+import { Microphone as Mic, PhoneDisconnect as PhoneOff, SpeakerHigh as Volume2, CaretDown as ChevronDown, ArrowCounterClockwise as RotateCcw, Play, Check } from "@phosphor-icons/react";
 import {
   speakUniversal,
   stopSpeaking,

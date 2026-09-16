@@ -1,25 +1,7 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
-import {
-  ChevronDown,
-  RefreshCw,
-  Sparkles,
-  Check,
-  Cloud,
-  Laptop,
-  Key,
-  Search,
-  X,
-  HardDrive,
-  Cpu,
-  Layers,
-  DownloadCloud,
-  Trash2,
-  Loader2,
-  AlertCircle,
-  CheckCircle2,
-} from "lucide-react";
+import { CaretDown as ChevronDown, ArrowsClockwise as RefreshCw, Sparkle as Sparkles, Check, Cloud, Laptop, Key, MagnifyingGlass as Search, X, HardDrive, Cpu, Stack as Layers, CloudArrowDown as DownloadCloud, Trash as Trash2, SpinnerGap as Loader2, WarningCircle as AlertCircle, CheckCircle as CheckCircle2 } from "@phosphor-icons/react";
 import { OllamaModel, ApiKeysConfig, ModelPullProgress } from "@/lib/types";
 import { formatBytes, pullOllamaModel, deleteOllamaModel } from "@/lib/ollama";
 import { CLOUD_MODEL_PRESETS } from "@/lib/constants";

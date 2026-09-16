@@ -1,24 +1,7 @@
 "use client";
 
 import React, { useRef, useEffect, useState, useMemo } from "react";
-import {
-  X,
-  Search,
-  ZoomIn,
-  ZoomOut,
-  RotateCcw,
-  Share2,
-  Folder,
-  FileText,
-  BookOpenText,
-  Tag,
-  ExternalLink,
-  Filter,
-  Maximize2,
-  Minimize2,
-  Sliders,
-  Sparkles,
-} from "lucide-react";
+import { X, MagnifyingGlass as Search, MagnifyingGlassPlus as ZoomIn, MagnifyingGlassMinus as ZoomOut, ArrowCounterClockwise as RotateCcw, ShareNetwork as Share2, Folder, FileText, BookOpenText, Tag, ArrowSquareOut as ExternalLink, Funnel as Filter, ArrowsOut as Maximize2, ArrowsIn as Minimize2, Faders as Sliders, Sparkle as Sparkles } from "@phosphor-icons/react";
 import { Project, JournalEntry } from "@/lib/types";
 
 interface GraphNode {

@@ -1,39 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import {
-  Plus,
-  Pin,
-  Trash2,
-  Edit2,
-  Check,
-  X,
-  Search,
-  Settings,
-  Folder,
-  FolderOpen,
-  ChevronRight,
-  ChevronDown,
-  LayoutDashboard,
-  SlidersHorizontal,
-  Play,
-  Activity,
-  Code2,
-  Sparkles,
-  Layers,
-  Palette,
-  ArrowUpDown,
-  MoreVertical,
-  Download,
-  PanelLeftClose,
-  ScrollText,
-  Blocks,
-  Plug,
-  RotateCcw,
-  ShieldAlert,
-  BookMarked,
-  Share2,
-} from "lucide-react";
+import { Plus, PushPin as Pin, Trash as Trash2, PencilSimple as Edit2, Check, X, MagnifyingGlass as Search, Gear as Settings, Folder, FolderOpen, CaretRight as ChevronRight, CaretDown as ChevronDown, SquaresFour as LayoutDashboard, FadersHorizontal as SlidersHorizontal, Play, Pulse as Activity, CodeSimple as Code2, Sparkle as Sparkles, Stack as Layers, Palette, ArrowsDownUp as ArrowUpDown, DotsThreeVertical as MoreVertical, Download, CaretLineLeft as PanelLeftClose, Scroll as ScrollText, Stack as Blocks, Plug, ArrowCounterClockwise as RotateCcw, ShieldWarning as ShieldAlert, BookmarkSimple as BookMarked, ShareNetwork as Share2 } from "@phosphor-icons/react";
 import { Conversation, Project, AgentTask } from "@/lib/types";
 import { storage } from "@/lib/storage";
 

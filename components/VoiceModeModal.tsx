@@ -1,22 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import {
-  Mic,
-  MicOff,
-  PhoneOff,
-  Volume2,
-  VolumeX,
-  Sparkles,
-  RefreshCw,
-  Globe,
-  Settings2,
-  X,
-  MessageSquare,
-  Bot,
-  User,
-  Zap,
-} from "lucide-react";
+import { Microphone as Mic, MicrophoneSlash as MicOff, PhoneDisconnect as PhoneOff, SpeakerHigh as Volume2, SpeakerX as VolumeX, Sparkle as Sparkles, ArrowsClockwise as RefreshCw, Globe, SlidersHorizontal as Settings2, X, ChatText as MessageSquare, Robot as Bot, User, Lightning as Zap } from "@phosphor-icons/react";
 import {
   VOICE_PRESETS,
   VoicePreset,

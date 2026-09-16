@@ -1,19 +1,7 @@
 "use client";
 
 import React from "react";
-import {
-  X,
-  Bot,
-  Play,
-  Clock,
-  CheckCircle2,
-  XCircle,
-  ExternalLink,
-  Zap,
-  Globe,
-  Sliders,
-  Calendar,
-} from "lucide-react";
+import { X, Robot as Bot, Play, Clock, CheckCircle as CheckCircle2, XCircle, ArrowSquareOut as ExternalLink, Lightning as Zap, Globe, Faders as Sliders, CalendarBlank as Calendar } from "@phosphor-icons/react";
 import { AgentTask } from "@/lib/types";
 
 interface AgentLogsModalProps {

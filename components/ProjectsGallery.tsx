@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { Search, ArrowUpDown, Plus, Sparkles, Folder, ArrowUpRight, Pin, PanelLeft, PanelLeftClose } from "lucide-react";
+import { MagnifyingGlass as Search, ArrowsDownUp as ArrowUpDown, Plus, Sparkle as Sparkles, Folder, ArrowUpRight, PushPin as Pin, SidebarSimple as PanelLeft, CaretLineLeft as PanelLeftClose } from "@phosphor-icons/react";
 import { Project } from "@/lib/types";
 
 interface ProjectsGalleryProps {

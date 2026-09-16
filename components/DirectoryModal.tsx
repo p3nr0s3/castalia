@@ -2,49 +2,7 @@
 
 import React, { useState } from "react";
 import { apiFetch } from "../lib/apiClient";
-import {
-  X,
-  ScrollText,
-  Blocks,
-  Plug,
-  Search,
-  Plus,
-  Check,
-  Download,
-  Settings,
-  Globe,
-  Code2,
-  FileText,
-  Palette,
-  Layers,
-  Wand2,
-  Sparkles,
-  Sun,
-  RotateCcw,
-  GraduationCap,
-  Megaphone,
-  Binary,
-  ShieldAlert,
-  Terminal,
-  CheckSquare,
-  Database,
-  Mail,
-  HardDrive,
-  MessageSquare,
-  ExternalLink,
-  Github,
-  Filter,
-  ArrowUpDown,
-  Sliders,
-  Loader2,
-  CheckCircle2,
-  AlertCircle,
-  GitBranch,
-  MessageCircle,
-  Box,
-  Copy,
-  Zap,
-} from "lucide-react";
+import { X, Scroll as ScrollText, Stack as Blocks, Plug, MagnifyingGlass as Search, Plus, Check, Download, Gear as Settings, Globe, CodeSimple as Code2, FileText, Palette, Stack as Layers, MagicWand as Wand2, Sparkle as Sparkles, Sun, ArrowCounterClockwise as RotateCcw, GraduationCap, Megaphone, Binary, ShieldWarning as ShieldAlert, Terminal, CheckSquare, Database, EnvelopeSimple as Mail, HardDrive, ChatText as MessageSquare, ArrowSquareOut as ExternalLink, GithubLogo as Github, Funnel as Filter, ArrowsDownUp as ArrowUpDown, Faders as Sliders, SpinnerGap as Loader2, CheckCircle as CheckCircle2, WarningCircle as AlertCircle, GitBranch, ChatCircle as MessageCircle, Package as Box, Copy, Lightning as Zap } from "@phosphor-icons/react";
 import { Skill, ConnectorItem, PluginItem } from "@/lib/types";
 
 interface DirectoryModalProps {

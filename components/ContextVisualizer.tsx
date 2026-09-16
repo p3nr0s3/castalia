@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
-import { Database, AlertTriangle, CheckCircle2, ChevronRight, X, Sparkles, HelpCircle } from "lucide-react";
+import { Database, Warning as AlertTriangle, CheckCircle as CheckCircle2, CaretRight as ChevronRight, X, Sparkle as Sparkles, Question as HelpCircle } from "@phosphor-icons/react";
 import { ContextBreakdown, formatTokenCount } from "@/lib/contextVisualizer";
 
 interface ContextVisualizerProps {

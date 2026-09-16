@@ -1,25 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import {
-  X,
-  Zap,
-  Sparkles,
-  Plus,
-  Trash2,
-  Check,
-  Globe,
-  Code2,
-  BarChart3,
-  FileText,
-  ShieldAlert,
-  Languages,
-  GraduationCap,
-  Palette,
-  Layers,
-  HelpCircle,
-  ExternalLink,
-} from "lucide-react";
+import { X, Lightning as Zap, Sparkle as Sparkles, Plus, Trash as Trash2, Check, Globe, CodeSimple as Code2, ChartBar as BarChart3, FileText, ShieldWarning as ShieldAlert, Translate as Languages, GraduationCap, Palette, Stack as Layers, Question as HelpCircle, ArrowSquareOut as ExternalLink } from "@phosphor-icons/react";
 import { Skill } from "@/lib/types";
 
 interface SkillsModalProps {

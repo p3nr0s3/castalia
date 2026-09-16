@@ -5,37 +5,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
-import {
-  Bot,
-  User,
-  Copy,
-  Download,
-  Check,
-  RotateCcw,
-  Trash2,
-  Pencil,
-  Sparkles,
-  AlertCircle,
-  FileText,
-  ExternalLink,
-  X,
-  Zap,
-  Cpu,
-  Globe,
-  Brain,
-  ChevronDown,
-  ChevronRight,
-  GitFork,
-  Volume2,
-  Square,
-  Wrench,
-  CheckCircle2,
-  XCircle,
-  Loader2,
-  FileEdit,
-  BookOpen,
-  Search,
-} from "lucide-react";
+import { Robot as Bot, User, Copy, Download, Check, ArrowCounterClockwise as RotateCcw, Trash as Trash2, Pencil, Sparkle as Sparkles, WarningCircle as AlertCircle, FileText, ArrowSquareOut as ExternalLink, X, Lightning as Zap, Cpu, Globe, Brain, CaretDown as ChevronDown, CaretRight as ChevronRight, GitFork, SpeakerHigh as Volume2, Square, Wrench, CheckCircle as CheckCircle2, XCircle, SpinnerGap as Loader2, NotePencil as FileEdit, BookOpen, MagnifyingGlass as Search } from "@phosphor-icons/react";
 import dynamic from "next/dynamic";
 import { Message } from "@/lib/types";
 import { DiffPreview } from "./DiffPreview";
