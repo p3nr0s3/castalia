@@ -81,6 +81,13 @@ export async function POST(req: NextRequest) {
         );
       }
 
+      if (approval.source !== "agent") {
+        return NextResponse.json(
+          { success: false, tool, error: `Approval '${approvalToken}' was not issued for an agent run. Refusing to execute.` },
+          { status: 403 }
+        );
+      }
+
       if (approval.status !== "approved") {
         return NextResponse.json(
           {

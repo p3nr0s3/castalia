@@ -62,9 +62,9 @@ beforeEach(() => {
 // gate independently (by design — different path sandboxes) so both must
 // be exercised the same way to catch the two implementations drifting.
 describe.each([
-  { name: "manual chat route", modulePath: "../app/api/tools/execute/route", url: "http://localhost:3000/api/tools/execute" },
-  { name: "agent route", modulePath: "../app/api/tools/execute-agent/route", url: "http://localhost:3000/api/tools/execute-agent" },
-])("$name — mutating tool approval gate", ({ modulePath, url }) => {
+  { name: "manual chat route", modulePath: "../app/api/tools/execute/route", url: "http://localhost:3000/api/tools/execute", validSource: "chat" as const },
+  { name: "agent route", modulePath: "../app/api/tools/execute-agent/route", url: "http://localhost:3000/api/tools/execute-agent", validSource: "agent" as const },
+])("$name — mutating tool approval gate", ({ modulePath, url, validSource }) => {
   it("refuses write_file with no approvalToken at all", async () => {
     const { POST } = await import(modulePath);
     const req = makeReq(url, { tool: "write_file", args: { path: "x.txt" } });
@@ -86,7 +86,7 @@ describe.each([
   });
 
   it("refuses an approval that is still pending (not yet approved)", async () => {
-    dbState.pendingApprovals = [baseApproval({ status: "pending" })];
+    dbState.pendingApprovals = [baseApproval({ status: "pending", source: validSource })];
     const { POST } = await import(modulePath);
     const req = makeReq(url, {
       tool: "write_file",
@@ -99,7 +99,7 @@ describe.each([
   });
 
   it("refuses an approval that was rejected", async () => {
-    dbState.pendingApprovals = [baseApproval({ status: "rejected" })];
+    dbState.pendingApprovals = [baseApproval({ status: "rejected", source: validSource })];
     const { POST } = await import(modulePath);
     const req = makeReq(url, {
       tool: "write_file",
@@ -112,7 +112,7 @@ describe.each([
   });
 
   it("refuses when the tool name doesn't match the approval (approved for write_file, requesting delete_file)", async () => {
-    dbState.pendingApprovals = [baseApproval({ toolName: "write_file" })];
+    dbState.pendingApprovals = [baseApproval({ toolName: "write_file", source: validSource })];
     const { POST } = await import(modulePath);
     const req = makeReq(url, {
       tool: "delete_file",
@@ -125,7 +125,7 @@ describe.each([
   });
 
   it("refuses when the path doesn't match — cannot hijack an approval for file A to write file B", async () => {
-    dbState.pendingApprovals = [baseApproval({ args: { path: "C:\\Users\\rei\\a.txt" } })];
+    dbState.pendingApprovals = [baseApproval({ args: { path: "C:\\Users\\rei\\a.txt" }, source: validSource })];
     const { POST } = await import(modulePath);
     const req = makeReq(url, {
       tool: "write_file",
@@ -140,7 +140,7 @@ describe.each([
   it("refuses an approval older than the 5-minute freshness window", async () => {
     const now = Date.now();
     dbState.pendingApprovals = [
-      baseApproval({ resolvedAt: now - 6 * 60 * 1000 }),
+      baseApproval({ resolvedAt: now - 6 * 60 * 1000, source: validSource }),
     ];
     const { POST } = await import(modulePath);
     const req = makeReq(url, {
@@ -154,7 +154,7 @@ describe.each([
   });
 
   it("refuses an approval already consumed — cannot replay it for a second execution", async () => {
-    dbState.pendingApprovals = [baseApproval({ result: { consumedAt: Date.now() - 1000 } })];
+    dbState.pendingApprovals = [baseApproval({ result: { consumedAt: Date.now() - 1000 }, source: validSource })];
     const { POST } = await import(modulePath);
     const req = makeReq(url, {
       tool: "write_file",
@@ -167,7 +167,7 @@ describe.each([
   });
 
   it("accepts a fresh, approved, matching, unconsumed approval exactly once", async () => {
-    dbState.pendingApprovals = [baseApproval()];
+    dbState.pendingApprovals = [baseApproval({ source: validSource })];
     const { POST } = await import(modulePath);
     const req = makeReq(url, {
       tool: "write_file",
@@ -184,7 +184,7 @@ describe.each([
   });
 
   it("second execution attempt with the same now-consumed token is refused", async () => {
-    dbState.pendingApprovals = [baseApproval()];
+    dbState.pendingApprovals = [baseApproval({ source: validSource })];
     const { POST } = await import(modulePath);
     const req1 = makeReq(url, {
       tool: "write_file",
@@ -214,15 +214,30 @@ describe.each([
   });
 });
 
-// Source restriction is specific to the manual-chat route's threat model
-// (see its own comment: an approval must have been issued via "chat", not
-// created by/for the agent flow) — verified separately since the agent
-// route does not implement this restriction.
-describe("manual chat route — approval source restriction", () => {
-  it("refuses an approval whose source is \"agent\", not \"chat\"", async () => {
+// Source restriction — each route only accepts approvals issued for it.
+// This was a real gap found in the previous session: execute-agent had no
+// source check at all, meaning an approval created via manual chat could
+// be replayed against the agent route. Fixed in app/api/tools/execute-agent
+// route.ts; both directions are verified here so neither route can drift
+// back to accepting the other's approvals.
+describe("cross-route approval source restriction", () => {
+  it("manual chat route refuses an approval whose source is \"agent\", not \"chat\"", async () => {
     dbState.pendingApprovals = [baseApproval({ source: "agent" })];
     const { POST } = await import("../app/api/tools/execute/route");
     const req = makeReq("http://localhost:3000/api/tools/execute", {
+      tool: "write_file",
+      args: { path: "C:\\Users\\rei\\notes.txt" },
+      approvalToken: "appr_1",
+    });
+    const res = await POST(req);
+    expect(res.status).toBe(403);
+    expect(runDiskToolMock).not.toHaveBeenCalled();
+  });
+
+  it("agent route refuses an approval whose source is \"chat\", not \"agent\"", async () => {
+    dbState.pendingApprovals = [baseApproval({ source: "chat" })];
+    const { POST } = await import("../app/api/tools/execute-agent/route");
+    const req = makeReq("http://localhost:3000/api/tools/execute-agent", {
       tool: "write_file",
       args: { path: "C:\\Users\\rei\\notes.txt" },
       approvalToken: "appr_1",
