@@ -27,23 +27,31 @@ import { buildToolDirectivePrompt, parseToolDirective, MUTATING_TOOLS } from "@/
 import { executeToolCall } from "@/lib/toolEngine";
 import { executeAgent, calculateNextRun, resumeAgentAfterApproval } from "@/lib/agentEngine";
 import { composeSkillsPrompt, skillsRequireDiskTools, DEFAULT_SKILLS } from "@/lib/skills";
+import dynamic from "next/dynamic";
 import { Sidebar } from "@/components/Sidebar";
 import { ChatArea } from "@/components/ChatArea";
 import { ProjectsGallery } from "@/components/ProjectsGallery";
 import { ProjectDetailView } from "@/components/ProjectDetailView";
-import { SettingsModal, SettingsSection } from "@/components/SettingsModal";
-import { ParametersDrawer } from "@/components/ParametersDrawer";
-import { ProjectModal } from "@/components/ProjectModal";
-import { AgentModal } from "@/components/AgentModal";
-import { AgentLogsModal } from "@/components/AgentLogsModal";
-import { ApprovalQueueModal } from "@/components/ApprovalQueueModal";
-import { DiskExplorerModal } from "@/components/DiskExplorerModal";
-import { SkillsModal } from "@/components/SkillsModal";
-import { ArtifactsModal } from "@/components/ArtifactsModal";
-import { DirectoryModal } from "@/components/DirectoryModal";
-import { MemoryModal } from "@/components/MemoryModal";
-import { VoiceModeModal } from "@/components/VoiceModeModal";
-import { KnowledgeGraphModal } from "@/components/KnowledgeGraphModal";
+import type { SettingsSection } from "@/components/SettingsModal";
+
+// Modals below are always mounted (each returns null while closed) but only
+// actually opened occasionally — code-splitting them keeps their JS out of
+// the main page chunk so the chat UI parses/hydrates faster on first load.
+// Each still renders in exactly the same place with the same isOpen-gated
+// lifecycle as before; only the import mechanism changed.
+const SettingsModal = dynamic(() => import("@/components/SettingsModal").then((m) => m.SettingsModal), { ssr: false });
+const ParametersDrawer = dynamic(() => import("@/components/ParametersDrawer").then((m) => m.ParametersDrawer), { ssr: false });
+const ProjectModal = dynamic(() => import("@/components/ProjectModal").then((m) => m.ProjectModal), { ssr: false });
+const AgentModal = dynamic(() => import("@/components/AgentModal").then((m) => m.AgentModal), { ssr: false });
+const AgentLogsModal = dynamic(() => import("@/components/AgentLogsModal").then((m) => m.AgentLogsModal), { ssr: false });
+const ApprovalQueueModal = dynamic(() => import("@/components/ApprovalQueueModal").then((m) => m.ApprovalQueueModal), { ssr: false });
+const DiskExplorerModal = dynamic(() => import("@/components/DiskExplorerModal").then((m) => m.DiskExplorerModal), { ssr: false });
+const SkillsModal = dynamic(() => import("@/components/SkillsModal").then((m) => m.SkillsModal), { ssr: false });
+const ArtifactsModal = dynamic(() => import("@/components/ArtifactsModal").then((m) => m.ArtifactsModal), { ssr: false });
+const DirectoryModal = dynamic(() => import("@/components/DirectoryModal").then((m) => m.DirectoryModal), { ssr: false });
+const MemoryModal = dynamic(() => import("@/components/MemoryModal").then((m) => m.MemoryModal), { ssr: false });
+const VoiceModeModal = dynamic(() => import("@/components/VoiceModeModal").then((m) => m.VoiceModeModal), { ssr: false });
+const KnowledgeGraphModal = dynamic(() => import("@/components/KnowledgeGraphModal").then((m) => m.KnowledgeGraphModal), { ssr: false });
 import {
   DEFAULT_DIRECTORY_SKILLS,
   DEFAULT_CONNECTORS,
