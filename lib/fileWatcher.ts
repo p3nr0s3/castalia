@@ -23,6 +23,7 @@ import type { Project, ProjectFile } from "./types";
 // rather than failing the whole sync.
 
 const MAX_WATCHED_FILE_BYTES = 2 * 1024 * 1024; // 2MB — same ballpark as a single manually-uploaded text file; larger files are skipped rather than silently truncated
+const MAX_WATCHED_FILES_PER_SCAN = 500; // guards against a watched folder accidentally pointed at something huge — see listWatchableFilesRecursive
 const DEBOUNCE_MS = 800; // fs.watch fires multiple events per single save (e.g. write + rename on some editors/OSes) — coalesce into one re-scan
 
 const HOME_DIR = path.resolve(os.homedir());
@@ -51,36 +52,80 @@ const activeWatchers = new Map<string, WatcherEntry>();
  * user is also using for other things, not a curated knowledge-only
  * folder, so noise-source directories need to be excluded by default.
  */
-function listWatchableFilesRecursive(rootDir: string, currentDir: string = rootDir): string[] {
-  let results: string[] = [];
-  let entries: fs.Dirent[];
-  try {
-    entries = fs.readdirSync(currentDir, { withFileTypes: true });
-  } catch {
-    return results;
-  }
+/**
+ * Recursively lists watchable files under a folder, returning paths
+ * relative to that folder. Skips node_modules, .git, and dotfolders —
+ * the common case for a watched folder is a real working directory the
+ * user is also using for other things, not a curated knowledge-only
+ * folder, so noise-source directories need to be excluded by default.
+ *
+ * Async (fs.promises), not fs.readdirSync: this runs on every debounced
+ * file-change event while the Next.js server is live. A sync recursive
+ * walk blocks the whole Node event loop for its entire duration — every
+ * other in-flight request (chat token streaming, the Ollama proxy, any
+ * other API route) stalls until the scan finishes. For a folder with a
+ * few dozen files that's not noticeable; for a large working directory
+ * it's a real, repeated freeze on every save. Async I/O yields the event
+ * loop between operations so a rescan running in the background doesn't
+ * block anything else.
+ *
+ * Also capped at MAX_WATCHED_FILES_PER_SCAN: without a limit, a watched
+ * folder accidentally pointed at something large (a big repo, a home
+ * directory) triggers an unbounded walk + read of every text file on
+ * every single debounce tick. Stops early and warns once per scan
+ * rather than silently reading everything.
+ */
+async function listWatchableFilesRecursive(rootDir: string): Promise<string[]> {
+  const results: string[] = [];
+  let truncated = false;
 
-  for (const entry of entries) {
-    if (entry.name.startsWith(".") || entry.name === "node_modules") continue;
-    const fullPath = path.join(currentDir, entry.name);
-    if (entry.isDirectory()) {
-      results = results.concat(listWatchableFilesRecursive(rootDir, fullPath));
-    } else if (entry.isFile() && isTextFile(fullPath)) {
-      results.push(path.relative(rootDir, fullPath));
+  async function walk(currentDir: string): Promise<void> {
+    if (results.length >= MAX_WATCHED_FILES_PER_SCAN) {
+      truncated = true;
+      return;
+    }
+    let entries: fs.Dirent[];
+    try {
+      entries = await fs.promises.readdir(currentDir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    for (const entry of entries) {
+      if (results.length >= MAX_WATCHED_FILES_PER_SCAN) {
+        truncated = true;
+        return;
+      }
+      if (entry.name.startsWith(".") || entry.name === "node_modules") continue;
+      const fullPath = path.join(currentDir, entry.name);
+      if (entry.isDirectory()) {
+        await walk(fullPath);
+      } else if (entry.isFile() && isTextFile(fullPath)) {
+        results.push(path.relative(rootDir, fullPath));
+      }
     }
   }
+
+  await walk(rootDir);
+
+  if (truncated) {
+    console.warn(
+      `[fileWatcher] '${rootDir}' has more than ${MAX_WATCHED_FILES_PER_SCAN} watchable files — stopped scanning early. Point the watched folder at something more specific if you need full coverage.`
+    );
+  }
+
   return results;
 }
 
-function readFileAsProjectFile(rootDir: string, relativePath: string): ProjectFile | null {
+async function readFileAsProjectFile(rootDir: string, relativePath: string): Promise<ProjectFile | null> {
   const fullPath = path.join(rootDir, relativePath);
   try {
-    const stat = fs.statSync(fullPath);
+    const stat = await fs.promises.stat(fullPath);
     if (stat.size > MAX_WATCHED_FILE_BYTES) {
       console.warn(`[fileWatcher] Skipping '${relativePath}': ${stat.size} bytes exceeds the ${MAX_WATCHED_FILE_BYTES}-byte watched-file limit.`);
       return null;
     }
-    const textContent = fs.readFileSync(fullPath, "utf-8");
+    const textContent = await fs.promises.readFile(fullPath, "utf-8");
     return {
       id: `watched_${relativePath.replace(/[\\/]/g, "_")}`,
       name: path.basename(relativePath),
@@ -116,12 +161,10 @@ export async function rescanProject(projectId: string, folderPath: string): Prom
   const project = db.projects.find((p) => p.id === projectId);
   if (!project || !project.watchedFolderEnabled) return; // watcher was stopped/project deleted between the fs event firing and this running
 
-  const relativePaths = listWatchableFilesRecursive(folderPath);
-  const freshWatchedFiles: ProjectFile[] = [];
-  for (const rel of relativePaths) {
-    const pf = readFileAsProjectFile(folderPath, rel);
-    if (pf) freshWatchedFiles.push(pf);
-  }
+  const relativePaths = await listWatchableFilesRecursive(folderPath);
+  const freshWatchedFiles: ProjectFile[] = (
+    await Promise.all(relativePaths.map((rel) => readFileAsProjectFile(folderPath, rel)))
+  ).filter((f): f is ProjectFile => f !== null);
 
   const manuallyUploadedFiles = (project.files || []).filter((f) => !f.watchedRelativePath);
   const mergedFiles = [...manuallyUploadedFiles, ...freshWatchedFiles];

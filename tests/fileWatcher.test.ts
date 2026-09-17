@@ -202,4 +202,23 @@ describe("rescanProject", () => {
     const files = dbState.projects[0].files;
     expect(files.map((f) => f.name)).toEqual(["normal.md"]);
   });
+
+  it("stops scanning past the per-scan file cap instead of walking an unbounded folder", async () => {
+    dbState.projects = [baseProject()];
+    // MAX_WATCHED_FILES_PER_SCAN is 500 — write comfortably over it and
+    // confirm the scan doesn't read all of them (the point of the cap:
+    // a watched folder accidentally pointed at something huge shouldn't
+    // trigger an unbounded read on every debounce tick).
+    const fileCount = 520;
+    await Promise.all(
+      Array.from({ length: fileCount }, (_, i) => fs.writeFile(path.join(tmpDir, `f${i}.md`), "x"))
+    );
+
+    const { rescanProject } = await import("../lib/fileWatcher");
+    await rescanProject("proj_1", tmpDir);
+
+    const files = dbState.projects[0].files;
+    expect(files.length).toBeLessThan(fileCount);
+    expect(files.length).toBeLessThanOrEqual(500);
+  });
 });
