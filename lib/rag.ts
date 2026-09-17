@@ -230,8 +230,15 @@ export function rankChunksBM25(
     return positiveScores.slice(0, topK);
   }
 
-  // Fallback: Return first topK chunks
-  return scoredChunks.slice(0, topK);
+  // No chunk matched any query keyword at all (as opposed to the
+  // queryTokens.length === 0 case above, where the query itself carried
+  // no signal). Previously this fell through to "return the first topK
+  // chunks in original order" — meaning a query with zero relevance to
+  // the project's files still got chunks stuffed into context, wasting
+  // token budget and risking the model straining to connect unrelated
+  // content to the question. Returning nothing here is the correct
+  // signal: retrieval genuinely found nothing, so don't force it.
+  return [];
 }
 
 function assembleContextFromRanked(
@@ -239,6 +246,23 @@ function assembleContextFromRanked(
   ranked: RankedChunk[],
   tokenBudget: number
 ): OptimizedKnowledgeResult {
+  // If retrieval genuinely found nothing relevant, don't emit a "here
+  // are the relevant passages" header with nothing under it — that
+  // still costs tokens and can read to the model like the search came
+  // back empty-handed rather than like there was nothing to search for.
+  // Match the shape of the "no files" early-return in the caller.
+  if (ranked.length === 0) {
+    return {
+      contextText: "",
+      matchedChunksCount: 0,
+      totalFilesCount: files.length,
+      matchedFiles: [],
+      totalEstimatedTokens: 0,
+      isChunked: false,
+      retrievedChunks: [],
+    };
+  }
+
   let accumulatedTokens = 0;
   const selectedChunks: RankedChunk[] = [];
   const matchedFileSet = new Set<string>();
