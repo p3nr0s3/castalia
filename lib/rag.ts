@@ -82,7 +82,6 @@ export function tokenizeText(text: string): string[] {
 // changes; a content-hash key makes a stale hit structurally impossible —
 // edited content simply hashes to a different key and misses.
 const TOKEN_CACHE_MAX_ENTRIES = 5000;
-const tokenCache = new Map<string, string[]>();
 
 function hashText(text: string): string {
   // Simple djb2 hash — this only needs to be cheap and collision-unlikely
@@ -94,26 +93,54 @@ function hashText(text: string): string {
   return `${text.length}:${hash}`;
 }
 
+/** Per-chunk term-frequency map, cached alongside the token list.
+ *
+ * rankChunksBM25 needs two things per chunk: the token count (for length
+ * normalization) and "how many times does token X appear here" (for tf),
+ * plus a membership test for document-frequency counting. Computing the
+ * tf map on every call was redundant work, and the DF pass used
+ * `tokens.includes(token)` — an O(chunkLength) linear scan run once per
+ * (query token × chunk), which is what actually dominated ranking cost on
+ * larger knowledge bases. Caching a Map gives O(1) membership and
+ * frequency lookup, and is keyed by the same content hash as the token
+ * cache so it invalidates identically when a file's content changes. */
+interface ChunkTokenData {
+  tokens: string[];
+  tf: Map<string, number>;
+}
+
+const chunkDataCache = new Map<string, ChunkTokenData>();
+
 function tokenizeChunkCached(text: string): string[] {
+  return getChunkTokenData(text).tokens;
+}
+
+function getChunkTokenData(text: string): ChunkTokenData {
   const key = hashText(text);
-  const cached = tokenCache.get(key);
+  const cached = chunkDataCache.get(key);
   if (cached) return cached;
 
   const tokens = tokenizeText(text);
-  if (tokenCache.size >= TOKEN_CACHE_MAX_ENTRIES) {
+  const tf = new Map<string, number>();
+  for (const token of tokens) {
+    tf.set(token, (tf.get(token) || 0) + 1);
+  }
+  const data: ChunkTokenData = { tokens, tf };
+
+  if (chunkDataCache.size >= TOKEN_CACHE_MAX_ENTRIES) {
     // Simple insertion-order eviction (Map preserves insertion order) —
     // no need for real LRU here, this just bounds memory for very long
     // sessions touching many distinct projects/files.
-    const oldestKey = tokenCache.keys().next().value;
-    if (oldestKey !== undefined) tokenCache.delete(oldestKey);
+    const oldestKey = chunkDataCache.keys().next().value;
+    if (oldestKey !== undefined) chunkDataCache.delete(oldestKey);
   }
-  tokenCache.set(key, tokens);
-  return tokens;
+  chunkDataCache.set(key, data);
+  return data;
 }
 
 /** Test/debug hook — clears the module-level chunk tokenization cache. */
 export function clearTokenCache(): void {
-  tokenCache.clear();
+  chunkDataCache.clear();
 }
 
 /**
@@ -244,35 +271,32 @@ export function rankChunksBM25(
   }
 
   const N = chunks.length;
-  // Calculate average document length (in words)
-  const chunkTokenLists = chunks.map((c) => tokenizeChunkCached(c.text));
-  const totalLength = chunkTokenLists.reduce((sum, list) => sum + list.length, 0);
+  // Per-chunk token list + term-frequency map, both served from the
+  // content-hash cache (see getChunkTokenData) so neither the tokenization
+  // nor the tf counting is redone on every call.
+  const chunkData = chunks.map((c) => getChunkTokenData(c.text));
+  const totalLength = chunkData.reduce((sum, d) => sum + d.tokens.length, 0);
   const avgLen = totalLength / N || 1;
 
-  // Calculate Document Frequency (DF) for each query token
+  // Document Frequency per query token. Uses the cached tf map's O(1)
+  // membership test rather than a linear scan of each chunk's token array.
   const dfMap: Record<string, number> = {};
   for (const token of queryTokens) {
     let df = 0;
-    for (const docTokens of chunkTokenLists) {
-      if (docTokens.includes(token)) df++;
+    for (const data of chunkData) {
+      if (data.tf.has(token)) df++;
     }
     dfMap[token] = df;
   }
 
-  // Calculate BM25 score for each chunk
-  const scoredChunks: RankedChunk[] = chunks.map((chunk, i) => {
-    const docTokens = chunkTokenLists[i];
+  // Pass 1: content-only BM25 score per chunk.
+  const contentScores: number[] = chunks.map((_chunk, i) => {
+    const { tokens: docTokens, tf: tfMap } = chunkData[i];
     const docLen = docTokens.length;
     let score = 0;
 
-    // Token frequency count in current chunk
-    const tfMap: Record<string, number> = {};
-    for (const token of docTokens) {
-      tfMap[token] = (tfMap[token] || 0) + 1;
-    }
-
     for (const qToken of queryTokens) {
-      const tf = tfMap[qToken] || 0;
+      const tf = tfMap.get(qToken) || 0;
       const df = dfMap[qToken] || 0;
       if (df === 0 || tf === 0) continue;
 
@@ -283,12 +307,41 @@ export function rankChunksBM25(
       const denominator = tf + k1 * (1 - b + b * (docLen / avgLen));
       score += idf * (numerator / denominator);
     }
+    return score;
+  });
 
-    // Exact filename match bonus (e.g. user mentions "policy.txt" or "schema.prisma")
-    const lowerFileName = chunk.fileName.toLowerCase();
-    for (const qToken of queryTokens) {
-      if (lowerFileName.includes(qToken)) {
-        score += 2.5;
+  // Pass 2: filename-match bonus, scaled to this query's own score range.
+  //
+  // This used to be a flat "+2.5 per matching query token" added to the
+  // content score. The problem: BM25 scores aren't on a fixed scale —
+  // they grow with query length and vary with corpus statistics. A
+  // single-token query might top out around 2, so +2.5 per matched token
+  // let the filename completely outrank actual content relevance; a
+  // long query might score 15, where the same +2.5 barely registered.
+  // The bonus meant something different for every query.
+  //
+  // Scaling it against the best content score for this query makes it a
+  // consistent nudge: a chunk whose filename matches the whole query can
+  // gain at most FILENAME_BONUS_RATIO of the top content score, so it can
+  // outrank a near-tie but never a chunk that's genuinely far more
+  // relevant. maxContentScore of 0 (nothing matched on content) leaves
+  // the bonus at 0 too, which is correct — a filename match alone
+  // shouldn't manufacture relevance out of nothing.
+  const FILENAME_BONUS_RATIO = 0.35;
+  const maxContentScore = contentScores.reduce((m, s) => (s > m ? s : m), 0);
+
+  const scoredChunks: RankedChunk[] = chunks.map((chunk, i) => {
+    let score = contentScores[i];
+
+    if (maxContentScore > 0) {
+      const lowerFileName = chunk.fileName.toLowerCase();
+      let matched = 0;
+      for (const qToken of queryTokens) {
+        if (lowerFileName.includes(qToken)) matched++;
+      }
+      if (matched > 0) {
+        const coverage = matched / queryTokens.length;
+        score += coverage * FILENAME_BONUS_RATIO * maxContentScore;
       }
     }
 
