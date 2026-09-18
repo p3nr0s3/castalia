@@ -1,203 +1,186 @@
-# Ollama Chat Web
+# Ollama Chat Web 🦙
 
-Self-hosted, local-first AI workspace built on Next.js 14 (App Router). Runs against local Ollama models with optional cloud provider fallback, and treats every filesystem/execution/network-reaching feature as something that needs an explicit security boundary rather than an afterthought.
+<p align="center">
+  <img src="https://ollama.com/public/ollama.png" width="80" height="80" alt="Ollama" />
+</p>
 
-For a broader feature walkthrough and architecture diagrams, see [`DOCUMENTATION.md`](./DOCUMENTATION.md). This README is the technical reference: stack, API surface, security model, and how to run/test/build the thing.
+<p align="center">
+  <img src="https://img.shields.io/badge/Next.js-14.2.35-black?style=flat-square&logo=next.js" alt="Next.js" />
+  <img src="https://img.shields.io/badge/TypeScript-5.6-blue?style=flat-square&logo=typescript" alt="TypeScript" />
+  <img src="https://img.shields.io/badge/Tailwind_CSS-3.4-38bdf8?style=flat-square&logo=tailwind-css" alt="Tailwind" />
+  <img src="https://img.shields.io/badge/Ollama-Local_LLMs-teal?style=flat-square&logo=ollama" alt="Ollama" />
+  <img src="https://img.shields.io/badge/SQLite-WAL_Mode-003B57?style=flat-square&logo=sqlite" alt="SQLite" />
+  <img src="https://img.shields.io/badge/Tests-198%20Passed-brightgreen?style=flat-square" alt="Tests" />
+  <img src="https://img.shields.io/badge/License-MIT-green?style=flat-square" alt="License" />
+</p>
 
-## Stack
+Ollama Chat Web is **a self-hosted, local-first AI workspace** — built to run Ollama models on your own machine, with optional cloud provider fallback, and every filesystem/execution/network-reaching feature wrapped in an explicit security boundary rather than left to trust.
 
-| Layer | Choice | Version |
-| :--- | :--- | :--- |
-| Framework | Next.js, App Router only (no `/pages`) | `^14.2.35` |
-| Language | TypeScript | `^5.6.3` |
-| Styling | Tailwind CSS | `^3.4.15` |
-| Local LLM runtime | Ollama (proxied, not embedded) | any recent |
-| Persistence | `better-sqlite3` (WAL mode), optional | `^13.0.3` |
-| Persistence fallback | Flat JSON (`data/db.json`) | — |
-| Test runner | Vitest | `^1.6.1` |
-| Icons | `@phosphor-icons/react` | `^2.1.10` |
-| Markdown/math rendering | `react-markdown`, `remark-gfm`, `remark-math`, `rehype-katex`, `katex` | — |
-| Syntax highlighting | `react-syntax-highlighter` (Prism) | `^16.1.1` |
+No accounts, no telemetry, no cloud dependency required. Your chats, journal entries, agent configs, and project files live in a database on your own disk.
 
-`better-sqlite3` is an optional native dependency. If there's no prebuilt binary for your Node version and no C++ toolchain to compile it, `lib/serverDb.ts` falls back to `data/db.json` automatically at startup — same API surface either way, just without SQLite's crash-safety and indexing. On Linux this usually "just works" if `build-essential`/`python3` are present; on Windows it needs the "Desktop development with C++" workload in Visual Studio Installer, or a Node LTS version more likely to already have a prebuilt binary.
+For architecture diagrams and a full feature walkthrough, see [`DOCUMENTATION.md`](./DOCUMENTATION.md). This README covers what it is, how to run it, and what's inside.
 
-## Requirements
+---
 
-- Node.js 18+ (tested on 20 and 22)
-- [Ollama](https://ollama.com/) running locally, with at least one chat model pulled
-- Optionally `nomic-embed-text` (or another Ollama embedding model) pulled if you want hybrid semantic RAG instead of pure BM25
+## Key Features ⭐
 
-## Quick start
+- 🔒 **100% Local-First**: No cloud dependency required. Chats, journal entries, agent configs, and project knowledge files are stored on your own machine via SQLite (WAL mode) with an automatic JSON fallback if the native binary isn't available.
+
+- ⚡ **Zero-VRAM Hybrid RAG**: BM25 keyword ranking runs in-memory at effectively zero cost; an optional semantic pass blends in Ollama embedding cosine similarity when you want it. Chunk size, overlap, top-K, and the blend weight are all configurable per project, not hardcoded.
+
+- 🔌 **User-Defined Custom Bridges**: No bundled, pre-built integrations to trust or audit — connect to anything yourself as a **Webhook** (any public endpoint: Slack, Discord, a custom API) or a **Local App bridge** (loopback-only HTTP to something running on your own machine). Trigger any bridge from chat with `/bridge <id> <message>`.
+
+- 🛡️ **Security as a First-Class Concern**: DNS-resolved SSRF guards (immune to DNS rebinding) with three distinct policies for public webhooks, loopback-only bridges, and LAN Ollama instances. A real approval-token gate — with freshness expiry, anti-replay, and tool/path matching verified server-side — stands between an AI tool call and any file write or delete, not just a UI confirm dialog.
+
+- 💻 **In-Browser Codespace**: A real sandboxed code execution environment — Monaco editor, terminal emulator, and a spawned child process (Python/Node/PowerShell/bash) for actually running what you write.
+
+- 📓 **Notion-Style Workspace Journal**: A flexible document canvas with cover banners, emoji icons, status/priority properties, checklists, and three view modes (page, list, kanban board) — plus an AI copilot for drafting, extracting to-dos, and formatting.
+
+- ⏰ **Autonomous Background Agents**: Cron/interval-scheduled agents that can read, search, and propose file changes — with every mutating action queued behind human review and a diff preview before it touches disk.
+
+- 👁️ **Ambient File-Watcher**: Point a project's knowledge base at a real folder on disk instead of manually uploading files. Changes sync automatically via `fs.watch`, debounced, capped, and scoped to plain-text/code — no re-upload needed every time a file changes.
+
+- 🎨 **13 Built-in Themes**: Claude Amber, OLED Black, Midnight, Dracula, Cyberpunk, and more, plus a custom palette editor and adjustable font sizing.
+
+Want the full picture, including sequence diagrams for the agent/approval flow and the prompt engine? Check [`DOCUMENTATION.md`](./DOCUMENTATION.md).
+
+---
+
+## How to Install 🚀
+
+### Requirements
+
+- **Node.js** 18+ (tested on 20 and 22)
+- **[Ollama](https://ollama.com/)** installed and running locally
+
+### Quick Start
 
 ```bash
 git clone https://github.com/p3nr0s3/ollama-chat-web.git
 cd ollama-chat-web
 npm install
 cp .env.example .env.local
+```
 
+Pull at least one chat model (and optionally an embedding model for hybrid RAG):
+
+```bash
 ollama serve
 ollama pull qwen2.5-coder:7b
-ollama pull nomic-embed-text   # optional, for hybrid RAG
+ollama pull nomic-embed-text   # optional — enables hybrid semantic RAG
+```
 
+Then start the dev server:
+
+```bash
 npm run dev
 ```
 
-Open `http://127.0.0.1:3000`.
+Open **[http://127.0.0.1:3000](http://127.0.0.1:3000)**.
 
-## npm scripts
+### Exposing Beyond Localhost
 
-| Script | What it does |
-| :--- | :--- |
-| `npm run dev` | Dev server bound to `127.0.0.1:3000` (localhost only) |
-| `npm run dev:lan` | Dev server bound to `0.0.0.0:3000` — reachable from your LAN |
-| `npm run build` | Production build (`next build`) |
-| `npm start` | Serve the production build, localhost only |
-| `npm run start:lan` | Serve the production build on `0.0.0.0` |
-| `npm run tunnel` | Runs `scripts/tunnel.mjs` to expose the app publicly (localtunnel) |
-| `npm test` | `vitest run` — the full test suite |
-| `npm run lint` | `next lint` |
+By default the app binds to `127.0.0.1` only. If you want it reachable on your LAN or through a tunnel:
 
-`predev`/`prestart` run `scripts/warnOpenAccess.mjs`, which prints a warning if you're about to bind to `0.0.0.0` or run the tunnel script without `APP_ACCESS_TOKEN` set.
+```bash
+npm run dev:lan     # binds to 0.0.0.0 instead of 127.0.0.1
+npm run tunnel       # exposes the app publicly via localtunnel
+```
 
-## Configuration (`.env.local`)
-
-Copy `.env.example` and fill in what you need — everything is optional except the access token if you plan to expose this beyond localhost.
+**Set `APP_ACCESS_TOKEN` and `NEXT_PUBLIC_APP_ACCESS_TOKEN` in `.env.local` before doing either of these** — several routes can read/write your filesystem or spawn processes, and without a token they're gated only by a CSRF check, not authentication. `scripts/warnOpenAccess.mjs` will remind you if you forget.
 
 ```ini
-# Gates every /api/* route. Generate with: openssl rand -hex 32
+# Generate with: openssl rand -hex 32
 APP_ACCESS_TOKEN=
 NEXT_PUBLIC_APP_ACCESS_TOKEN=
+```
 
-OLLAMA_HOST=http://127.0.0.1:11434
+### Production Build
 
-# Optional: server-side cloud provider keys. If set, these take precedence
-# over whatever's typed into Settings > Cloud AI Providers (which stores
-# keys in browser localStorage and sends them per-request instead).
+```bash
+npm run build
+npm start            # localhost only
+npm run start:lan    # 0.0.0.0
+```
+
+---
+
+## Configuration
+
+Cloud provider API keys are optional and can be set two ways: typed into **Settings > Cloud AI Providers** in the UI (stored in browser localStorage), or set server-side in `.env.local` (which always takes precedence when present):
+
+```ini
 ANTHROPIC_API_KEY=
 GEMINI_API_KEY=
 OPENAI_API_KEY=
 GROQ_API_KEY=
 DEEPSEEK_API_KEY=
 OPENROUTER_API_KEY=
-
-# Optional: only needed to allow a specific other origin to call this
-# app's API cross-origin from browser JS. Leave unset to keep CORS closed.
-ALLOW_EXTERNAL_ORIGIN=
 ```
 
-## Security model
+See `.env.example` for the full list, including `OLLAMA_HOST` and the optional `ALLOW_EXTERNAL_ORIGIN` CORS setting.
 
-This is a single-user local tool with no account system, but several routes can read/write your filesystem, spawn processes, or forward your cloud API keys — so they're not left open by default reasoning alone.
+---
 
-**Two independent layers**, enforced in `middleware.ts` on every `/api/*` route:
+## Security Model 🛡️
 
-1. **Bearer token** (`APP_ACCESS_TOKEN` / `NEXT_PUBLIC_APP_ACCESS_TOKEN`) — proves a request came from this app's own frontend. If unset, this layer is a no-op (fine for solo localhost dev, **not** fine the moment you run `npm run tunnel` or `dev:lan`).
-2. **Cross-site request rejection** (`Sec-Fetch-Site` / `Origin` check) — blocks a request originating from a different site, even with no token configured. This is the layer that actually stops the realistic attack: some other tab open in your browser submitting a cross-site `fetch()` to `http://127.0.0.1:3000/api/codespace/run` with a script as the payload. `Sec-Fetch-Site` is set by the browser itself and can't be forged by page JavaScript.
+This is a single-user tool with no account system, so the threat model is different from a multi-tenant app — but it's not ignored. A quick summary (full detail in [`DOCUMENTATION.md`](./DOCUMENTATION.md)):
 
-Layer 2 is applied unconditionally to a fixed set of routes regardless of token state:
+- **Two-layer API gate** (`middleware.ts`): a bearer token, plus a `Sec-Fetch-Site`/`Origin` check that blocks cross-site requests unconditionally on the routes that matter most (`/api/codespace/run`, `/api/tools/execute*`, `/api/fs`) — even if no token is configured.
+- **DNS-resolved SSRF guards** (`lib/ssrfGuard.ts`): three policies (public-only, loopback-only, LAN-permitted) depending on what a URL is for, resistant to DNS rebinding.
+- **Filesystem sandboxing** (`lib/pathSandbox.ts`): every disk-touching route resolves paths against a fixed base directory and rejects traversal attempts.
+- **Approval-token gate**: `write_file`/`delete_file` require a server-verified token — fresh, unconsumed, and matched to the exact tool and path requested — before executing, whether the call came from manual chat or an autonomous agent.
 
-```
-/api/codespace/run
-/api/tools/execute
-/api/tools/execute-agent
-/api/fs
-```
+If you find a real security issue, please don't open a public issue — reach out privately first.
 
-Every other `/api/*` route gets layer 1 only. `/api/db/stream` is a special case — it's loaded via `EventSource`, which can't set an `Authorization` header, so it accepts an equivalent `?token=` query param instead.
+---
 
-**SSRF guards** (`lib/ssrfGuard.ts`), DNS-resolved (not string-matched, so DNS rebinding doesn't bypass them) — three policies depending on what a URL is for:
-
-| Guard | Used for | Allows |
-| :--- | :--- | :--- |
-| `assertPublicUrl` | Custom bridge webhooks (`/api/connectors`), deep-scrape URLs (`/api/search`) | Anything except loopback/RFC1918/link-local/cloud-metadata |
-| `assertLoopbackOnlyUrl` | Local app bridges (`lib/localAppBridge.ts`) | `127.0.0.1`/`::1` only — `http:`, `https:`, `ws:`, `wss:` |
-| `assertOllamaHostUrl` | Ollama proxy `?host=` param (`/api/ollama/[...path]`) | Loopback and RFC1918 (LAN Ollama is a legitimate setup), blocks link-local/metadata |
-
-**Filesystem sandboxing** (`lib/pathSandbox.ts`): every disk-touching route (`/api/fs`, `/api/tools/execute*`, `/api/scan`, the file-watcher) resolves paths relative to a base directory and rejects anything that escapes it via `../` or symlink tricks, rather than trusting the caller's path string.
-
-**Approval-token gate** for mutating disk operations: `write_file`/`delete_file` from the manual chat tool loop or an autonomous agent require a real, unexpired (5-minute freshness), unconsumed (anti-replay), tool-and-path-matched approval token verified server-side against `lib/serverDb.ts` — not just a UI confirm dialog. `/api/tools/execute` additionally requires the approval's `source` to be `"chat"`; `/api/tools/execute-agent` requires `"agent"` — one can't be replayed against the other.
-
-## API surface
-
-| Route | Purpose |
-| :--- | :--- |
-| `POST /api/cloud/chat` | Streaming proxy to Anthropic/Gemini/OpenAI/Groq/DeepSeek/OpenRouter, with automatic secret redaction (`lib/redaction.ts`) before anything leaves the machine |
-| `* /api/ollama/[...path]` | Rate-limited proxy to a local (or LAN) Ollama instance |
-| `POST /api/connectors` | Generic bridge dispatcher — `test`, `webhook_send`, `local_bridge_execute` for user-defined custom bridges (see below) |
-| `GET/POST /api/db`, `GET /api/db/stream` | Database read/write and a Server-Sent Events stream for cross-tab live sync |
-| `GET/POST /api/fs` | Sandboxed file explorer under a fixed base directory |
-| `POST /api/tools/execute`, `POST /api/tools/execute-agent` | Disk tool execution for manual chat vs. autonomous agents, each with its own approval-source restriction |
-| `POST /api/codespace/run` | Spawns a real child process (Python/Node/PowerShell/bash) to run in-browser Codespace code |
-| `POST /api/scan` | Passive OWASP Top 10 checks against a target URL |
-| `POST /api/search` | Built-in web search engine with deep-scrape fallback |
-| `GET/POST /api/projects/watcher` | Starts/stops an ambient filesystem watcher for a project's knowledge folder |
-| `GET /api/browser/status` | Reports whether the optional `bsk` (BrowserSkill) CLI bridge is available |
-
-## Connectors: user-defined custom bridges
-
-There are no pre-built integrations (no bundled Slack/Discord/GitHub/Blender templates) — every connector is added by hand under Directory > Connectors, as one of two types:
-
-- **Webhook** — a plain `POST` with a JSON body to any public URL (`assertPublicUrl`-gated). This is the shape for Slack incoming webhooks, Discord webhooks, or any custom HTTP endpoint that accepts a JSON payload.
-- **Local App** — a loopback-only HTTP bridge to something running on your own machine (`assertLoopbackOnlyUrl`-gated, via `lib/localAppBridge.ts`), for talking to a local desktop app over HTTP.
-
-Trigger a configured bridge from chat with `/bridge <bridge-id> <message>`. See [`DOCUMENTATION.md`](./DOCUMENTATION.md#-local-app-bridge--framework-untuk-koneksi-ke-aplikasi-lokal) for the bridge framework's internals and a full example of wiring up a new one.
-
-## RAG / retrieval
-
-`lib/rag.ts` implements hybrid retrieval: BM25 keyword ranking always runs (zero GPU/VRAM cost, in-memory); an optional semantic pass blends in cosine similarity over Ollama embeddings when enabled. Per-project settings (chunk size, chunk overlap, top-K, and the BM25/semantic blend weight) are configurable in each project's Knowledge tab rather than hardcoded — defaults match the original hardcoded values, so existing projects behave identically until you change something.
-
-`lib/embeddings.ts` caches embeddings by content hash + model, so re-embedding only happens for chunks that actually changed between chat turns, not the whole project on every message.
-
-## Ambient file-watcher
-
-A project's Knowledge tab can point at a real folder on the server's machine (`lib/fileWatcher.ts`) instead of (or alongside) manually uploaded files. Changes are picked up via `fs.watch`, debounced, and re-synced automatically — capped at 500 files per scan and 2MB per file, plain-text/code extensions only (binary formats like PDF still require manual upload, since their parsers run client-side via the browser's File API with no server-side equivalent). Watchers resume automatically after a server restart via `instrumentation.ts`.
-
-## Testing
+## Testing 🧪
 
 ```bash
-npm test              # vitest run — full suite
-npx tsc --noEmit       # typecheck only
+npm test              # vitest run — 20 files, 198 tests
+npx tsc --noEmit       # typecheck
 npm run build          # production build check
 ```
 
-20 test files, 198 tests, covering (non-exhaustively):
+Coverage includes the SSRF guards, the approval-token gate, the custom-bridge connector route, hybrid RAG ranking, the ambient file-watcher's sync logic, path sandbox traversal protection, and document/diff/cache utilities.
 
-- SSRF guard policies, including DNS-rebinding and IPv4-mapped-IPv6 edge cases
-- The approval-token gate for both tool-execution routes (freshness, anti-replay, tool/path matching, source restriction)
-- The generic custom-bridge connector route (webhook + local-http paths)
-- Hybrid RAG ranking (BM25, semantic blending, custom chunk/topK config)
-- The ambient file-watcher's sync logic (new/changed/deleted files, size limits, scan caps)
-- Path sandbox traversal protection
-- Document parsers, text diffing, response caching, context budget trimming
+---
 
-## Project layout
+## Project Structure
 
 ```
 ollama-chat-web/
 ├── app/
-│   ├── api/                    # Route handlers — see API surface table above
-│   ├── globals.css
-│   ├── layout.tsx
-│   └── page.tsx                 # Main controller: chat state, streaming, tool loop
-├── components/                  # UI components (chat, codespace, journal, settings, directory)
+│   ├── api/              # Route handlers — chat proxy, connectors, fs, tools, search, watcher
+│   └── page.tsx           # Main controller: chat state, streaming, tool loop
+├── components/            # Chat, Codespace, Journal, Settings, Directory UI
 ├── lib/
-│   ├── agentEngine.ts            # Autonomous agent tool-calling loop
-│   ├── diskToolOps.ts             # Sandboxed disk tool implementations
-│   ├── embeddings.ts               # Ollama embedding client + content-hash cache
-│   ├── fileWatcher.ts               # Ambient project-folder sync
-│   ├── localAppBridge.ts             # Generic loopback bridge framework
-│   ├── pathSandbox.ts                 # Filesystem path containment
-│   ├── rag.ts                          # BM25 + hybrid semantic retrieval
-│   ├── responseCache.ts                 # LRU exact-match response cache
-│   ├── serverDb.ts                       # SQLite (WAL) with JSON fallback
-│   ├── ssrfGuard.ts                       # DNS-resolved SSRF policies
-│   └── types.ts                            # Shared TypeScript types
-├── middleware.ts                 # Bearer token + CSRF gate for /api/*
-├── instrumentation.ts             # Resumes file-watchers on server start
-├── next.config.mjs
-└── tests/                          # Vitest suites, one file per module/route
+│   ├── agentEngine.ts      # Autonomous agent tool-calling loop
+│   ├── fileWatcher.ts       # Ambient project-folder sync
+│   ├── localAppBridge.ts     # Generic loopback bridge framework
+│   ├── pathSandbox.ts         # Filesystem path containment
+│   ├── rag.ts                  # BM25 + hybrid semantic retrieval
+│   ├── serverDb.ts               # SQLite (WAL) with JSON fallback
+│   └── ssrfGuard.ts                # DNS-resolved SSRF policies
+├── middleware.ts            # Bearer token + CSRF gate
+└── tests/                     # Vitest suites, one file per module/route
 ```
 
-## License
+---
 
-MIT — see `LICENSE`.
+## What's Next? 🌟
+
+Not a fixed roadmap, but active areas: hardware-aware local↔cloud model auto-fallback, a generalized undo mechanism for agent-made file changes, and offline local speech-to-text for voice mode (currently uses the browser's built-in `webkitSpeechRecognition`, which requires network access).
+
+---
+
+## License 📜
+
+MIT — see [`LICENSE`](./LICENSE).
+
+---
+
+<p align="center">
+  Created by <a href="https://github.com/p3nr0s3">Rei</a> — self-hosted AI, on your own terms. 🚀
+</p>
