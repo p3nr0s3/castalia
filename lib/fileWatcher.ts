@@ -205,6 +205,33 @@ function scheduleRescan(projectId: string): void {
  * API route can surface a clear 400 rather than the watcher silently
  * never firing.
  */
+/**
+ * Guards against the one platform combination where recursive watching
+ * fails *silently* rather than throwing: Linux before Node 20.13.0.
+ *
+ * `fs.watch(path, { recursive: true })` has long worked on macOS and
+ * Windows, but on Linux recursive support only landed in Node 20.13.0.
+ * On older Node/Linux the call still succeeds and still fires events for
+ * files directly inside the watched folder — it just never reports
+ * anything in subdirectories. That's the worst failure mode available:
+ * the watcher looks healthy, the UI shows it active, and nested files
+ * quietly never sync. Failing loudly at start time is far better than
+ * letting a user trust a half-working index.
+ */
+function assertRecursiveWatchSupported(): void {
+  if (process.platform !== "linux") return;
+
+  const [major, minor] = process.versions.node.split(".").map(Number);
+  const supported = major > 20 || (major === 20 && minor >= 13);
+  if (supported) return;
+
+  throw new Error(
+    `Recursive folder watching requires Node 20.13.0 or newer on Linux (running ${process.versions.node}). ` +
+      `On this version subdirectories would be silently skipped, so the watcher is refusing to start rather than ` +
+      `indexing only part of the folder. Upgrade Node, or point the watcher at a flat folder with no subdirectories.`
+  );
+}
+
 export function startWatcher(project: Project): void {
   if (!project.watchedFolderPath) throw new Error("watchedFolderPath is required to start a watcher.");
 
@@ -213,6 +240,8 @@ export function startWatcher(project: Project): void {
   if (!stat.isDirectory()) throw new Error(`'${project.watchedFolderPath}' is not a directory.`);
 
   stopWatcher(project.id);
+
+  assertRecursiveWatchSupported();
 
   const watcher = fs.watch(resolvedPath, { recursive: true }, (_eventType, filename) => {
     // filename can be null on some platforms/edge cases (e.g. some
