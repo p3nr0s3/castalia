@@ -1124,6 +1124,53 @@ export default function HomePage() {
   };
 
   // Send Message Logic
+  /**
+   * Extracts durable memories from a completed exchange, if the user has
+   * auto-memory enabled. Fully fire-and-forget: every failure path is
+   * swallowed, because nothing about learning a fact should be able to
+   * disturb a conversation that already succeeded.
+   */
+  const runMemoryExtraction = async (userMessage: string, assistantMessage: string) => {
+    const memoryConfig = settings.memory || DEFAULT_MEMORY_CONFIG;
+    if (!memoryConfig.generateFromChats) return;
+    if (!userMessage?.trim() || !assistantMessage?.trim()) return;
+    // Very short exchanges ("ok", "thanks") carry nothing durable and
+    // aren't worth a model call.
+    if (assistantMessage.trim().length < 80) return;
+
+    const extractionModel = settings.defaultModel || selectedModel;
+    if (!extractionModel) return;
+
+    try {
+      const res = await apiFetch("/api/memory/extract", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userMessage,
+          assistantMessage,
+          existingMemories: memoryConfig.items || [],
+          includeSensitive: Boolean(memoryConfig.includeSensitive),
+          ollamaUrl: settings.ollamaUrl,
+          model: extractionModel,
+        }),
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (!data?.success || !data.changed || !Array.isArray(data.items)) return;
+
+      setSettings((prev) => {
+        const next = {
+          ...prev,
+          memory: { ...(prev.memory || DEFAULT_MEMORY_CONFIG), items: data.items },
+        };
+        storage.saveSettings(next);
+        return next;
+      });
+    } catch {
+      // Intentionally silent — see the doc comment above.
+    }
+  };
+
   const handleSendMessage = async () => {
     const trimmedInput = input.trim();
     const currentAttachments = [...attachments];
@@ -1863,6 +1910,13 @@ export default function HomePage() {
           setIsStreaming(false);
           setLiveStats(undefined);
           abortControllerRef.current = null;
+
+          // Auto-memory: learn durable facts from this exchange. Fired
+          // after the answer is fully delivered and never awaited — the
+          // user's reply must not wait on extraction, and a failure here
+          // must stay invisible. Honors MemoryConfig.generateFromChats,
+          // which until now was a persisted setting nothing ever read.
+          void runMemoryExtraction(trimmedInput, finalFullText);
         },
         onError: (err) => {
           setConversations((prev) => {
