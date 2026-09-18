@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useRef, useEffect, useState } from "react";
-import { ArrowUp, Square, Sparkle as Sparkles, Paperclip, Plus, CaretDown as ChevronDown, X, FileText, Globe, Microphone as Mic, MicrophoneSlash as MicOff, CodeSimple as Code2, Brain, Lightning as Zap, Folder, Trash as Trash2, Terminal, Translate as Languages, TextAlignLeft as AlignLeft, Lightbulb, Wrench, GitBranch, ChatText as MessageSquare, ChatCircle as MessageCircle, Package as Box, Headphones, PhoneCall, Warning as AlertTriangle, ShieldCheck } from "@phosphor-icons/react";
+import { ArrowUp, Square, Sparkle as Sparkles, Paperclip, Plus, CaretDown as ChevronDown, X, FileText, Globe, Microphone as Mic, MicrophoneSlash as MicOff, CodeSimple as Code2, Brain, Lightning as Zap, Folder, Trash as Trash2, Terminal, Translate as Languages, TextAlignLeft as AlignLeft, Lightbulb, Wrench, GitBranch, Headphones, PhoneCall, Warning as AlertTriangle, ShieldCheck } from "@phosphor-icons/react";
 import { Attachment, ThinkingMode, OllamaModel, ApiKeysConfig, Skill } from "@/lib/types";
 import { formatBytes, detectModelProvider, getApiKeyForProvider } from "@/lib/ollama";
 import { processSelectedFiles } from "@/lib/fileUtils";
@@ -269,48 +269,12 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       },
     },
     {
-      command: "/github",
-      label: "GitHub Live Connect",
-      desc: "Fetch live repo stats, README, or issues (e.g. /github owner/repo)",
+      command: "/bridge",
+      label: "Custom Bridge",
+      desc: "Send a message through one of your saved connectors (e.g. /bridge my-webhook Hello)",
       icon: GitBranch,
       action: () => {
-        setInput("/github ");
-      },
-    },
-    {
-      command: "/slack",
-      label: "Slack Dispatch",
-      desc: "Dispatch message directly to Slack channel via Incoming Webhook",
-      icon: MessageSquare,
-      action: () => {
-        setInput("/slack ");
-      },
-    },
-    {
-      command: "/discord",
-      label: "Discord Dispatch",
-      desc: "Dispatch message directly to Discord channel via Webhook",
-      icon: MessageCircle,
-      action: () => {
-        setInput("/discord ");
-      },
-    },
-    {
-      command: "/blender",
-      label: "Blender 3D Procedural",
-      desc: "Generate and execute 3D procedural meshes, materials, and lighting in Blender",
-      icon: Box,
-      action: () => {
-        setInput("/blender ");
-      },
-    },
-    {
-      command: "/music",
-      label: "Recall Music Player",
-      desc: "Play ambient soundscapes (lofi, rain, space), pause, next, or recall player UI",
-      icon: Headphones,
-      action: () => {
-        setInput("/music play lofi");
+        setInput("/bridge ");
       },
     },
     ...skills

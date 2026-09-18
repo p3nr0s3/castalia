@@ -225,23 +225,23 @@ npm run tunnel
 
 ## 🔌 Local App Bridge — Framework untuk Koneksi ke Aplikasi Lokal
 
-Beberapa fitur (misalnya integrasi Blender via MCP) butuh menghubungkan aplikasi web ini ke aplikasi desktop lain yang berjalan di komputer yang sama, lewat HTTP bridge lokal. `lib/localAppBridge.ts` adalah lapisan generic yang menangani pola yang sama untuk semua bridge semacam ini, diekstrak dari implementasi Blender bridge yang sudah ada:
+Beberapa use-case butuh menghubungkan aplikasi web ini ke aplikasi desktop lain yang berjalan di komputer yang sama, lewat HTTP bridge lokal (misalnya: daemon Python custom yang mengontrol Blender lewat `bpy`, atau app desktop lain apapun yang punya HTTP server sendiri). **Catatan: tidak ada bridge bawaan/pre-built untuk aplikasi manapun** — `DEFAULT_CONNECTORS` di `lib/directoryData.ts` sengaja dikosongkan; semua per-service hardcoded logic (GitHub API, Slack/Discord webhook shaping, Blender bpy bridge) sudah dihapus dari `app/api/connectors/route.ts`. `lib/localAppBridge.ts` adalah lapisan generic yang user pakai untuk mendefinisikan bridge-nya sendiri lewat Directory > Connectors > Add Custom Bridge:
 
 1. **Token otentikasi per-instalasi** — token acak (`crypto.randomBytes(24)`) dibuat sekali saat bridge di-install, disimpan di `data/<bridge-id>-bridge-token.json`, dan dikirim di setiap request lewat header `X-Bridge-Token`.
 2. **SSRF guard loopback-only** — `assertLoopbackOnlyUrl()` (di `lib/ssrfGuard.ts`) memastikan URL bridge selalu `127.0.0.1`/`::1`, tidak pernah alamat LAN atau publik. Ini penting karena bridge biasanya menerima perintah yang powerful (eksekusi kode, kontrol aplikasi) — kalau bisa diakses dari luar loopback, itu jadi RCE terbuka.
 3. **Test koneksi** dengan timeout, untuk cek bridge hidup atau tidak sebelum mengirim perintah.
 4. **Eksekusi aksi** dengan fallback endpoint, timeout, dan pembedaan jelas antara "bridge menolak karena token salah" (401) vs "bridge memang mati/tidak terjangkau".
-5. **Fallback offline** — kalau bridge mati, caller dapat payload yang tadinya mau dikirim, supaya bisa dijalankan manual oleh user (misal: paste script Python langsung ke Blender).
+5. **Fallback offline** — kalau bridge mati, caller dapat payload yang tadinya mau dikirim, supaya bisa dijalankan manual oleh user di aplikasi tujuannya.
 
-### Yang TIDAK digeneralisasi (tetap spesifik per-aplikasi)
+### Yang TIDAK digeneralisasi (tetap tanggung jawab user per-bridge)
 
-- Instalasi startup-script (path OS-specific — Blender pakai `AppData/Blender Foundation` di Windows, `.config/blender` di Linux, dst). Tidak semua aplikasi desktop punya mekanisme "jalankan script ini saat startup" yang sama, jadi ini tetap ditulis manual per-bridge.
-- Isi script/payload yang dikirim ke bridge (Blender: Python via `bpy`; bridge lain: format apapun yang aplikasi itu terima).
-- Port default dan path endpoint — masing-masing bridge mendefinisikan `BridgeDefinition` sendiri.
+- Instalasi startup-script (path OS-specific, kalau aplikasi tujuan punya mekanisme "jalankan script ini saat startup"). Ini murni contoh/dokumentasi untuk user yang mau bikin sendiri — tidak ada instalasi otomatis bawaan aplikasi ini untuk aplikasi manapun.
+- Isi script/payload yang dikirim ke bridge — sepenuhnya tergantung format yang diterima aplikasi tujuan user.
+- Port default dan path endpoint — masing-masing bridge mendefinisikan `BridgeDefinition` sendiri saat user menambahkannya.
 
 ### Cara menambahkan bridge baru
 
-Bridge Blender yang sudah ada di `app/api/connectors/route.ts` **belum** dipindah ke framework ini (sengaja — supaya tidak berisiko meregresi fitur yang sudah teruji), jadi framework ini murni untuk bridge yang akan ditambahkan setelahnya. Contoh skeleton untuk bridge baru:
+Semua bridge — termasuk ke aplikasi seperti Blender — dibuat sepenuhnya oleh user lewat Directory > Connectors > Add Custom Bridge; tidak ada bridge bawaan untuk aplikasi tertentu yang sudah ditulis di `app/api/connectors/route.ts`. Contoh skeleton untuk bridge baru:
 
 ```typescript
 import { BridgeDefinition, testBridgeConnection, executeBridgeAction, generateAndStoreBridgeToken } from "@/lib/localAppBridge";

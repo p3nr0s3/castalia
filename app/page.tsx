@@ -99,8 +99,6 @@ export default function HomePage() {
   const [thinkingMode, setThinkingMode] = useState<ThinkingMode>("default");
   const [mainView, setMainView] = useState<"workspace" | "codespace" | "journal">("workspace");
   const [workspaceView, setWorkspaceView] = useState<"chat" | "projects-gallery" | "project-detail">("chat");
-  const [isArenaMode, setIsArenaMode] = useState<boolean>(false);
-  const [arenaModelB, setArenaModelB] = useState<string>("gemini-2.5-flash");
   const abortControllerRef = useRef<AbortController | null>(null);
 
   // Modals and Drawers
@@ -1102,7 +1100,7 @@ export default function HomePage() {
       for (const conn of activeConnectors) {
         connectorsSection += `- ${conn.name}: ${conn.description} (${conn.isLiveConnected ? "LIVE CONNECTED" : "CONFIGURED"}${conn.repo ? `, Default Repo: ${conn.repo}` : ""})\n`;
       }
-      connectorsSection += "You can reference these connected capabilities when answering, and remind the user that slash commands like /github, /slack, and /discord are live.\n";
+      connectorsSection += "You can reference these connected capabilities when answering. The user can trigger any of them with `/bridge <bridge-id> <message>`.\n";
       connectorsSection += "=== END OF CONNECTED SERVICES ===\n\n";
       basePrompt = `${basePrompt}${connectorsSection}`;
     }
@@ -1300,20 +1298,7 @@ export default function HomePage() {
         : undefined,
     };
 
-    const modelBMessageId = isArenaMode && arenaModelB ? `msg_ast_b_${Date.now() + 2}` : null;
-    const modelBPlaceholder: Message | null = modelBMessageId
-      ? {
-          id: modelBMessageId,
-          role: "assistant",
-          content: "",
-          timestamp: Date.now() + 1,
-          model: arenaModelB,
-        }
-      : null;
-
-    const newMessages = modelBPlaceholder
-      ? [...targetConv.messages, userMessage, assistantPlaceholder, modelBPlaceholder]
-      : [...targetConv.messages, userMessage, assistantPlaceholder];
+    const newMessages = [...targetConv.messages, userMessage, assistantPlaceholder];
 
     const isFirstMessage = targetConv.messages.length === 0;
     const newTitle = isFirstMessage
@@ -1559,7 +1544,7 @@ export default function HomePage() {
       // Enforce 16K Context Window Budget: trim chat history so (system + knowledge + history + predict) never overflows
       const targetCtx = targetConv.numCtx ?? proj?.numCtx ?? settings.numCtx ?? 16384;
       const historyBudget = Math.max(2000, Math.floor(targetCtx * 0.45));
-      const rawMessagesToSend = newMessages.slice(0, modelBPlaceholder ? -2 : -1);
+      const rawMessagesToSend = newMessages.slice(0, -1);
       const budgetedMessages = trimChatHistoryForBudget(rawMessagesToSend, historyBudget, { smartShift: isSmartContext });
 
       // If smart context is enabled and there is dynamic context, inject into the active user turn message
@@ -1589,7 +1574,7 @@ export default function HomePage() {
       });
 
       // Skip re-generation if exact identical response is cached
-      if (!searchContextText && !modelBPlaceholder) {
+      if (!searchContextText) {
         const cached = getCachedPromptResponse(cacheKey);
         if (cached) {
           setConversations((prev) => {
@@ -1858,7 +1843,7 @@ export default function HomePage() {
           });
 
           // Cache successful response for identical prompt repeats
-          if (!searchContextText && !modelBPlaceholder) {
+          if (!searchContextText) {
             setCachedPromptResponse(cacheKey, {
               content: finalFullText,
               reasoning: finalReasoning,
@@ -1869,83 +1854,9 @@ export default function HomePage() {
             });
           }
 
-          // If Arena Mode is enabled, now stream Model B
-          if (modelBMessageId && arenaModelB) {
-            let modelBAccumulated = "";
-            let modelBReasoning = "";
-            streamChatCompletion({
-              hostUrl: settings.ollamaUrl,
-              model: arenaModelB,
-              messages: newMessages.slice(0, -2),
-              systemPrompt: effectiveSystemPrompt,
-              temperature: targetConv.temperature ?? settings.temperature,
-              topP: targetConv.topP ?? settings.topP,
-              apiKeys: settings.apiKeys,
-              signal: abortController.signal,
-              onReasoning: (bReasoning) => {
-                modelBReasoning += bReasoning;
-                setConversations((prev) =>
-                  prev.map((c) => {
-                    if (c.id !== targetId) return c;
-                    const msgs = c.messages.map((m) =>
-                      m.id === modelBMessageId ? { ...m, reasoning: modelBReasoning } : m
-                    );
-                    return { ...c, messages: msgs };
-                  })
-                );
-              },
-              onToken: (bChunk) => {
-                modelBAccumulated += bChunk;
-                setConversations((prev) =>
-                  prev.map((c) => {
-                    if (c.id !== targetId) return c;
-                    const msgs = c.messages.map((m) =>
-                      m.id === modelBMessageId ? { ...m, content: modelBAccumulated } : m
-                    );
-                    return { ...c, messages: msgs };
-                  })
-                );
-              },
-              onFinish: (bFull, bMetrics, bFullReasoning) => {
-                setConversations((prev) => {
-                  const finished = prev.map((c) => {
-                    if (c.id !== targetId) return c;
-                    const msgs = c.messages.map((m) =>
-                      m.id === modelBMessageId
-                        ? { ...m, content: bFull || modelBAccumulated, reasoning: bFullReasoning || modelBReasoning || undefined, metrics: bMetrics }
-                        : m
-                    );
-                    return { ...c, messages: msgs, updatedAt: Date.now() };
-                  });
-                  storage.saveConversations(finished);
-                  return finished;
-                });
-                setIsStreaming(false);
-                setLiveStats(undefined);
-                abortControllerRef.current = null;
-              },
-              onError: (err) => {
-                setConversations((prev) =>
-                  prev.map((c) => {
-                    if (c.id !== targetId) return c;
-                    const msgs = c.messages.map((m) =>
-                      m.id === modelBMessageId
-                        ? { ...m, content: `Error from Model B (${arenaModelB}): ${err.message}`, isError: true }
-                        : m
-                    );
-                    return { ...c, messages: msgs };
-                  })
-                );
-                setIsStreaming(false);
-                setLiveStats(undefined);
-                abortControllerRef.current = null;
-              },
-            });
-          } else {
-            setIsStreaming(false);
-            setLiveStats(undefined);
-            abortControllerRef.current = null;
-          }
+          setIsStreaming(false);
+          setLiveStats(undefined);
+          abortControllerRef.current = null;
         },
         onError: (err) => {
           setConversations((prev) => {
@@ -2610,10 +2521,6 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
           onForkConversation={handleForkConversation}
           onApproveTool={(approvalId) => handleApprovalDecision(approvalId, "approved")}
           onRejectTool={(approvalId) => handleApprovalDecision(approvalId, "rejected")}
-          isArenaMode={isArenaMode}
-          onToggleArenaMode={() => setIsArenaMode(!isArenaMode)}
-          arenaModelB={arenaModelB}
-          onSelectArenaModelB={setArenaModelB}
           onOpenVoiceCall={() => setIsVoiceCallOpen(true)}
           contextBreakdown={contextBreakdown}
           onSelectNumCtx={(val) => handleUpdateSessionParameters({ numCtx: val })}

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useRef, useEffect, useState } from "react";
-import { SidebarSimple as PanelLeft, CaretLineLeft as PanelLeftClose, Faders as Sliders, Download, ArrowDown, Robot as Bot, Folder, FileText, Lightning as Zap, Sparkle as Sparkles, CodeSimple as Code2, CaretDown as ChevronDown, CaretRight as ChevronRight, Check, PencilSimple as Edit2, PushPin as Pin, EnvelopeSimple as Mail, Trash as Trash2, Headphones, Sword as Swords, Gear as Settings } from "@phosphor-icons/react";
+import { SidebarSimple as PanelLeft, CaretLineLeft as PanelLeftClose, Faders as Sliders, Download, ArrowDown, Robot as Bot, Folder, FileText, Lightning as Zap, Sparkle as Sparkles, CodeSimple as Code2, CaretDown as ChevronDown, CaretRight as ChevronRight, Check, PencilSimple as Edit2, PushPin as Pin, EnvelopeSimple as Mail, Trash as Trash2, Headphones, Gear as Settings } from "@phosphor-icons/react";
 import { Conversation, OllamaModel, Attachment, Project, ApiKeysConfig, ThinkingMode, Skill } from "@/lib/types";
 import { STARTER_PROMPTS } from "@/lib/constants";
 import { processSelectedFiles } from "@/lib/fileUtils";
@@ -60,10 +60,6 @@ interface ChatAreaProps {
   onForkConversation?: (messageId: string) => void;
   onApproveTool?: (approvalId: string) => void;
   onRejectTool?: (approvalId: string) => void;
-  isArenaMode?: boolean;
-  onToggleArenaMode?: () => void;
-  arenaModelB?: string;
-  onSelectArenaModelB?: (model: string) => void;
   onOpenVoiceCall?: () => void;
   contextBreakdown?: ContextBreakdown;
   onSelectNumCtx?: (tokens: number) => void;
@@ -87,10 +83,6 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   onForkConversation,
   onApproveTool,
   onRejectTool,
-  isArenaMode = false,
-  onToggleArenaMode,
-  arenaModelB,
-  onSelectArenaModelB,
   apiKeys,
   models,
   selectedModel,
@@ -521,31 +513,6 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
               className="text-[11px] font-medium text-blue-400 hover:text-blue-300 underline underline-offset-2 flex-shrink-0 cursor-pointer"
             >
               Project Settings & Knowledge
-            </button>
-          )}
-        </div>
-      )}
-
-      {/* Model Arena Banner */}
-      {isArenaMode && (
-        <div className="flex-shrink-0 bg-amber-500/10 border-b border-amber-500/20 px-3.5 py-2 flex flex-wrap items-center justify-between gap-2 text-xs animate-in fade-in">
-          <div className="flex items-center gap-2 flex-wrap min-w-0">
-            <Swords className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
-            <span className="font-semibold text-amber-300">Arena Mode:</span>
-            <span className="font-mono text-[11px] text-[var(--foreground)] bg-[var(--card-bg)] px-2 py-0.5 rounded-lg border border-[var(--card-border)]">
-              {selectedModel} <span className="text-[var(--muted)]">(Model A)</span>
-            </span>
-            <span className="text-[var(--muted)] font-bold">vs</span>
-            <span className="font-mono text-[11px] text-amber-400 bg-[var(--card-bg)] px-2 py-0.5 rounded-lg border border-amber-500/30">
-              {arenaModelB || "gemini-2.5-flash"} <span className="text-[var(--muted)]">(Model B)</span>
-            </span>
-          </div>
-          {onToggleArenaMode && (
-            <button
-              onClick={onToggleArenaMode}
-              className="text-[11px] text-amber-400/80 hover:text-amber-300 underline cursor-pointer"
-            >
-              Exit Arena
             </button>
           )}
         </div>
