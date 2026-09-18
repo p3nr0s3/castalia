@@ -252,7 +252,6 @@ export const DirectoryModal: React.FC<DirectoryModalProps> = ({
       description: importDesc.trim() || "Imported community skill from GitHub repository.",
       systemPrompt: importPrompt.trim(),
       author: "GitHub (claude-skills)",
-      downloads: "1K+",
       category: "Community",
       sourceUrl: importUrl.trim() || "https://github.com/alirezarezvani/claude-skills",
       enabled: true,
@@ -497,7 +496,7 @@ export const DirectoryModal: React.FC<DirectoryModalProps> = ({
                               )}
                             </div>
                             <div className="text-[11px] text-[var(--muted)] pt-0.5">
-                              {s.author || "Anthropic"} • {s.downloads || "100K"}
+                              {s.author || "Community"}
                             </div>
                           </div>
 
@@ -674,7 +673,7 @@ export const DirectoryModal: React.FC<DirectoryModalProps> = ({
                             <span>{plugin.name}</span>
                           </div>
                           <div className="text-[11px] text-[var(--muted)] pt-0.5">
-                            {plugin.author} • {plugin.downloads}
+                            {plugin.author}
                           </div>
                         </div>
 

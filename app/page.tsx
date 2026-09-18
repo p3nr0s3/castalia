@@ -650,7 +650,13 @@ export default function HomePage() {
     }
   };
 
-  // Automated Background Agent Scheduler Loop (checks every 25 seconds)
+  // Scheduled Agent Checker — runs on a client-side timer (checks every 25
+  // seconds) while this tab is open. This is NOT a persistent server-side
+  // scheduler: if the tab is closed when a run was due, nothing fires until
+  // it's reopened, at which point overdue agents run once immediately
+  // (see the `now >= agent.nextRun` check below) rather than at their
+  // originally scheduled time. See the caveat shown in AgentModal's
+  // schedule picker for the user-facing version of this.
   useEffect(() => {
     const schedulerInterval = setInterval(() => {
       const now = Date.now();

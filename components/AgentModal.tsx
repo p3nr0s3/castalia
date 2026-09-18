@@ -286,6 +286,16 @@ export const AgentModal: React.FC<AgentModalProps> = ({
                 </select>
               </div>
             )}
+
+            {(scheduleType === "daily" || scheduleType === "interval") && (
+              <p className="text-[11px] leading-snug text-[var(--muted)]/80 pt-1">
+                Runs on a timer inside this app, not a system-level background
+                service — the schedule only fires while this app is open in a
+                browser tab. If it's closed when a run was due, the agent runs
+                once as soon as you reopen it, not retroactively at the
+                missed time.
+              </p>
+            )}
           </div>
 
           {/* Model & Web Search Tools */}

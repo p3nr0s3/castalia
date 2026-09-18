@@ -395,7 +395,6 @@ export interface Skill {
   slashCommand?: string;
   category?: string;
   author?: string;
-  downloads?: string;
   sourceUrl?: string;
   /**
    * When true, activating this skill also turns on the disk tools
@@ -453,7 +452,6 @@ export interface PluginItem {
   name: string;
   description: string;
   author: string;
-  downloads: string;
   installed: boolean;
   category: string;
   skillsIncluded: string[];
