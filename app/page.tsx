@@ -62,6 +62,7 @@ import { CodespaceView } from "@/components/CodespaceView";
 import { JournalView } from "@/components/JournalView";
 import {
   buildOptimizedKnowledgeContextAsync,
+  buildRetrievalQuery,
   trimChatHistoryForBudget,
   formatUserEphemeralContext,
 } from "@/lib/rag";
@@ -1004,9 +1005,15 @@ export default function HomePage() {
     // 1. Inject Project Knowledge Base (BM25, or hybrid BM25+embeddings when
     // Settings > semanticRagEnabled is on) with 16K Context Guard budgeting.
     if (proj && proj.files && proj.files.length > 0) {
+      // Expand the retrieval query with recent turns so follow-up/pronoun
+      // questions ("gimana cara pakainya?") retrieve against the actual
+      // topic being discussed, not just their own few, often-generic
+      // words. Only affects what's used for ranking — the model still
+      // sees the real conversation history separately, unchanged.
+      const retrievalQuery = buildRetrievalQuery(userQuery, conv.messages);
       const knowledgeResult = await buildOptimizedKnowledgeContextAsync(
         proj.files,
-        userQuery,
+        retrievalQuery,
         3500,
         {
           ollamaUrl: settings.ollamaUrl,

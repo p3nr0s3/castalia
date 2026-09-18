@@ -71,6 +71,83 @@ export function tokenizeText(text: string): string[] {
     .filter((w) => w.length > 1 && !STOPWORDS.has(w));
 }
 
+// Chunk tokenization cache. rankChunksBM25 re-tokenizes every chunk's full
+// text on every single call — for a project with hundreds of chunks that's
+// the same tokenization work repeated on every chat turn even though the
+// chunk text itself hasn't changed (chunkDocument is deterministic for a
+// given file's content, so the same content always produces byte-identical
+// chunk text). Keyed by a cheap hash of the chunk text rather than chunk.id:
+// chunk objects are rebuilt fresh on every call (not persisted), so an
+// id-keyed cache would need explicit invalidation when a file's content
+// changes; a content-hash key makes a stale hit structurally impossible —
+// edited content simply hashes to a different key and misses.
+const TOKEN_CACHE_MAX_ENTRIES = 5000;
+const tokenCache = new Map<string, string[]>();
+
+function hashText(text: string): string {
+  // Simple djb2 hash — this only needs to be cheap and collision-unlikely
+  // for cache-key purposes, not cryptographic.
+  let hash = 5381;
+  for (let i = 0; i < text.length; i++) {
+    hash = ((hash << 5) + hash + text.charCodeAt(i)) | 0;
+  }
+  return `${text.length}:${hash}`;
+}
+
+function tokenizeChunkCached(text: string): string[] {
+  const key = hashText(text);
+  const cached = tokenCache.get(key);
+  if (cached) return cached;
+
+  const tokens = tokenizeText(text);
+  if (tokenCache.size >= TOKEN_CACHE_MAX_ENTRIES) {
+    // Simple insertion-order eviction (Map preserves insertion order) —
+    // no need for real LRU here, this just bounds memory for very long
+    // sessions touching many distinct projects/files.
+    const oldestKey = tokenCache.keys().next().value;
+    if (oldestKey !== undefined) tokenCache.delete(oldestKey);
+  }
+  tokenCache.set(key, tokens);
+  return tokens;
+}
+
+/** Test/debug hook — clears the module-level chunk tokenization cache. */
+export function clearTokenCache(): void {
+  tokenCache.clear();
+}
+
+/**
+ * Expands the current turn's query with recent prior user turns before it
+ * goes into retrieval (BM25/embedding), without touching what's actually
+ * sent to the model as conversation history. Retrieval on the raw current
+ * message alone does badly on natural follow-ups — "gimana cara pakainya?"
+ * or "what about the second one" carry no retrievable keywords by
+ * themselves; the topic lives in the turns before it. Concatenating a
+ * short, truncated window of recent user messages ahead of the current
+ * query gives BM25/embeddings something to match against while still
+ * keeping the current query's own terms present (and last, so exact
+ * matches/filename-bonus scoring still favors what was actually just
+ * asked).
+ */
+export function buildRetrievalQuery(
+  currentQuery: string,
+  recentMessages: Message[] | undefined,
+  lookback = 2
+): string {
+  if (!recentMessages || recentMessages.length === 0) return currentQuery;
+
+  const priorUserTurns = recentMessages
+    .filter((m) => m.role === "user")
+    // Excludes the current turn itself (assumed to be the last user
+    // message already present in recentMessages) — only what came before it.
+    .slice(-(lookback + 1), -1)
+    .map((m) => (m.content || "").slice(0, 200));
+
+  if (priorUserTurns.length === 0) return currentQuery;
+
+  return [...priorUserTurns, currentQuery].join("\n");
+}
+
 /**
  * Splits document text into semantic chunks (~400-600 tokens each)
  * respecting markdown sections, code blocks, paragraphs, and lists.
@@ -168,7 +245,7 @@ export function rankChunksBM25(
 
   const N = chunks.length;
   // Calculate average document length (in words)
-  const chunkTokenLists = chunks.map((c) => tokenizeText(c.text));
+  const chunkTokenLists = chunks.map((c) => tokenizeChunkCached(c.text));
   const totalLength = chunkTokenLists.reduce((sum, list) => sum + list.length, 0);
   const avgLen = totalLength / N || 1;
 
@@ -263,19 +340,47 @@ function assembleContextFromRanked(
     };
   }
 
+  // Per-file diversity cap: without this, a single long/keyword-dense file
+  // can occupy every selected slot, starving other genuinely relevant
+  // files that only contributed one or two good chunks each. First pass
+  // takes the best-scoring chunks up to a per-file cap; anything skipped
+  // for exceeding the cap is deferred, not dropped — a second pass fills
+  // any budget still remaining from the deferred pool in score order, so
+  // a project with only one relevant file still gets its full budget used
+  // (the cap only matters when there's genuine competition between files).
+  const MAX_CHUNKS_PER_FILE_FIRST_PASS = 3;
   let accumulatedTokens = 0;
   const selectedChunks: RankedChunk[] = [];
   const matchedFileSet = new Set<string>();
+  const perFileCount = new Map<string, number>();
+  const deferred: RankedChunk[] = [];
 
   for (const chunk of ranked) {
+    const countForFile = perFileCount.get(chunk.fileId) || 0;
+    if (countForFile >= MAX_CHUNKS_PER_FILE_FIRST_PASS) {
+      deferred.push(chunk);
+      continue;
+    }
     if (accumulatedTokens + chunk.estimatedTokens <= tokenBudget || selectedChunks.length === 0) {
       selectedChunks.push(chunk);
       accumulatedTokens += chunk.estimatedTokens;
       matchedFileSet.add(chunk.fileName);
+      perFileCount.set(chunk.fileId, countForFile + 1);
     } else {
-      break;
+      deferred.push(chunk);
     }
   }
+
+  for (const chunk of deferred) {
+    if (accumulatedTokens + chunk.estimatedTokens > tokenBudget) break;
+    selectedChunks.push(chunk);
+    accumulatedTokens += chunk.estimatedTokens;
+    matchedFileSet.add(chunk.fileName);
+  }
+
+  // Keep final order score-descending (the two-pass selection above can
+  // interleave first-pass and deferred-pass picks out of score order).
+  selectedChunks.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
 
   let contextText = "\n\n=== 16K CONTEXT-GUARD: RETRIEVED PROJECT KNOWLEDGE ===\n";
   contextText += "The user has loaded the following project files:\n";
