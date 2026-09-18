@@ -66,6 +66,77 @@ export interface SearchContextHistory {
   lastAssistantContent?: string;
 }
 
+/**
+ * Maps an ordinal reference in a follow-up question to a zero-based index.
+ * Returns null when the question carries no ordinal (e.g. "mitigasinya apa?",
+ * "jelaskan yang tersebut"), which the caller treats as "the main subject".
+ */
+function detectOrdinal(text: string): number | null {
+  if (/\b(yang pertama|pertama|nomor 1|no 1|the first one|first)\b/i.test(text)) return 0;
+  if (/\b(yang kedua|kedua|nomor 2|no 2|the second one|second)\b/i.test(text)) return 1;
+  if (/\b(yang ketiga|ketiga|nomor 3|no 3|the third one|third)\b/i.test(text)) return 2;
+  return null;
+}
+
+/**
+ * Pulls the list of things a previous assistant answer was enumerating, in
+ * the order they appeared, so a follow-up like "harga yang kedua" can be
+ * rewritten into a query naming that actual item.
+ *
+ * This replaces what used to be a CVE-only regex. That worked for security
+ * questions and silently did nothing for every other topic — a follow-up
+ * about the second laptop, the third framework, or the first candidate fell
+ * through to concatenating the raw previous question, producing queries like
+ * "tolong cariin laptop dong harga yang kedua berapa" that no search engine
+ * can answer. Extraction is deliberately ordered most-precise-first so a
+ * high-confidence identifier wins over a generic list item.
+ */
+function extractCandidateEntities(text: string): string[] {
+  if (!text) return [];
+  const found: string[] = [];
+  const push = (raw: string) => {
+    const v = raw.replace(/[*_`]/g, "").replace(/\s{2,}/g, " ").trim().replace(/[.,;:]+$/, "");
+    // Two chars filters out list noise ("a.", "1"); the cap keeps a whole
+    // wrapped sentence from being mistaken for an entity name.
+    if (v.length >= 2 && v.length <= 80 && !found.some((f) => f.toLowerCase() === v.toLowerCase())) {
+      found.push(v);
+    }
+  };
+
+  // Tier 1 — structured identifiers. Unambiguous, so they outrank prose.
+  for (const m of text.match(/\bCVE-\d{4}-\d{4,}\b/gi) || []) push(m.toUpperCase());
+  if (found.length > 0) return found;
+
+  // Tier 2 — numbered list items ("1. Foo", "2) Bar"). Takes the item's
+  // leading phrase: up to a sentence-ending period, dash, or colon, since
+  // list entries are usually "Name — description" or "Name: description".
+  for (const line of text.split(/\r?\n/)) {
+    const m = line.match(/^\s*\d+[.)]\s+(.+)$/);
+    if (m) push(m[1].split(/\s[—–-]\s|:\s|\.\s/)[0]);
+  }
+  // Inline numbered form ("1. ASUS Zenbook, 2. Lenovo Yoga") for answers
+  // that don't use real line breaks.
+  if (found.length === 0) {
+    const inlineRe = /\b\d+[.)]\s*([^,;\n]{2,60}?)(?=\s*(?:,|;|\n|\d+[.)]|$))/g;
+    let im: RegExpExecArray | null;
+    while ((im = inlineRe.exec(text)) !== null) push(im[1]);
+  }
+  if (found.length > 0) return found;
+
+  // Tier 3 — bolded items, the common "**Name** does X" answer shape.
+  const boldRe = /\*\*([^*\n]{2,60})\*\*/g;
+  let bm: RegExpExecArray | null;
+  while ((bm = boldRe.exec(text)) !== null) push(bm[1]);
+  if (found.length > 0) return found;
+
+  // Tier 4 — bulleted list items.
+  for (const line of text.split(/\r?\n/)) {
+    const m = line.match(/^\s*[-*•]\s+(.+)$/);
+    if (m) push(m[1].split(/\s[—–-]\s|:\s|\.\s/)[0]);
+  }
+  return found;
+}
+
 export function reformulateSearchQuery(
   query: string,
   contextHistory?: SearchContextHistory
@@ -110,35 +181,62 @@ export function reformulateSearchQuery(
 
   // 3. Multi-turn Conversational Entity & Anaphora Resolution
   if (contextHistory && (contextHistory.previousQuery || contextHistory.lastAssistantContent)) {
-    const isAnaphoric = /\b(yang pertama|pertama|nomor 1|no 1|yang kedua|kedua|nomor 2|no 2|tersebut|tadi|yang tadi|di atas|itu|the first one|the second one|that one|previous)\b/i.test(trimmed);
+    const isAnaphoric = /\b(yang pertama|pertama|nomor 1|no 1|yang kedua|kedua|nomor 2|no 2|yang ketiga|ketiga|nomor 3|no 3|tersebut|tadi|yang tadi|di atas|itu|the first one|the second one|the third one|that one|previous)\b/i.test(trimmed);
+
+    // A short follow-up is one that asks for an *aspect* ("mitigasinya?",
+    // "kenapa?") without naming its own subject — those need the previous
+    // turn to make sense. A question that carries its own subject
+    // ("harga emas hari ini") only happens to share a keyword and must be
+    // left alone, or context resolution hijacks a perfectly good standalone
+    // query and prepends an unrelated entity to it.
+    const ASPECT_WORDS = /\b(mitigasi|solusi|dampak|cara|exploit|patch|fix|kenapa|mengapa|detail|penjelasan|spek|harga|kelebihan|kekurangan|penyebab)(nya)?\b/i;
+    const hasOwnSubject = clean
+      .replace(ASPECT_WORDS, " ")
+      .replace(/\b(hari ini|sekarang|saat ini|today|now|berapa|apa|gimana|bagaimana|yang|itu|di|ke|dari|dan|untuk|pada)\b/gi, " ")
+      .replace(/[^a-zA-Z0-9\s]/g, " ")
+      .trim()
+      .split(/\s+/)
+      .filter((w) => w.length > 2).length > 0;
+
     const isShortFollowup =
-      clean.split(/\s+/).length <= 4 &&
-      /\b(mitigasi|solusi|dampak|cara|exploit|patch|fix|kenapa|mengapa|detail|penjelasan|spek|harga|kelebihan|kekurangan|penyebab)(nya)?\b/i.test(
-        clean
-      );
+      clean.split(/\s+/).length <= 4 && ASPECT_WORDS.test(clean) && !hasOwnSubject;
 
     if (isAnaphoric || isShortFollowup) {
-      // Look for CVE identifiers in the previous assistant message
-      const rawMatches = (contextHistory.lastAssistantContent || "").match(/CVE-\d{4}-\d+/gi) || [];
-      const uniqueCves = Array.from(new Set(rawMatches.map((m) => m.toUpperCase())));
+      const entities = extractCandidateEntities(contextHistory.lastAssistantContent || "");
+      const ordinal = detectOrdinal(trimmed);
 
-      if (uniqueCves.length > 0) {
-        if (/\b(yang pertama|pertama|nomor 1|no 1|the first one)\b/i.test(trimmed)) {
-          const stripped = clean.replace(/\b(yang pertama|pertama|nomor 1|no 1|the first one)\b/gi, "").trim();
-          clean = `${uniqueCves[0]} ${stripped}`.trim();
-        } else if (/\b(yang kedua|kedua|nomor 2|no 2|the second one)\b/i.test(trimmed) && uniqueCves.length > 1) {
-          const stripped = clean.replace(/\b(yang kedua|kedua|nomor 2|no 2|the second one)\b/gi, "").trim();
-          clean = `${uniqueCves[1]} ${stripped}`.trim();
+      // Strip the anaphoric reference itself no matter what resolves — a
+      // phrase like "yang kedua" is meaningless to a search engine and
+      // actively hurts retrieval if it survives into the query.
+      const stripped = clean
+        .replace(
+          /\b(yang pertama|pertama|nomor 1|no 1|yang kedua|kedua|nomor 2|no 2|yang ketiga|ketiga|nomor 3|no 3|tersebut|tadi|yang tadi|di atas|itu|the first one|the second one|the third one|that one)\b/gi,
+          ""
+        )
+        .replace(/\s{2,}/g, " ")
+        .trim();
+
+      let resolvedEntity = "";
+      if (entities.length > 0) {
+        if (ordinal !== null && entities.length > ordinal) {
+          resolvedEntity = entities[ordinal];
         } else {
-          const stripped = clean.replace(/\b(tersebut|tadi|yang tadi|di atas|itu)\b/gi, "").trim();
-          clean = `${uniqueCves[0]} ${stripped}`.trim();
+          // "tersebut" / "itu" / a bare short follow-up refers to the most
+          // prominent subject of the previous answer, which is the first
+          // entity it introduced.
+          resolvedEntity = entities[0];
         }
+      }
+
+      if (resolvedEntity) {
+        clean = `${resolvedEntity} ${stripped}`.trim();
       } else if (contextHistory.previousQuery) {
-        const prevClean = contextHistory.previousQuery
-          .replace(/^(cari|carikan|search|tolong cari|browsing)\s+/i, "")
-          .replace(/\s+(dong|ya|nih|kan)$/i, "")
-          .trim();
-        const stripped = clean.replace(/\b(tersebut|tadi|yang tadi|di atas|itu)\b/gi, "").trim();
+        // No entity could be pulled out of the previous answer. Fall back
+        // to the previous *question's* subject — but only after running it
+        // through the same shell-peeling this function does, otherwise raw
+        // conversational text ("tolong cariin dong ...") gets concatenated
+        // straight into the search query.
+        const prevClean = reformulateSearchQuery(contextHistory.previousQuery).cleanQuery;
         clean = `${prevClean} ${stripped}`.trim();
       }
     }
