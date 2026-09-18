@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import { apiFetch } from "../lib/apiClient";
-import { X, Scroll as ScrollText, Stack as Blocks, Plug, MagnifyingGlass as Search, Plus, Check, Download, Gear as Settings, Globe, CodeSimple as Code2, FileText, Palette, Stack as Layers, MagicWand as Wand2, Sparkle as Sparkles, Sun, ArrowCounterClockwise as RotateCcw, GraduationCap, Megaphone, Binary, ShieldWarning as ShieldAlert, Terminal, CheckSquare, Database, EnvelopeSimple as Mail, HardDrive, ChatText as MessageSquare, ArrowSquareOut as ExternalLink, GithubLogo as Github, Funnel as Filter, ArrowsDownUp as ArrowUpDown, Faders as Sliders, SpinnerGap as Loader2, CheckCircle as CheckCircle2, WarningCircle as AlertCircle, GitBranch, ChatCircle as MessageCircle, Package as Box, Copy, Lightning as Zap } from "@phosphor-icons/react";
+import { X, Scroll as ScrollText, Stack as Blocks, Plug, MagnifyingGlass as Search, Plus, Check, Download, Gear as Settings, Globe, CodeSimple as Code2, FileText, Palette, Stack as Layers, MagicWand as Wand2, Sparkle as Sparkles, Sun, ArrowCounterClockwise as RotateCcw, GraduationCap, Megaphone, Binary, ShieldWarning as ShieldAlert, Terminal, CheckSquare, ChatText as MessageSquare, ArrowSquareOut as ExternalLink, GithubLogo as Github, Funnel as Filter, ArrowsDownUp as ArrowUpDown, Faders as Sliders, SpinnerGap as Loader2, CheckCircle as CheckCircle2, WarningCircle as AlertCircle } from "@phosphor-icons/react";
 import { Skill, ConnectorItem, PluginItem } from "@/lib/types";
 
 interface DirectoryModalProps {
@@ -43,80 +43,18 @@ export const DirectoryModal: React.FC<DirectoryModalProps> = ({
   const [isFetchingGithub, setIsFetchingGithub] = useState(false);
   const [importError, setImportError] = useState("");
 
-  // Connector Configuration Modal
+  // Connector Configuration Modal — now purely user-defined custom bridges
+  // (webhook or local-http). See ConnectorItem.customBridgeType in
+  // lib/types.ts and app/api/connectors/route.ts's generic actions.
   const [configuringConnector, setConfiguringConnector] = useState<ConnectorItem | null>(null);
+  const [connName, setConnName] = useState("");
+  const [connDescription, setConnDescription] = useState("");
+  const [connBridgeType, setConnBridgeType] = useState<"webhook" | "local-http">("webhook");
   const [connApiKey, setConnApiKey] = useState("");
   const [connWebhookUrl, setConnWebhookUrl] = useState("");
-  const [connRepo, setConnRepo] = useState("");
   const [connEndpoint, setConnEndpoint] = useState("");
   const [isTestingConn, setIsTestingConn] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
-  const [copySuccess, setCopySuccess] = useState(false);
-  const [blenderStartupInstalled, setBlenderStartupInstalled] = useState<boolean | null>(null);
-  const [blenderStartupVersions, setBlenderStartupVersions] = useState<any[]>([]);
-  const [isManagingStartup, setIsManagingStartup] = useState(false);
-  const [startupNotice, setStartupNotice] = useState<string | null>(null);
-
-  const checkBlenderStartup = async () => {
-    try {
-      const res = await apiFetch("/api/connectors", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "blender_check_startup" }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        setBlenderStartupInstalled(data.installed);
-        setBlenderStartupVersions(data.versions || []);
-      }
-    } catch (e) {}
-  };
-
-  const handleInstallStartup = async () => {
-    setIsManagingStartup(true);
-    setStartupNotice(null);
-    try {
-      const res = await apiFetch("/api/connectors", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "blender_install_startup" }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        setBlenderStartupInstalled(true);
-        setBlenderStartupVersions(data.versions || []);
-        setStartupNotice("✓ Berhasil dipasang ke Blender Startup! Setiap kali membuka Blender, bridge langsung aktif otomatis.");
-      } else {
-        setStartupNotice("Gagal memasang ke startup: " + (data.error || "Unknown error"));
-      }
-    } catch (err: any) {
-      setStartupNotice("Error: " + err.message);
-    } finally {
-      setIsManagingStartup(false);
-    }
-  };
-
-  const handleUninstallStartup = async () => {
-    setIsManagingStartup(true);
-    setStartupNotice(null);
-    try {
-      const res = await apiFetch("/api/connectors", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "blender_uninstall_startup" }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        setBlenderStartupInstalled(false);
-        setBlenderStartupVersions(data.versions || []);
-        setStartupNotice("Auto-start berhasil dicopot dari Blender startup.");
-      }
-    } catch (err: any) {
-      setStartupNotice("Error: " + err.message);
-    } finally {
-      setIsManagingStartup(false);
-    }
-  };
 
   // Sync initialTab if prop changes
   React.useEffect(() => {
@@ -140,23 +78,6 @@ export const DirectoryModal: React.FC<DirectoryModalProps> = ({
     onSaveConnectors(updated);
   };
 
-  const handleOpenConfigure = (conn: ConnectorItem) => {
-    setConfiguringConnector(conn);
-    setConnApiKey(conn.apiKey || "");
-    setConnWebhookUrl(conn.webhookUrl || "");
-    setConnRepo(conn.repo || "");
-    setConnEndpoint(conn.endpoint || "");
-    setTestResult(
-      conn.statusMessage
-        ? { success: !!conn.isLiveConnected, message: conn.statusMessage }
-        : null
-    );
-    setStartupNotice(null);
-    if (conn.id === "blender-mcp") {
-      checkBlenderStartup();
-    }
-  };
-
   const handleTestConnection = async () => {
     if (!configuringConnector) return;
     setIsTestingConn(true);
@@ -168,10 +89,9 @@ export const DirectoryModal: React.FC<DirectoryModalProps> = ({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "test",
-          service: configuringConnector.id,
+          customBridgeType: connBridgeType,
           apiKey: connApiKey,
           webhookUrl: connWebhookUrl,
-          repo: connRepo,
           endpoint: connEndpoint,
         }),
       });
@@ -199,27 +119,64 @@ export const DirectoryModal: React.FC<DirectoryModalProps> = ({
   };
 
   const handleSaveConnectorConfig = () => {
-    if (!configuringConnector || !onSaveConnectors) return;
+    if (!onSaveConnectors) return;
     const isLive = testResult ? testResult.success : !!(connApiKey || connWebhookUrl || connEndpoint);
-    const updated = connectors.map((c) => {
-      if (c.id === configuringConnector.id) {
-        return {
-          ...c,
-          apiKey: connApiKey.trim(),
-          webhookUrl: connWebhookUrl.trim(),
-          repo: connRepo.trim(),
-          endpoint: connEndpoint.trim(),
-          installed: true,
-          isLiveConnected: isLive,
-          statusMessage: testResult?.message || (isLive ? "Connection configured & active" : undefined),
-          lastTested: Date.now(),
-        };
-      }
-      return c;
-    });
+    const isNew = !configuringConnector?.id || !connectors.some((c) => c.id === configuringConnector.id);
+
+    const savedConnector: ConnectorItem = {
+      id: isNew ? `bridge_${Date.now()}` : configuringConnector!.id,
+      name: connName.trim() || "Untitled Bridge",
+      description: connDescription.trim() || "Custom bridge",
+      category: "custom",
+      installed: true,
+      customBridgeType: connBridgeType,
+      apiKey: connApiKey.trim() || undefined,
+      webhookUrl: connWebhookUrl.trim() || undefined,
+      endpoint: connEndpoint.trim() || undefined,
+      isLiveConnected: isLive,
+      statusMessage: testResult?.message || (isLive ? "Connection configured & active" : undefined),
+    };
+
+    const updated = isNew
+      ? [...connectors, savedConnector]
+      : connectors.map((c) => (c.id === savedConnector.id ? savedConnector : c));
 
     onSaveConnectors(updated);
     setConfiguringConnector(null);
+  };
+
+  const openAddBridgeModal = () => {
+    setConfiguringConnector({
+      id: "",
+      name: "",
+      description: "",
+      category: "custom",
+      installed: false,
+      customBridgeType: "webhook",
+    });
+    setConnName("");
+    setConnDescription("");
+    setConnApiKey("");
+    setConnWebhookUrl("");
+    setConnEndpoint("");
+    setConnBridgeType("webhook");
+    setTestResult(null);
+  };
+
+  const openEditBridgeModal = (conn: ConnectorItem) => {
+    setConfiguringConnector(conn);
+    setConnName(conn.name);
+    setConnDescription(conn.description);
+    setConnApiKey(conn.apiKey || "");
+    setConnWebhookUrl(conn.webhookUrl || "");
+    setConnEndpoint(conn.endpoint || "");
+    setConnBridgeType(conn.customBridgeType || "webhook");
+    setTestResult(null);
+  };
+
+  const handleDeleteConnector = (id: string) => {
+    if (!onSaveConnectors) return;
+    onSaveConnectors(connectors.filter((c) => c.id !== id));
   };
 
   // --- Plugin Handlers ---
@@ -585,161 +542,117 @@ export const DirectoryModal: React.FC<DirectoryModalProps> = ({
             {/* TAB 2: CONNECTORS (Matching Screenshot 2) */}
             {/* ========================================================================= */}
             {activeTab === "connectors" && (
-              <div className="space-y-6">
-                {/* POPULAR Section */}
-                <div className="space-y-2.5">
-                  <div className="flex items-center justify-between">
-                    <div className="text-[11px] font-bold uppercase tracking-wider text-[var(--muted)]">
-                      POPULAR CONNECTORS
-                    </div>
-                    <div className="text-[11px] text-[var(--muted)]">
-                      Click <Sliders className="w-3 h-3 inline mx-0.5 text-blue-400" /> to configure API tokens & webhooks
-                    </div>
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="text-[11px] font-bold uppercase tracking-wider text-[var(--muted)]">
+                    YOUR CUSTOM BRIDGES
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                    {filteredConnectors
-                      .filter((c) => c.category === "popular")
-                      .map((conn) => (
-                        <div
-                          key={conn.id}
-                          className="flex items-center justify-between p-3.5 rounded-2xl bg-[var(--card-bg)] border border-[var(--card-border)] shadow-xs hover:border-[var(--muted)]/40 transition-all"
-                        >
-                          <div className="flex items-center gap-2.5 min-w-0">
-                            <div className="w-9 h-9 rounded-xl bg-[var(--sidebar-bg)] border border-[var(--card-border)] flex items-center justify-center flex-shrink-0 text-blue-400">
-                              {conn.id === "gmail" ? (
-                                <Mail className="w-4 h-4 text-rose-400" />
-                              ) : conn.id === "google-drive" ? (
-                                <HardDrive className="w-4 h-4 text-amber-400" />
-                              ) : conn.id === "github" ? (
-                                <Github className="w-4 h-4 text-slate-200" />
-                              ) : conn.id === "discord" ? (
-                                <MessageCircle className="w-4 h-4 text-indigo-400" />
-                              ) : conn.id === "blender-mcp" ? (
-                                <Box className="w-4 h-4 text-orange-400" />
-                              ) : (
-                                <MessageSquare className="w-4 h-4 text-emerald-400" />
-                              )}
-                            </div>
-                            <div className="min-w-0">
-                              <div className="font-semibold text-xs text-[var(--foreground)] truncate flex items-center gap-1.5">
-                                <span>{conn.name}</span>
-                                {conn.isLiveConnected && (
-                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" title="Live Connected" />
-                                )}
-                              </div>
-                              <div className="text-[10px] text-[var(--muted)] truncate">
-                                {conn.isLiveConnected ? "Live Connected" : conn.installed ? "Enabled" : "Available"}
-                              </div>
-                            </div>
-                          </div>
-
-                          <div className="flex items-center gap-1">
-                            <button
-                              type="button"
-                              onClick={() => handleOpenConfigure(conn)}
-                              className="p-1.5 rounded-xl hover:bg-[var(--sidebar-hover)] text-[var(--muted)] hover:text-blue-400 border border-transparent hover:border-[var(--card-border)] transition-colors cursor-pointer"
-                              title="Configure Connector & Test API"
-                            >
-                              <Sliders className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleToggleConnector(conn.id)}
-                              className={`p-1.5 rounded-xl transition-colors cursor-pointer ${
-                                conn.installed
-                                  ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/30"
-                                  : "hover:bg-[var(--sidebar-hover)] text-[var(--muted)] hover:text-[var(--foreground)] border border-[var(--card-border)]"
-                              }`}
-                              title={conn.installed ? "Connected (Click to disconnect)" : "Connect"}
-                            >
-                              {conn.installed ? <Check className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />}
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                  </div>
+                  <button
+                    type="button"
+                    onClick={openAddBridgeModal}
+                    className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-blue-500 hover:bg-blue-600 text-white transition-all flex items-center gap-1.5 cursor-pointer shadow-xs"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Add Custom Bridge</span>
+                  </button>
                 </div>
 
-                {/* Community Connectors Grid */}
-                <div className="space-y-2.5">
-                  <div className="text-[11px] font-bold uppercase tracking-wider text-[var(--muted)]">
-                    COMMUNITY MCP & INTEGRATIONS
+                {filteredConnectors.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-14 px-6 text-center rounded-2xl border border-dashed border-[var(--card-border)] bg-[var(--card-bg)]/50">
+                    <div className="w-12 h-12 rounded-2xl bg-[var(--sidebar-bg)] border border-[var(--card-border)] flex items-center justify-center mb-3">
+                      <Blocks className="w-6 h-6 text-[var(--muted)]" />
+                    </div>
+                    <p className="text-sm font-semibold text-[var(--foreground)] mb-1">No bridges yet</p>
+                    <p className="text-xs text-[var(--muted)] max-w-sm leading-relaxed mb-4">
+                      Connect this app to anything — a webhook (Slack, Discord, a custom endpoint) or a local app running on this machine (like Blender or OBS Studio) — by adding your own bridge.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={openAddBridgeModal}
+                      className="px-4 py-2 rounded-xl text-xs font-semibold bg-blue-500 hover:bg-blue-600 text-white transition-all flex items-center gap-1.5 cursor-pointer shadow-xs"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Add Your First Bridge</span>
+                    </button>
                   </div>
+                ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-                    {filteredConnectors
-                      .filter((c) => c.category === "community")
-                      .map((conn) => (
-                        <div
-                          key={conn.id}
-                          className="p-4 rounded-2xl bg-[var(--card-bg)] border border-[var(--card-border)] flex flex-col justify-between hover:border-[var(--muted)]/40 transition-all shadow-xs"
-                        >
-                          <div className="space-y-2">
-                            <div className="flex items-start justify-between gap-2">
-                              <div className="flex items-center gap-2">
-                                <div className="w-8 h-8 rounded-xl bg-[var(--sidebar-bg)] border border-[var(--card-border)] flex items-center justify-center flex-shrink-0 text-blue-400">
-                                  {conn.id === "nocodb" ? (
-                                    <Database className="w-4 h-4 text-emerald-400" />
-                                  ) : conn.id === "blender-mcp" ? (
-                                    <Box className="w-4 h-4 text-orange-400" />
-                                  ) : (
-                                    <Blocks className="w-4 h-4 text-indigo-400" />
+                    {filteredConnectors.map((conn) => (
+                      <div
+                        key={conn.id}
+                        className="p-4 rounded-2xl bg-[var(--card-bg)] border border-[var(--card-border)] flex flex-col justify-between hover:border-[var(--muted)]/40 transition-all shadow-xs"
+                      >
+                        <div className="space-y-2">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                              <div className="w-8 h-8 rounded-xl bg-[var(--sidebar-bg)] border border-[var(--card-border)] flex items-center justify-center flex-shrink-0 text-blue-400">
+                                {conn.customBridgeType === "local-http" ? (
+                                  <Terminal className="w-4 h-4 text-purple-400" />
+                                ) : (
+                                  <Globe className="w-4 h-4 text-blue-400" />
+                                )}
+                              </div>
+                              <div>
+                                <div className="font-semibold text-sm text-[var(--foreground)] flex items-center gap-1.5">
+                                  <span>{conn.name}</span>
+                                  {conn.isLiveConnected && (
+                                    <span className="px-1.5 py-0.2 rounded text-[9px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center gap-1">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                                      Live
+                                    </span>
                                   )}
                                 </div>
-                                <div>
-                                  <div className="font-semibold text-sm text-[var(--foreground)] flex items-center gap-1.5">
-                                    <span>{conn.name}</span>
-                                    {conn.badge && (
-                                      <span className="px-1.5 py-0.2 rounded text-[9px] font-medium bg-blue-500/10 text-blue-400 border border-blue-500/20">
-                                        {conn.badge}
-                                      </span>
-                                    )}
-                                    {conn.isLiveConnected && (
-                                      <span className="px-1.5 py-0.2 rounded text-[9px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center gap-1">
-                                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                                        Live
-                                      </span>
-                                    )}
-                                  </div>
+                                <div className="text-[10px] text-[var(--muted)] uppercase tracking-wide">
+                                  {conn.customBridgeType === "local-http" ? "Local App Bridge" : "Webhook Bridge"}
                                 </div>
-                              </div>
-
-                              <div className="flex items-center gap-1">
-                                <button
-                                  type="button"
-                                  onClick={() => handleOpenConfigure(conn)}
-                                  className="p-1.5 rounded-xl hover:bg-[var(--sidebar-hover)] text-[var(--muted)] hover:text-blue-400 border border-transparent hover:border-[var(--card-border)] transition-colors cursor-pointer"
-                                  title="Configure & Test API"
-                                >
-                                  <Sliders className="w-3.5 h-3.5" />
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleToggleConnector(conn.id)}
-                                  className={`p-1.5 rounded-xl transition-colors cursor-pointer ${
-                                    conn.installed
-                                      ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/30"
-                                      : "hover:bg-[var(--sidebar-hover)] text-[var(--muted)] hover:text-[var(--foreground)] border border-[var(--card-border)]"
-                                  }`}
-                                  title={conn.installed ? "Installed" : "Install"}
-                                >
-                                  {conn.installed ? <Check className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
-                                </button>
                               </div>
                             </div>
 
-                            <p className="text-xs text-[var(--muted)] line-clamp-2 leading-relaxed">
-                              {conn.description}
-                            </p>
-
-                            {conn.statusMessage && (
-                              <div className="text-[10px] text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 rounded-lg px-2 py-1 truncate">
-                                {conn.statusMessage}
-                              </div>
-                            )}
+                            <div className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => openEditBridgeModal(conn)}
+                                className="p-1.5 rounded-xl hover:bg-[var(--sidebar-hover)] text-[var(--muted)] hover:text-blue-400 border border-transparent hover:border-[var(--card-border)] transition-colors cursor-pointer"
+                                title="Configure & Test"
+                              >
+                                <Sliders className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleToggleConnector(conn.id)}
+                                className={`p-1.5 rounded-xl transition-colors cursor-pointer ${
+                                  conn.installed
+                                    ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/30"
+                                    : "hover:bg-[var(--sidebar-hover)] text-[var(--muted)] hover:text-[var(--foreground)] border border-[var(--card-border)]"
+                                }`}
+                                title={conn.installed ? "Enabled" : "Disabled"}
+                              >
+                                {conn.installed ? <Check className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+                              </button>
+                            </div>
                           </div>
+
+                          <p className="text-xs text-[var(--muted)] line-clamp-2 leading-relaxed">
+                            {conn.description}
+                          </p>
+
+                          {conn.statusMessage && (
+                            <div className="text-[10px] text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 rounded-lg px-2 py-1 truncate">
+                              {conn.statusMessage}
+                            </div>
+                          )}
+
+                          <p className="text-[10px] text-[var(--muted)] font-mono truncate">
+                            {conn.customBridgeType === "local-http" ? conn.endpoint : conn.webhookUrl}
+                          </p>
                         </div>
-                      ))}
+                      </div>
+                    ))}
                   </div>
+                )}
+
+                <div className="p-3 rounded-xl bg-blue-500/5 border border-blue-500/15 text-[11px] text-[var(--muted)] leading-relaxed">
+                  Trigger a bridge from chat with <code className="px-1 py-0.5 rounded bg-black/20 text-blue-300">/bridge &lt;bridge-id&gt; &lt;message&gt;</code>. Find the bridge id by opening its settings.
                 </div>
               </div>
             )}
@@ -939,23 +852,13 @@ export const DirectoryModal: React.FC<DirectoryModalProps> = ({
             <div className="flex items-center justify-between border-b border-[var(--card-border)] pb-3">
               <div className="flex items-center gap-2.5">
                 <div className="w-8 h-8 rounded-xl bg-[var(--sidebar-bg)] border border-[var(--card-border)] flex items-center justify-center text-blue-400">
-                  {configuringConnector.id === "github" ? (
-                    <Github className="w-4 h-4 text-slate-200" />
-                  ) : configuringConnector.id === "slack" ? (
-                    <MessageSquare className="w-4 h-4 text-emerald-400" />
-                  ) : configuringConnector.id === "discord" ? (
-                    <MessageCircle className="w-4 h-4 text-indigo-400" />
-                  ) : configuringConnector.id === "gmail" ? (
-                    <Mail className="w-4 h-4 text-rose-400" />
-                  ) : configuringConnector.id === "google-drive" ? (
-                    <HardDrive className="w-4 h-4 text-amber-400" />
-                  ) : (
-                    <Blocks className="w-4 h-4 text-indigo-400" />
-                  )}
+                  <Blocks className="w-4 h-4 text-indigo-400" />
                 </div>
                 <div>
-                  <h3 className="font-semibold text-base">{configuringConnector.name} Integration</h3>
-                  <p className="text-[11px] text-[var(--muted)]">Configure authentication credentials & test live connection</p>
+                  <h3 className="font-semibold text-base">
+                    {connectors.some((c) => c.id === configuringConnector.id) ? "Edit" : "Add"} Custom Bridge
+                  </h3>
+                  <p className="text-[11px] text-[var(--muted)]">Connect to any webhook or local app via HTTP</p>
                 </div>
               </div>
               <button
@@ -967,196 +870,106 @@ export const DirectoryModal: React.FC<DirectoryModalProps> = ({
             </div>
 
             <div className="space-y-3.5 text-xs">
-              {configuringConnector.id === "github" && (
-                <>
-                  <div>
-                    <label className="block text-[11px] font-semibold text-[var(--muted)] mb-1">
-                      GitHub Personal Access Token (PAT)
-                    </label>
-                    <input
-                      type="password"
-                      value={connApiKey}
-                      onChange={(e) => setConnApiKey(e.target.value)}
-                      placeholder="ghp_xxxxxxxxxxxxxxxxxxxx (Optional for public repos)"
-                      className="w-full px-3 py-2 rounded-xl bg-[var(--sidebar-bg)] border border-[var(--card-border)] text-xs text-[var(--foreground)] font-mono focus:outline-none"
-                    />
-                    <p className="text-[10px] text-[var(--muted)] mt-1">
-                      Enables private repo inspection, issue creation, and higher rate limits.
-                    </p>
-                  </div>
-                  <div>
-                    <label className="block text-[11px] font-semibold text-[var(--muted)] mb-1">
-                      Default Repository
-                    </label>
-                    <input
-                      type="text"
-                      value={connRepo}
-                      onChange={(e) => setConnRepo(e.target.value)}
-                      placeholder="owner/repo (e.g. facebook/react or vercel/next.js)"
-                      className="w-full px-3 py-2 rounded-xl bg-[var(--sidebar-bg)] border border-[var(--card-border)] text-xs text-[var(--foreground)] font-mono focus:outline-none"
-                    />
-                  </div>
-                </>
-              )}
+              <div>
+                <label className="block text-[11px] font-semibold text-[var(--muted)] mb-1">Name</label>
+                <input
+                  type="text"
+                  value={connName}
+                  onChange={(e) => setConnName(e.target.value)}
+                  placeholder="e.g. My Home Server, Team Alerts"
+                  className="w-full px-3 py-2 rounded-xl bg-[var(--sidebar-bg)] border border-[var(--card-border)] text-xs text-[var(--foreground)] font-mono focus:outline-none"
+                />
+              </div>
 
-              {(configuringConnector.id === "slack" || configuringConnector.id === "discord") && (
+              <div>
+                <label className="block text-[11px] font-semibold text-[var(--muted)] mb-1">Description (optional)</label>
+                <input
+                  type="text"
+                  value={connDescription}
+                  onChange={(e) => setConnDescription(e.target.value)}
+                  placeholder="What does this bridge do?"
+                  className="w-full px-3 py-2 rounded-xl bg-[var(--sidebar-bg)] border border-[var(--card-border)] text-xs text-[var(--foreground)] font-mono focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-semibold text-[var(--muted)] mb-2">Bridge Type</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setConnBridgeType("webhook")}
+                    className={`px-3 py-2.5 rounded-xl text-xs font-semibold border transition-all text-left ${
+                      connBridgeType === "webhook"
+                        ? "bg-blue-500/15 border-blue-500/40 text-blue-300"
+                        : "bg-[var(--sidebar-bg)] border-[var(--card-border)] text-[var(--muted)] hover:text-[var(--foreground)]"
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5 mb-0.5">
+                      <Globe className="w-3.5 h-3.5" />
+                      <span>Webhook</span>
+                    </div>
+                    <span className="block text-[10px] font-normal opacity-80">Any public URL (Slack, Discord, custom API)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConnBridgeType("local-http")}
+                    className={`px-3 py-2.5 rounded-xl text-xs font-semibold border transition-all text-left ${
+                      connBridgeType === "local-http"
+                        ? "bg-purple-500/15 border-purple-500/40 text-purple-300"
+                        : "bg-[var(--sidebar-bg)] border-[var(--card-border)] text-[var(--muted)] hover:text-[var(--foreground)]"
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5 mb-0.5">
+                      <Terminal className="w-3.5 h-3.5" />
+                      <span>Local App</span>
+                    </div>
+                    <span className="block text-[10px] font-normal opacity-80">Loopback-only bridge (e.g. Blender, OBS)</span>
+                  </button>
+                </div>
+              </div>
+
+              {connBridgeType === "webhook" && (
                 <div>
-                  <label className="block text-[11px] font-semibold text-[var(--muted)] mb-1">
-                    Incoming Webhook URL
-                  </label>
+                  <label className="block text-[11px] font-semibold text-[var(--muted)] mb-1">Webhook URL</label>
                   <input
                     type="text"
                     value={connWebhookUrl}
                     onChange={(e) => setConnWebhookUrl(e.target.value)}
-                    placeholder={
-                      configuringConnector.id === "slack"
-                        ? "https://hooks.slack.com/services/T000/B000/XXXX"
-                        : "https://discord.com/api/webhooks/000/XXXX"
-                    }
+                    placeholder="https://hooks.slack.com/services/... or any public POST endpoint"
                     className="w-full px-3 py-2 rounded-xl bg-[var(--sidebar-bg)] border border-[var(--card-border)] text-xs text-[var(--foreground)] font-mono focus:outline-none"
                   />
                   <p className="text-[10px] text-[var(--muted)] mt-1">
-                    {configuringConnector.id === "slack"
-                      ? "Create an Incoming Webhook in your Slack App settings to dispatch AI messages to a channel."
-                      : "Go to Discord Channel Settings > Integrations > Webhooks > New Webhook and paste the URL here."}
+                    Must be a public URL (not localhost/LAN) — used for the built-in Slack/Discord webhook style, or any other service that accepts a POST with a JSON body.
                   </p>
                 </div>
               )}
 
-              {configuringConnector.id === "blender-mcp" && (
-                <div className="space-y-3">
-                  <div>
-                    <label className="block text-[11px] font-semibold text-[var(--muted)] mb-1">
-                      Blender MCP Bridge Endpoint
-                    </label>
-                    <input
-                      type="text"
-                      value={connEndpoint || "http://127.0.0.1:9876"}
-                      onChange={(e) => setConnEndpoint(e.target.value)}
-                      placeholder="http://127.0.0.1:9876"
-                      className="w-full px-3 py-2 rounded-xl bg-[var(--sidebar-bg)] border border-[var(--card-border)] text-xs text-[var(--foreground)] font-mono focus:outline-none"
-                    />
-                    <p className="text-[10px] text-[var(--muted)] mt-1">
-                      Default local bridge port: <code>http://127.0.0.1:9876</code>
-                    </p>
-                  </div>
-
-                  {/* 1-CLICK AUTO-START CARD */}
-                  <div className="p-3.5 rounded-2xl bg-orange-500/10 border border-orange-500/25 space-y-2.5">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <Zap className="w-4 h-4 text-orange-400" />
-                        <span className="text-xs font-semibold text-[var(--foreground)]">
-                          Auto-Start Otomatis Saat Blender Dibuka
-                        </span>
-                      </div>
-                      {blenderStartupInstalled ? (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                          <Check className="w-3 h-3" />
-                          Aktif di Startup
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/20 text-amber-400 border border-amber-500/30">
-                          Belum Terpasang
-                        </span>
-                      )}
-                    </div>
-
-                    <p className="text-[11px] text-[var(--muted)] leading-relaxed">
-                      {blenderStartupInstalled
-                        ? `Bridge telah terpasang di startup folder Blender (${blenderStartupVersions.map((v) => v.version).join(", ") || "5.2"}). Setiap kali kamu membuka Blender, bridge port 9876 otomatis langsung aktif di background!`
-                        : "Pasang bridge sekali klik ke folder startup Blender. Kamu tidak perlu lagi copy-paste atau klik Run Script manual setiap kali membuka Blender!"}
-                    </p>
-
-                    {startupNotice && (
-                      <div className="text-[11px] p-2 rounded-lg bg-black/20 text-orange-300 border border-orange-500/20 font-medium">
-                        {startupNotice}
-                      </div>
-                    )}
-
-                    <div className="flex items-center gap-2 pt-1">
-                      {blenderStartupInstalled ? (
-                        <button
-                          type="button"
-                          onClick={handleUninstallStartup}
-                          disabled={isManagingStartup}
-                          className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-rose-500/15 hover:bg-rose-500/25 text-rose-400 border border-rose-500/30 transition-all cursor-pointer disabled:opacity-50"
-                        >
-                          {isManagingStartup ? "Memproses..." : "Copot dari Startup"}
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={handleInstallStartup}
-                          disabled={isManagingStartup}
-                          className="px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-orange-500 text-white hover:bg-orange-600 transition-all flex items-center gap-1.5 cursor-pointer shadow-sm disabled:opacity-50"
-                        >
-                          <Zap className="w-3.5 h-3.5 fill-current" />
-                          <span>{isManagingStartup ? "Memasang..." : "⚡ Pasang Auto-Start (1-Klik)"}</span>
-                        </button>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* MANUAL SCRIPT CARD (FALLBACK) */}
-                  <div className="p-3 rounded-2xl bg-[var(--sidebar-bg)] border border-[var(--card-border)] space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[11px] font-semibold text-[var(--foreground)] flex items-center gap-1.5">
-                        <Box className="w-3.5 h-3.5 text-orange-400" />
-                        Script Python Manual (Cadangan)
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const script = `import bpy, threading, json\nfrom http.server import HTTPServer, BaseHTTPRequestHandler\n\n# Stop previous server if active to prevent address collision\nif 'mcp_server' in bpy.app.driver_namespace:\n    try:\n        bpy.app.driver_namespace['mcp_server'].shutdown()\n        bpy.app.driver_namespace['mcp_server'].server_close()\n        print('Previous Blender MCP Bridge stopped.')\n    except Exception:\n        pass\n\nclass MCPHandler(BaseHTTPRequestHandler):\n    def address_string(self):\n        return str(self.client_address[0])\n\n    def log_message(self, format, *args):\n        pass\n\n    def _cors(self):\n        self.send_header('Access-Control-Allow-Origin', '*')\n        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')\n        self.send_header('Access-Control-Allow-Headers', 'Content-Type')\n\n    def do_OPTIONS(self):\n        self.send_response(200)\n        self._cors()\n        self.end_headers()\n\n    def do_GET(self):\n        self.send_response(200)\n        self.send_header('Content-Type', 'application/json')\n        self._cors()\n        self.end_headers()\n        ver = bpy.app.version_string\n        self.wfile.write(json.dumps({'status': 'ready', 'blender': True, 'version': ver}).encode('utf-8'))\n\n    def do_POST(self):\n        try:\n            length = int(self.headers.get('Content-Length', 0))\n            body = self.rfile.read(length).decode('utf-8')\n            data = json.loads(body) if body else {}\n            code = data.get('code', '')\n            def run_bpy():\n                try:\n                    exec(code, {'bpy': bpy})\n                except Exception as ex:\n                    print('Blender execution error:', ex)\n            if code:\n                bpy.app.timers.register(run_bpy)\n            self.send_response(200)\n            self.send_header('Content-Type', 'application/json')\n            self._cors()\n            self.end_headers()\n            self.wfile.write(b'{\"success\": true}')\n        except Exception as e:\n            self.send_response(500)\n            self.send_header('Content-Type', 'application/json')\n            self._cors()\n            self.end_headers()\n            self.wfile.write(json.dumps({'error': str(e)}).encode('utf-8'))\n\nclass ReusableServer(HTTPServer):\n    allow_reuse_address = True\n\nserver = ReusableServer(('127.0.0.1', 9876), MCPHandler)\nbpy.app.driver_namespace['mcp_server'] = server\nthreading.Thread(target=server.serve_forever, daemon=True).start()\nprint('>>> Blender MCP Bridge LIVE on port 9876 (Blender ' + bpy.app.version_string + ') <<<')`;
-                          navigator.clipboard.writeText(script);
-                          setCopySuccess(true);
-                          setTimeout(() => setCopySuccess(false), 2000);
-                        }}
-                        className="px-2.5 py-1 rounded-lg text-[10px] font-semibold bg-orange-500/10 text-orange-400 border border-orange-500/20 hover:bg-orange-500/20 transition-all flex items-center gap-1 cursor-pointer"
-                      >
-                        {copySuccess ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
-                        <span>{copySuccess ? "Copied Script!" : "Copy Python Bridge"}</span>
-                      </button>
-                    </div>
-                    <p className="text-[11px] text-[var(--muted)] leading-relaxed">
-                      Jika tidak memakai auto-start, kamu bisa copy script ini dan jalankan di tab <strong>Scripting</strong> Blender.
-                    </p>
-                  </div>
+              {connBridgeType === "local-http" && (
+                <div>
+                  <label className="block text-[11px] font-semibold text-[var(--muted)] mb-1">Bridge Endpoint</label>
+                  <input
+                    type="text"
+                    value={connEndpoint}
+                    onChange={(e) => setConnEndpoint(e.target.value)}
+                    placeholder="http://127.0.0.1:PORT"
+                    className="w-full px-3 py-2 rounded-xl bg-[var(--sidebar-bg)] border border-[var(--card-border)] text-xs text-[var(--foreground)] font-mono focus:outline-none"
+                  />
+                  <p className="text-[10px] text-[var(--muted)] mt-1">
+                    Must resolve to 127.0.0.1/::1 — a loopback HTTP bridge to an app running on this machine (e.g. a local script listening on a port).
+                  </p>
                 </div>
               )}
 
-              {configuringConnector.id !== "github" &&
-                configuringConnector.id !== "slack" &&
-                configuringConnector.id !== "discord" &&
-                configuringConnector.id !== "blender-mcp" && (
-                  <>
-                    <div>
-                      <label className="block text-[11px] font-semibold text-[var(--muted)] mb-1">
-                        Endpoint URL / API Base URL
-                      </label>
-                      <input
-                        type="text"
-                        value={connEndpoint}
-                        onChange={(e) => setConnEndpoint(e.target.value)}
-                        placeholder="https://your-service.com/api/v1"
-                        className="w-full px-3 py-2 rounded-xl bg-[var(--sidebar-bg)] border border-[var(--card-border)] text-xs text-[var(--foreground)] font-mono focus:outline-none"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[11px] font-semibold text-[var(--muted)] mb-1">
-                        API Key / Access Token
-                      </label>
-                      <input
-                        type="password"
-                        value={connApiKey}
-                        onChange={(e) => setConnApiKey(e.target.value)}
-                        placeholder="API Key or Bearer Token..."
-                        className="w-full px-3 py-2 rounded-xl bg-[var(--sidebar-bg)] border border-[var(--card-border)] text-xs text-[var(--foreground)] font-mono focus:outline-none"
-                      />
-                    </div>
-                  </>
-                )}
+              <div>
+                <label className="block text-[11px] font-semibold text-[var(--muted)] mb-1">API Key / Bearer Token (optional)</label>
+                <input
+                  type="password"
+                  value={connApiKey}
+                  onChange={(e) => setConnApiKey(e.target.value)}
+                  placeholder="Sent as Authorization: Bearer ... if provided"
+                  className="w-full px-3 py-2 rounded-xl bg-[var(--sidebar-bg)] border border-[var(--card-border)] text-xs text-[var(--foreground)] font-mono focus:outline-none"
+                />
+              </div>
 
               {/* Live Test Feedback Banner */}
               {testResult && (
@@ -1198,6 +1011,18 @@ export const DirectoryModal: React.FC<DirectoryModalProps> = ({
               </button>
 
               <div className="flex items-center gap-2">
+                {connectors.some((c) => c.id === configuringConnector.id) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleDeleteConnector(configuringConnector.id);
+                      setConfiguringConnector(null);
+                    }}
+                    className="px-3 py-2 rounded-xl text-xs font-medium text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer"
+                  >
+                    Delete
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => setConfiguringConnector(null)}

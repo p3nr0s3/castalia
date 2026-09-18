@@ -1,312 +1,103 @@
 import { NextRequest, NextResponse } from "next/server";
-import fs from "fs";
-import path from "path";
-import crypto from "crypto";
-import { assertPublicUrl, assertBlenderUrl, SsrfBlockedError } from "@/lib/ssrfGuard";
+import { assertPublicUrl, SsrfBlockedError } from "@/lib/ssrfGuard";
+import { testBridgeConnection, executeBridgeAction } from "@/lib/localAppBridge";
 
+/**
+ * Generic custom-bridge connector route.
+ *
+ * All previous hardcoded per-service integrations (GitHub API calls,
+ * Slack/Discord-specific webhook shaping, Blender's Python bpy bridge and
+ * its startup-script installer) have been removed. Connectors are now
+ * entirely user-defined via Directory > Connectors > Add Custom Bridge
+ * (see components/DirectoryModal.tsx and lib/types.ts's ConnectorItem.customBridgeType),
+ * with exactly two supported shapes:
+ *
+ *   - "webhook": a plain POST with a JSON body to any public URL. Must
+ *     resolve to a non-private address (assertPublicUrl) — this is the
+ *     same SSRF policy the old Slack/Discord webhook code used, just no
+ *     longer tied to those two specific services.
+ *   - "local-http": a loopback-only HTTP bridge to a desktop app running
+ *     on this machine, via lib/localAppBridge.ts (the same framework
+ *     Blender's bridge was going to be migrated onto). Must resolve to
+ *     127.0.0.1/::1 only.
+ *
+ * A user who wants to talk to a real service's actual API (GitHub, a
+ * specific SaaS product, etc.) now does so by pointing a webhook bridge
+ * at that service's own webhook/inbound-API endpoint, or by building
+ * their own small local proxy and connecting to it as a local-http
+ * bridge — this route no longer knows anything about specific third-party
+ * APIs itself.
+ */
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { action, service, apiKey, webhookUrl, repo, endpoint, payload } = body;
+    const { action, apiKey, webhookUrl, endpoint, payload } = body;
 
     // =========================================================================
-    // 1. TEST CONNECTIVITY FOR ANY SERVICE
+    // 1. TEST CONNECTIVITY FOR A CUSTOM BRIDGE
     // =========================================================================
     if (action === "test") {
-      if (service === "github") {
-        const headers: Record<string, string> = {
-          "User-Agent": "Ollama-Chat-Web",
-          Accept: "application/vnd.github.v3+json",
-        };
-        if (apiKey) {
-          headers["Authorization"] = `Bearer ${apiKey.trim()}`;
-        }
+      const bridgeType = body.customBridgeType || body.bridgeType;
 
-        if (apiKey) {
-          const res = await fetch("https://api.github.com/user", { headers });
-          if (!res.ok) {
-            const err = await res.json().catch(() => ({}));
+      if (bridgeType === "local-http") {
+        const targetUrl = (endpoint || "").trim().replace(/\/$/, "");
+        if (!targetUrl) {
+          return NextResponse.json({ success: false, error: "Please provide a bridge endpoint URL (e.g. http://127.0.0.1:PORT)." }, { status: 400 });
+        }
+        try {
+          const { reachable, details } = await testBridgeConnection(
+            { id: "custom", displayName: "Custom Bridge", defaultUrl: targetUrl },
+            targetUrl
+          );
+          if (!reachable) {
             return NextResponse.json(
-              { success: false, error: err.message || `GitHub returned status ${res.status}` },
+              { success: false, error: `Could not reach ${targetUrl}. Make sure the app/bridge is running and listening there.` },
               { status: 400 }
             );
           }
-          const data = await res.json();
           return NextResponse.json({
             success: true,
-            message: `Authenticated as @${data.login} (${data.public_repos} public repos, ${data.followers} followers)`,
-            user: data.login,
+            message: `Connected to ${targetUrl}${details?.version ? ` (v${details.version})` : ""}.`,
           });
-        } else if (repo) {
-          const res = await fetch(`https://api.github.com/repos/${repo.trim()}`, { headers });
-          if (!res.ok) {
-            return NextResponse.json(
-              { success: false, error: `Repository '${repo}' not found or private` },
-              { status: 400 }
-            );
-          }
-          const data = await res.json();
-          return NextResponse.json({
-            success: true,
-            message: `Repository found: ${data.full_name} (⭐ ${data.stargazers_count} stars, 🐛 ${data.open_issues_count} issues)`,
-          });
-        } else {
-          return NextResponse.json(
-            { success: false, error: "Please enter a GitHub Personal Access Token or Repository name." },
-            { status: 400 }
-          );
-        }
-      }
-
-      if (service === "slack") {
-        if (!webhookUrl || !webhookUrl.startsWith("http")) {
-          return NextResponse.json(
-            { success: false, error: "Please provide a valid Slack Incoming Webhook URL." },
-            { status: 400 }
-          );
-        }
-        try {
-          await assertPublicUrl(webhookUrl.trim());
         } catch (e) {
           if (e instanceof SsrfBlockedError) {
             return NextResponse.json({ success: false, error: e.message }, { status: 400 });
           }
           throw e;
         }
-        const res = await fetch(webhookUrl.trim(), {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            text: "🧪 *Ollama Workspace*: Slack connector test connection successful!",
-          }),
-        });
-        if (!res.ok) {
-          const errText = await res.text().catch(() => "");
-          return NextResponse.json(
-            { success: false, error: `Slack returned ${res.status}: ${errText || "Invalid webhook"}` },
-            { status: 400 }
-          );
-        }
-        return NextResponse.json({
-          success: true,
-          message: "Test message sent to Slack channel successfully!",
-        });
       }
 
-      if (service === "discord") {
-        if (!webhookUrl || !webhookUrl.startsWith("http")) {
-          return NextResponse.json(
-            { success: false, error: "Please provide a valid Discord Webhook URL." },
-            { status: 400 }
-          );
+      // Default / "webhook": test by sending a small test payload.
+      const targetUrl = (webhookUrl || endpoint || "").trim();
+      if (!targetUrl || !targetUrl.startsWith("http")) {
+        return NextResponse.json({ success: false, error: "Please provide a valid webhook URL." }, { status: 400 });
+      }
+      try {
+        await assertPublicUrl(targetUrl);
+      } catch (e) {
+        if (e instanceof SsrfBlockedError) {
+          return NextResponse.json({ success: false, error: e.message }, { status: 400 });
         }
-        try {
-          await assertPublicUrl(webhookUrl.trim());
-        } catch (e) {
-          if (e instanceof SsrfBlockedError) {
-            return NextResponse.json({ success: false, error: e.message }, { status: 400 });
-          }
-          throw e;
-        }
-        const res = await fetch(webhookUrl.trim(), {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            content: "🧪 **Ollama Workspace**: Discord connector test connection successful!",
-          }),
-        });
-        if (!res.ok) {
-          const errText = await res.text().catch(() => "");
-          return NextResponse.json(
-            { success: false, error: `Discord returned ${res.status}: ${errText || "Invalid webhook"}` },
-            { status: 400 }
-          );
-        }
-        return NextResponse.json({
-          success: true,
-          message: "Test message sent to Discord channel successfully!",
-        });
+        throw e;
       }
 
-      if (service === "blender" || service === "blender-mcp") {
-        const targetUrl = (endpoint || "http://127.0.0.1:9876").trim().replace(/\/$/, "");
-        try {
-          await assertBlenderUrl(targetUrl);
-        } catch (e) {
-          if (e instanceof SsrfBlockedError) {
-            return NextResponse.json({ success: false, error: e.message }, { status: 400 });
-          }
-          throw e;
-        }
-        try {
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 4000);
-          const res = await fetch(targetUrl, {
-            headers: { Accept: "application/json" },
-            signal: controller.signal,
-          }).catch(() => null);
-          clearTimeout(timeoutId);
+      const testBody = payload || { text: "Test message from Ollama AI Workspace's custom bridge." };
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (apiKey) headers["Authorization"] = `Bearer ${apiKey.trim()}`;
 
-          if (res && res.ok) {
-            const data = await res.json().catch(() => ({}));
-            const ver = data.version ? ` (v${data.version})` : "";
-            return NextResponse.json({
-              success: true,
-              message: `Connected to Blender MCP Bridge${ver} at ${targetUrl}! Live 3D Python execution ready.`,
-            });
-          }
-        } catch {
-          // Ignore
-        }
+      const res = await fetch(targetUrl, { method: "POST", headers, body: JSON.stringify(testBody) });
+      if (!res.ok) {
+        const errText = await res.text().catch(() => "");
         return NextResponse.json(
-          {
-            success: false,
-            error: `Could not reach Blender at ${targetUrl}. Make sure Blender is running and the Python bridge script is active in the Scripting tab.`,
-          },
+          { success: false, error: `Bridge returned ${res.status}: ${errText || "request rejected"}` },
           { status: 400 }
         );
       }
-
-      if (service === "nocodb" || endpoint) {
-        if (!endpoint || !endpoint.startsWith("http")) {
-          return NextResponse.json(
-            { success: false, error: "Please provide a valid endpoint URL." },
-            { status: 400 }
-          );
-        }
-        try {
-          await assertPublicUrl(endpoint.trim());
-        } catch (e) {
-          if (e instanceof SsrfBlockedError) {
-            return NextResponse.json({ success: false, error: e.message }, { status: 400 });
-          }
-          throw e;
-        }
-        const headers: Record<string, string> = {};
-        if (apiKey) {
-          headers["xc-token"] = apiKey.trim();
-          headers["Authorization"] = `Bearer ${apiKey.trim()}`;
-        }
-        const startTime = Date.now();
-        const res = await fetch(endpoint.trim(), { headers });
-        const latency = Date.now() - startTime;
-        return NextResponse.json({
-          success: res.ok,
-          message: `Endpoint responded with status ${res.status} (${latency}ms latency).`,
-        });
-      }
-
-      return NextResponse.json({
-        success: true,
-        message: "Configuration saved and connector ready.",
-      });
+      return NextResponse.json({ success: true, message: "Test message sent successfully!" });
     }
 
     // =========================================================================
-    // 2. GITHUB ACTIONS: FETCH REPO / ISSUES / FILES
-    // =========================================================================
-    if (action === "github_fetch") {
-      const targetRepo = (repo || payload?.repo || "").trim().replace(/^https:\/\/github\.com\//, "");
-      if (!targetRepo) {
-        return NextResponse.json({ success: false, error: "Repository name is required (e.g. facebook/react)" }, { status: 400 });
-      }
-
-      const headers: Record<string, string> = {
-        "User-Agent": "Ollama-Chat-Web",
-        Accept: "application/vnd.github.v3+json",
-      };
-      if (apiKey) headers["Authorization"] = `Bearer ${apiKey.trim()}`;
-
-      const fetchType = payload?.type || "info";
-
-      if (fetchType === "issues") {
-        const res = await fetch(`https://api.github.com/repos/${targetRepo}/issues?state=open&per_page=10`, { headers });
-        if (!res.ok) {
-          return NextResponse.json({ success: false, error: `Failed to fetch issues: status ${res.status}` }, { status: 400 });
-        }
-        const issues = await res.json();
-        const simplified = issues.map((iss: any) => ({
-          number: iss.number,
-          title: iss.title,
-          user: iss.user?.login,
-          comments: iss.comments,
-          url: iss.html_url,
-          created_at: iss.created_at,
-          bodySnippet: iss.body ? iss.body.slice(0, 200) + "..." : "",
-        }));
-        return NextResponse.json({ success: true, repo: targetRepo, issues: simplified });
-      }
-
-      if (fetchType === "file" || payload?.filePath) {
-        const filePath = payload?.filePath || "README.md";
-        const rawUrl = `https://raw.githubusercontent.com/${targetRepo}/HEAD/${filePath}`;
-        const res = await fetch(rawUrl, { headers: { "User-Agent": "Ollama-Chat-Web" } });
-        if (!res.ok) {
-          return NextResponse.json({ success: false, error: `File '${filePath}' not found in repo '${targetRepo}'` }, { status: 400 });
-        }
-        const text = await res.text();
-        return NextResponse.json({ success: true, repo: targetRepo, filePath, content: text });
-      }
-
-      // Default: repo info
-      const res = await fetch(`https://api.github.com/repos/${targetRepo}`, { headers });
-      if (!res.ok) {
-        return NextResponse.json({ success: false, error: `Repository '${targetRepo}' not found` }, { status: 400 });
-      }
-      const data = await res.json();
-      return NextResponse.json({
-        success: true,
-        repo: data.full_name,
-        description: data.description,
-        stars: data.stargazers_count,
-        forks: data.forks_count,
-        open_issues: data.open_issues_count,
-        language: data.language,
-        url: data.html_url,
-      });
-    }
-
-    // =========================================================================
-    // 3. GITHUB ACTIONS: CREATE ISSUE
-    // =========================================================================
-    if (action === "github_create_issue") {
-      const targetRepo = (repo || payload?.repo || "").trim().replace(/^https:\/\/github\.com\//, "");
-      if (!apiKey) {
-        return NextResponse.json({ success: false, error: "GitHub Personal Access Token is required to create issues." }, { status: 400 });
-      }
-      if (!targetRepo || !payload?.title) {
-        return NextResponse.json({ success: false, error: "Repository and issue title are required." }, { status: 400 });
-      }
-
-      const res = await fetch(`https://api.github.com/repos/${targetRepo}/issues`, {
-        method: "POST",
-        headers: {
-          "User-Agent": "Ollama-Chat-Web",
-          Authorization: `Bearer ${apiKey.trim()}`,
-          Accept: "application/vnd.github.v3+json",
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          title: payload.title,
-          body: payload.body || "Issue generated via Ollama AI Workspace",
-        }),
-      });
-
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        return NextResponse.json({ success: false, error: err.message || `Failed with status ${res.status}` }, { status: 400 });
-      }
-
-      const issueData = await res.json();
-      return NextResponse.json({
-        success: true,
-        message: `Issue #${issueData.number} created successfully!`,
-        url: issueData.html_url,
-      });
-    }
-
-    // =========================================================================
-    // 4. WEBHOOK DISPATCH (SLACK / DISCORD / GENERIC)
+    // 2. WEBHOOK DISPATCH (any public URL)
     // =========================================================================
     if (action === "webhook_send") {
       const targetUrl = (webhookUrl || payload?.webhookUrl || "").trim();
@@ -322,20 +113,13 @@ export async function POST(req: NextRequest) {
         throw e;
       }
 
-      const text = payload?.text || payload?.content || "Notification from Ollama Workspace";
-      let postBody: any;
-
-      if (service === "discord") {
-        postBody = { content: text };
-      } else {
-        // Slack or generic
-        postBody = { text: text };
-      }
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (apiKey) headers["Authorization"] = `Bearer ${apiKey.trim()}`;
 
       const res = await fetch(targetUrl, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(postBody),
+        headers,
+        body: JSON.stringify(payload || { text: "Notification from Ollama AI Workspace" }),
       });
 
       if (!res.ok) {
@@ -343,365 +127,41 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ success: false, error: `Webhook rejected (${res.status}): ${errText}` }, { status: 400 });
       }
 
-      return NextResponse.json({
-        success: true,
-        message: "Message dispatched to webhook successfully!",
-      });
+      return NextResponse.json({ success: true, message: "Message dispatched to webhook successfully!" });
     }
 
     // =========================================================================
-    // 5. BLENDER ACTIONS: EXECUTE PYTHON SCRIPT IN BLENDER
+    // 3. LOCAL BRIDGE EXECUTE (loopback-only HTTP bridge to a local app)
     // =========================================================================
-    if (action === "blender_execute") {
-      const targetUrl = (endpoint || "http://127.0.0.1:9876").trim().replace(/\/$/, "");
-      const scriptCode = payload?.code || "";
-
-      if (!scriptCode) {
-        return NextResponse.json({ success: false, error: "Python code is required for Blender execution." }, { status: 400 });
+    if (action === "local_bridge_execute") {
+      const targetUrl = (endpoint || "").trim().replace(/\/$/, "");
+      if (!targetUrl) {
+        return NextResponse.json({ success: false, error: "A bridge endpoint URL is required." }, { status: 400 });
       }
 
       try {
-        await assertBlenderUrl(targetUrl);
+        const result = await executeBridgeAction(
+          { id: "custom", displayName: "Custom Bridge", defaultUrl: targetUrl, executePath: "/execute" },
+          targetUrl,
+          payload || {}
+        );
+
+        if (result.isBridgeOffline) {
+          return NextResponse.json({
+            success: false,
+            isBridgeOffline: true,
+            message: result.message || `Bridge at ${targetUrl} is offline.`,
+          });
+        }
+        if (result.isAuthRejected) {
+          return NextResponse.json({ success: false, error: result.message }, { status: 401 });
+        }
+        return NextResponse.json({ success: result.success, message: result.message, details: result.details });
       } catch (e) {
         if (e instanceof SsrfBlockedError) {
           return NextResponse.json({ success: false, error: e.message }, { status: 400 });
         }
         throw e;
-      }
-
-      // Read the token generated at blender_install_startup time. If it's
-      // missing (bridge was never installed via this app, or predates this
-      // fix), fall back to sending no token — an older/manually-installed
-      // bridge script won't check for one anyway, and a newer one will
-      // correctly reject the request with 401 rather than silently running
-      // unauthenticated code.
-      let bridgeToken = "";
-      try {
-        const tokenPath = path.join(process.cwd(), "data", "blender-bridge-token.json");
-        if (fs.existsSync(tokenPath)) {
-          const parsed = JSON.parse(fs.readFileSync(tokenPath, "utf-8"));
-          bridgeToken = parsed?.token || "";
-        }
-      } catch {
-        // Non-fatal — proceed without a token, the bridge itself decides whether to accept.
-      }
-      const bridgeHeaders: Record<string, string> = { "Content-Type": "application/json" };
-      if (bridgeToken) bridgeHeaders["X-Bridge-Token"] = bridgeToken;
-
-      try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 4000);
-        let res = await fetch(`${targetUrl}/execute`, {
-          method: "POST",
-          headers: bridgeHeaders,
-          body: JSON.stringify({ code: scriptCode }),
-          signal: controller.signal,
-        }).catch(() => null);
-
-        // Fallback to base endpoint if /execute fails
-        if (!res || !res.ok) {
-          res = await fetch(targetUrl, {
-            method: "POST",
-            headers: bridgeHeaders,
-            body: JSON.stringify({ code: scriptCode }),
-            signal: controller.signal,
-          }).catch(() => null);
-        }
-        clearTimeout(timeoutId);
-
-        if (res && res.status === 401) {
-          return NextResponse.json({
-            success: false,
-            error: "Blender bridge rejected the request (401): missing or invalid bridge token. Reinstall the startup script (blender_install_startup) and restart Blender to refresh the token.",
-          });
-        }
-
-        if (res && res.ok) {
-          const data = await res.json().catch(() => ({}));
-          return NextResponse.json({
-            success: true,
-            message: data.message || "Executed Python script in Blender live scene!",
-            details: data,
-          });
-        }
-      } catch (err: any) {
-        console.warn("Blender bridge offline or unreachable:", err.message);
-      }
-
-      // If Blender bridge is offline, return success: false with code so user can paste it manually
-      return NextResponse.json({
-        success: false,
-        isBridgeOffline: true,
-        message: "Blender bridge is offline. You can copy the generated Python script below and run it in Blender's Scripting workspace!",
-        code: scriptCode,
-      });
-    }
-
-    // =========================================================================
-    // 6. BLENDER STARTUP AUTOMATION (AUTO-START ON LAUNCH)
-    // =========================================================================
-    if (
-      action === "blender_check_startup" ||
-      action === "blender_install_startup" ||
-      action === "blender_uninstall_startup"
-    ) {
-      const getBlenderBasePaths = (): string[] => {
-        const paths: string[] = [];
-        const appData = process.env.APPDATA;
-        if (appData) {
-          const p = path.join(appData, "Blender Foundation", "Blender");
-          if (fs.existsSync(p)) paths.push(p);
-        }
-        const home = process.env.HOME || process.env.USERPROFILE;
-        if (home) {
-          const linuxP = path.join(home, ".config", "blender");
-          if (fs.existsSync(linuxP)) paths.push(linuxP);
-          const macP = path.join(home, "Library", "Application Support", "Blender");
-          if (fs.existsSync(macP)) paths.push(macP);
-        }
-        return paths;
-      };
-
-      const bases = getBlenderBasePaths();
-      const versions: { version: string; startupDir: string; filePath: string; installed: boolean }[] = [];
-
-      for (const base of bases) {
-        try {
-          const items = fs.readdirSync(base, { withFileTypes: true });
-          for (const item of items) {
-            if (item.isDirectory() && (/^\d+(\.\d+)?$/.test(item.name) || !isNaN(parseFloat(item.name)))) {
-              const startupDir = path.join(base, item.name, "scripts", "startup");
-              const filePath = path.join(startupDir, "blender_mcp_bridge.py");
-              const installed = fs.existsSync(filePath);
-              versions.push({ version: item.name, startupDir, filePath, installed });
-            }
-          }
-        } catch (e) {}
-      }
-
-      // Default fallback if no version directories exist yet
-      if (versions.length === 0 && process.env.APPDATA) {
-        const fallbackBase = path.join(process.env.APPDATA, "Blender Foundation", "Blender", "5.2");
-        const startupDir = path.join(fallbackBase, "scripts", "startup");
-        const filePath = path.join(startupDir, "blender_mcp_bridge.py");
-        versions.push({ version: "5.2", startupDir, filePath, installed: fs.existsSync(filePath) });
-      }
-
-      if (action === "blender_check_startup") {
-        const isInstalled = versions.some((v) => v.installed);
-        return NextResponse.json({
-          success: true,
-          installed: isInstalled,
-          versions,
-        });
-      }
-
-      if (action === "blender_install_startup") {
-        // Generate a random token per install and require it on every POST.
-        // Without this, the bridge is an unauthenticated exec(code) endpoint
-        // that ANY local process (or, worse, any web page — see the CORS fix
-        // below) can reach on 127.0.0.1:9876. The token is written into the
-        // script itself (Blender has no separate secrets store to read from)
-        // and also returned to the caller so this app can send it on every
-        // blender_execute call.
-        const bridgeToken: string = crypto.randomBytes(24).toString("hex");
-
-        const bridgeScript = `"""
-Ollama AI Workspace - Blender 3D MCP Bridge
-Auto-start bridge listener on port 9876.
-Enables AI models (Gemma 4, etc.) to inject 3D meshes, materials, lights, and animations live.
-"""
-
-bl_info = {
-    "name": "Ollama AI Workspace 3D Bridge",
-    "author": "Antigravity & Ollama Chat Web",
-    "version": (1, 0, 0),
-    "blender": (4, 0, 0),
-    "location": "Background Service (Port 9876)",
-    "description": "Background HTTP listener on port 9876 for direct AI 3D injection",
-    "category": "Development",
-}
-
-import bpy
-import threading
-import json
-import hmac
-from http.server import HTTPServer, BaseHTTPRequestHandler
-
-# Generated once at install time by app/api/connectors/route.ts. Required on
-# every POST via the X-Bridge-Token header — without this, this HTTP server
-# is a bare, unauthenticated exec(code) endpoint reachable by any process
-# (or, without the CORS fix below, any web page) that can hit 127.0.0.1:9876.
-BRIDGE_TOKEN = "${bridgeToken}"
-
-# Only this app's own dev origin may call the bridge from a browser context.
-# The previous "*" wildcard meant ANY web page open in the user's browser
-# could POST arbitrary Python to Blender via a background fetch() — this is
-# the CORS half of the fix; the token above is the auth half, and both are
-# needed (CORS alone is bypassed by non-browser callers; token alone is
-# bypassed by a malicious page riding the user's own browser).
-ALLOWED_ORIGIN = "http://localhost:3000"
-
-# Stop previous server if active to prevent address collision
-if 'mcp_server' in bpy.app.driver_namespace:
-    try:
-        bpy.app.driver_namespace['mcp_server'].shutdown()
-        bpy.app.driver_namespace['mcp_server'].server_close()
-        print("[AI Bridge] Previous server stopped.")
-    except Exception:
-        pass
-
-class MCPHandler(BaseHTTPRequestHandler):
-    def address_string(self):
-        return str(self.client_address[0])
-
-    def log_message(self, format, *args):
-        pass
-
-    def _cors(self):
-        self.send_header('Access-Control-Allow-Origin', ALLOWED_ORIGIN)
-        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type, X-Bridge-Token')
-
-    def _check_token(self):
-        provided = self.headers.get('X-Bridge-Token', '')
-        # hmac.compare_digest instead of == to avoid a timing side-channel
-        # on the comparison (low practical risk on localhost, but free to add).
-        return hmac.compare_digest(provided, BRIDGE_TOKEN)
-
-    def do_OPTIONS(self):
-        self.send_response(200)
-        self._cors()
-        self.end_headers()
-
-    def do_GET(self):
-        # Status/health check stays token-free on purpose (no code execution,
-        # nothing sensitive returned beyond object count) so the app can poll
-        # "is Blender running" without needing the token round-tripped first.
-        self.send_response(200)
-        self.send_header('Content-Type', 'application/json')
-        self._cors()
-        self.end_headers()
-        ver = bpy.app.version_string
-        resp = {
-            'status': 'ready',
-            'blender': True,
-            'version': ver,
-            'objects_count': len(bpy.data.objects),
-            'last_error': bpy.app.driver_namespace.get('mcp_last_error')
-        }
-        self.wfile.write(json.dumps(resp).encode('utf-8'))
-
-    def do_POST(self):
-        if not self._check_token():
-            self.send_response(401)
-            self.send_header('Content-Type', 'application/json')
-            self._cors()
-            self.end_headers()
-            self.wfile.write(b'{"error": "Invalid or missing X-Bridge-Token"}')
-            return
-
-        try:
-            length = int(self.headers.get('Content-Length', 0))
-            body = self.rfile.read(length).decode('utf-8')
-            data = json.loads(body) if body else {}
-            code = data.get('code', '')
-
-            def run_bpy():
-                try:
-                    exec(code, {'bpy': bpy})
-                    bpy.app.driver_namespace['mcp_last_error'] = None
-                    print('[AI Bridge] Code executed successfully! Objects:', len(bpy.data.objects))
-                except Exception as ex:
-                    import traceback
-                    traceback.print_exc()
-                    bpy.app.driver_namespace['mcp_last_error'] = f"{type(ex).__name__}: {str(ex)}"
-                    print('[AI Bridge] Execution error:', ex)
-
-            if code:
-                bpy.app.timers.register(run_bpy)
-
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self._cors()
-            self.end_headers()
-            self.wfile.write(b'{"success": true}')
-        except Exception as e:
-            self.send_response(500)
-            self.send_header('Content-Type', 'application/json')
-            self._cors()
-            self.end_headers()
-            self.wfile.write(json.dumps({'error': str(e)}).encode('utf-8'))
-
-class ReusableServer(HTTPServer):
-    allow_reuse_address = True
-
-def start_server():
-    try:
-        server = ReusableServer(('127.0.0.1', 9876), MCPHandler)
-        bpy.app.driver_namespace['mcp_server'] = server
-        t = threading.Thread(target=server.serve_forever, daemon=True)
-        t.start()
-        print(f">>> [Ollama AI Workspace] Blender MCP Bridge LIVE on port 9876 (Blender {bpy.app.version_string}) <<<")
-    except Exception as e:
-        print('[AI Bridge] Startup error:', e)
-
-start_server()
-`;
-        const installed: string[] = [];
-        for (const v of versions) {
-          try {
-            fs.mkdirSync(v.startupDir, { recursive: true });
-            fs.writeFileSync(v.filePath, bridgeScript, "utf-8");
-            installed.push(v.filePath);
-            v.installed = true;
-          } catch (err: any) {
-            console.error("Failed to write startup script:", err);
-          }
-        }
-
-        // Persist the token alongside the app's own config so blender_execute
-        // can send it on every call. Stored server-side only (never sent to
-        // the browser as part of a generic settings blob) — the client just
-        // triggers blender_execute and this route attaches the token itself.
-        try {
-          const tokenDir = path.join(process.cwd(), "data");
-          fs.mkdirSync(tokenDir, { recursive: true });
-          fs.writeFileSync(path.join(tokenDir, "blender-bridge-token.json"), JSON.stringify({ token: bridgeToken }), "utf-8");
-        } catch (err: any) {
-          console.error("Failed to persist Blender bridge token:", err);
-        }
-
-        return NextResponse.json({
-          success: installed.length > 0,
-          message: `Bridge auto-start installed for Blender (${versions.map((v) => v.version).join(", ")})! Restart Blender for it to take effect.`,
-          installedPaths: installed,
-          versions,
-        });
-      }
-
-      if (action === "blender_uninstall_startup") {
-        let removedCount = 0;
-        for (const v of versions) {
-          try {
-            if (fs.existsSync(v.filePath)) {
-              fs.unlinkSync(v.filePath);
-              removedCount++;
-              v.installed = false;
-            }
-          } catch (err) {}
-        }
-
-        try {
-          const tokenPath = path.join(process.cwd(), "data", "blender-bridge-token.json");
-          if (fs.existsSync(tokenPath)) fs.unlinkSync(tokenPath);
-        } catch {}
-
-        return NextResponse.json({
-          success: true,
-          message: `Removed bridge auto-start script from ${removedCount} location(s).`,
-          versions,
-        });
       }
     }
 

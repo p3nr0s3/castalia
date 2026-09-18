@@ -425,6 +425,27 @@ export interface ConnectorItem {
   endpoint?: string;
   isLiveConnected?: boolean;
   statusMessage?: string;
+  /** Set on every connector created through the "Add Custom Bridge" flow
+   * (see DirectoryModal.tsx) — determines which generic execution path
+   * app/api/connectors/route.ts uses. "webhook" = a plain POST with a
+   * JSON body to any URL (must resolve to a public host — see
+   * assertPublicUrl in lib/ssrfGuard.ts; this is the same shape Slack/
+   * Discord's built-in integrations used to be, just no longer
+   * hardcoded to those two services specifically). "local-http" = a
+   * loopback-only HTTP bridge to a desktop app running on this machine
+   * (see lib/localAppBridge.ts) — must resolve to 127.0.0.1/::1 only.
+   * Connectors from before this field existed (none should remain once
+   * the old templates are gone, but a user's already-saved settings.connectors
+   * entry could still lack it) are treated as unrunnable — the UI shows
+   * them as configured-but-inactive rather than guessing a type. */
+  customBridgeType?: "webhook" | "local-http";
+  /** For customBridgeType "webhook": the default JSON body sent with
+   * every test/execute call, editable per-connector. For "local-http":
+   * unused — local-http bridges send whatever payload the calling
+   * feature provides at request time, since a loopback bridge's
+   * "actions" are typically parameterized per-call (e.g. Blender's
+   * generated Python differs per request) rather than one fixed body. */
+  defaultPayload?: string;
 }
 
 export interface PluginItem {

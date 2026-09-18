@@ -247,152 +247,21 @@ export const DEFAULT_DIRECTORY_SKILLS: Skill[] = [
   },
 ];
 
-export const DEFAULT_CONNECTORS: ConnectorItem[] = [
-  // Popular
-  {
-    id: "gmail",
-    name: "Gmail",
-    description: "Connect your email inbox to draft emails, summarize threads, and organize unread messages.",
-    category: "popular",
-    icon: "Mail",
-    badge: "Official",
-    installed: true,
-  },
-  {
-    id: "google-drive",
-    name: "Google Drive",
-    description: "Search, read, and analyze documents, spreadsheets, presentations, and team drive folders.",
-    category: "popular",
-    icon: "HardDrive",
-    badge: "Official",
-    installed: true,
-  },
-  {
-    id: "slack",
-    name: "Slack",
-    description: "Monitor team channels, search past conversations, and send notifications directly from chat.",
-    category: "popular",
-    icon: "MessageSquare",
-    badge: "Official",
-    installed: true,
-    authType: "webhook",
-    webhookUrl: "",
-  },
-  {
-    id: "github",
-    name: "GitHub",
-    description: "Inspect repositories, read source code, analyze pull requests, and manage issues directly from chat.",
-    category: "popular",
-    icon: "GitBranch",
-    badge: "Official",
-    installed: true,
-    authType: "apiKey",
-    apiKey: "",
-    repo: "",
-  },
-  {
-    id: "discord",
-    name: "Discord",
-    description: "Dispatch messages, summaries, and agent task alerts directly to your Discord server channels.",
-    category: "popular",
-    icon: "MessageCircle",
-    badge: "Community",
-    installed: false,
-    authType: "webhook",
-    webhookUrl: "",
-  },
-  // Community
-  {
-    id: "blender-mcp",
-    name: "Blender 3D (MCP)",
-    description: "Connect live to your running Blender instance to procedurally generate 3D meshes, materials, lighting, and trigger renders via Python (bpy).",
-    category: "popular",
-    badge: "MCP 3D",
-    installed: true,
-    endpoint: "http://127.0.0.1:9876",
-    authType: "none",
-  },
-  {
-    id: "huxly",
-    name: "Huxly",
-    description: "Build, preview, and ship real mobile apps from chat — Expo, Flutter, and SwiftUI projects with a live preview.",
-    category: "community",
-    badge: "New",
-    installed: false,
-  },
-  {
-    id: "templated",
-    name: "Templated.io",
-    description: "Generate automated marketing images, banner videos, and PDFs from your design templates.",
-    category: "community",
-    badge: "New",
-    installed: false,
-  },
-  {
-    id: "mcp-nerve",
-    name: "mcp.nerve.mattemena.com",
-    description: "Manage Meta, TikTok, Google & Snapchat ads with AI-driven budget optimization and copy generation.",
-    category: "community",
-    badge: "New",
-    installed: false,
-  },
-  {
-    id: "hire-otto",
-    name: "HireOtto - Google Analytics",
-    description: "Google Analytics 4 (GA4) MCP for Claude with property discovery, custom reporting, and realtime user analytics.",
-    category: "community",
-    badge: "New",
-    installed: false,
-  },
-  {
-    id: "zentor",
-    name: "Zentor",
-    description: "Dynamic pricing and smart advertising for Mercado Libre, always protecting your margin and profitability.",
-    category: "community",
-    badge: "New",
-    installed: false,
-  },
-  {
-    id: "peerdom",
-    name: "Peerdom",
-    description: "Interactive organizational chart that lets AI query team responsibilities, roles, and accountability.",
-    category: "community",
-    badge: "New",
-    installed: false,
-  },
-  {
-    id: "nocodb",
-    name: "NocoDB",
-    description: "Connect to NocoDB to securely query, create, update, and manage your relational smart spreadsheet data.",
-    category: "community",
-    badge: "New",
-    installed: false,
-  },
-  {
-    id: "trueclicks",
-    name: "TrueClicks MCP",
-    description: "Audit, monitor, and analyze your Google Ads and PPC accounts for waste, errors, and missed opportunities.",
-    category: "community",
-    badge: "New",
-    installed: false,
-  },
-  {
-    id: "gadgetos",
-    name: "GadgetOS",
-    description: "Full-stack developer platform connecting backend cloud functions, serverless DB, and frontend hosting.",
-    category: "community",
-    badge: "New",
-    installed: false,
-  },
-  {
-    id: "joby-crm",
-    name: "Joby CRM",
-    description: "AI-native CRM to track client pipelines, follow-ups, contract signatures, and deal stages.",
-    category: "community",
-    badge: "New",
-    installed: false,
-  },
-];
+// Connector templates used to ship pre-populated here (Gmail, Slack,
+// GitHub, Discord, Blender, and several purely decorative
+// community-marketplace-style cards with no real backend at all). All
+// removed per the user's decision: connectors are now entirely
+// user-defined custom bridges (see ConnectorItem's customBridgeType and
+// the "Add Custom Bridge" flow in DirectoryModal.tsx / app/api/connectors/route.ts's
+// generic webhook/local-http branches) rather than a curated template
+// list. Kept as an empty array (not deleted) so existing callers —
+// app/page.tsx's `settings.connectors || DEFAULT_CONNECTORS` fallback,
+// and its `DEFAULT_CONNECTORS.filter(...)` merge when opening the
+// Directory modal — keep working with zero behavior change for a user
+// who has no saved connectors yet. A user's own saved connectors in
+// settings.connectors are never affected by this being empty; they are
+// stored independently and always take precedence in that merge.
+export const DEFAULT_CONNECTORS: ConnectorItem[] = [];
 
 export const DEFAULT_PLUGINS: PluginItem[] = [
   {

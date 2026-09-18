@@ -1203,132 +1203,78 @@ export default function HomePage() {
         })
       : { cleanQuery: "" };
 
-    // Process Live Connector Operations (/github, /slack, /discord, /blender)
+    // Live connector operations moved to a generic bridge model: a user
+    // adds their own custom bridge (webhook or local-http) via Directory
+    // > Connectors, then triggers it with `/bridge <bridge-id> <message>`.
+    // The old /github, /slack, /discord, /blender slash-commands and
+    // their per-service hardcoded logic (GitHub API calls, Blender's bpy
+    // auto-inject, etc.) are gone — those were tied to specific
+    // pre-built templates that no longer exist (see lib/directoryData.ts's
+    // now-empty DEFAULT_CONNECTORS).
     let connectorContextText = "";
     let connectorNotice = "";
-    let isBlenderCommand = false;
-    let blenderBridgeUrl = "http://127.0.0.1:9876";
 
-    if (trimmedInput.startsWith("/github")) {
-      const cleanCmd = trimmedInput.replace(/^\/github\s*/, "").trim();
-      const parts = cleanCmd.split(/\s+/);
-      const ghConn = (settings.connectors || DEFAULT_CONNECTORS).find((c) => c.id === "github");
-      
-      let targetRepo = ghConn?.repo || "facebook/react";
-      let fetchType: "info" | "issues" = "info";
+    if (trimmedInput.startsWith("/bridge")) {
+      const cleanCmd = trimmedInput.replace(/^\/bridge\s*/, "").trim();
+      const [bridgeId, ...messageParts] = cleanCmd.split(/\s+/);
+      const message = messageParts.join(" ");
+      const bridge = (settings.connectors || []).find((c) => c.id === bridgeId);
 
-      if (parts[0] === "issues") {
-        fetchType = "issues";
-        if (parts[1]) targetRepo = parts[1];
-      } else if (parts[0]?.includes("/")) {
-        targetRepo = parts[0];
-        if (parts[1] === "issues") fetchType = "issues";
-      }
-
-      try {
-        const ghRes = await apiFetch("/api/connectors", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            action: "github_fetch",
-            service: "github",
-            repo: targetRepo,
-            apiKey: ghConn?.apiKey,
-            payload: { type: fetchType },
-          }),
-        });
-
-        if (ghRes.ok) {
-          const ghData = await ghRes.json();
-          if (ghData.success) {
-            if (fetchType === "issues" && ghData.issues) {
-              connectorContextText = `\n\n=== LIVE GITHUB ISSUES FOR ${targetRepo} ===\n`;
-              ghData.issues.forEach((iss: any) => {
-                connectorContextText += `[Issue #${iss.number}] "${iss.title}" by @${iss.user} (${iss.comments} comments)\nURL: ${iss.url}\n${iss.bodySnippet}\n\n`;
-              });
-              connectorContextText += "=== INSTRUCTIONS ===\nAnalyze these real live GitHub issues and provide actionable insights.\n\n";
-              connectorNotice = `🐙 *Fetched ${ghData.issues.length} live issues from GitHub repository \`${targetRepo}\`*\n\n`;
-            } else {
-              connectorContextText = `\n\n=== LIVE GITHUB REPOSITORY METRICS FOR ${targetRepo} ===\n`;
-              connectorContextText += `Repository: ${ghData.repo}\nDescription: ${ghData.description || "None"}\nStars: ⭐ ${ghData.stars} | Forks: 🍴 ${ghData.forks} | Open Issues: 🐛 ${ghData.open_issues}\nLanguage: ${ghData.language || "Unknown"}\nURL: ${ghData.url}\n\n`;
-              connectorContextText += "=== INSTRUCTIONS ===\nProvide an insightful summary and analysis of this repository based on these live metrics.\n\n";
-              connectorNotice = `🐙 *Connected to GitHub: \`${targetRepo}\` (⭐ ${ghData.stars} stars, 🐛 ${ghData.open_issues} open issues)*\n\n`;
+      if (!bridge) {
+        connectorNotice = `⚠️ *No bridge found with id \`${bridgeId || "(none given)"}\`. Usage: \`/bridge <bridge-id> <message>\`. Add one in Directory > Connectors.*\n\n`;
+      } else if (bridge.customBridgeType === "webhook") {
+        try {
+          let payload: any = { text: message || "Notification from Ollama AI Workspace" };
+          if (bridge.defaultPayload) {
+            try {
+              payload = JSON.parse(bridge.defaultPayload.replace(/\{\{message\}\}/g, message || ""));
+            } catch {
+              // Malformed saved payload template — fall back to the
+              // plain-text default rather than failing the whole command.
             }
           }
-        }
-      } catch (ghErr) {
-        console.warn("GitHub connector fetch failed:", ghErr);
-      }
-    } else if (trimmedInput.startsWith("/slack")) {
-      const slackMsg = trimmedInput.replace(/^\/slack\s*/, "").trim();
-      const slackConn = (settings.connectors || DEFAULT_CONNECTORS).find((c) => c.id === "slack");
-      if (slackConn && slackConn.webhookUrl) {
-        try {
-          await apiFetch("/api/connectors", {
+          const res = await apiFetch("/api/connectors", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               action: "webhook_send",
-              service: "slack",
-              webhookUrl: slackConn.webhookUrl,
-              payload: { text: slackMsg || "Notification from Ollama AI Workspace" },
+              webhookUrl: bridge.webhookUrl,
+              payload,
             }),
           });
-          connectorNotice = `💬 *Message dispatched to Slack channel via Incoming Webhook.*\n\n`;
-        } catch (sErr) {
-          console.warn("Slack dispatch failed:", sErr);
+          const data = await res.json().catch(() => ({}));
+          connectorNotice = data.success
+            ? `📡 *Dispatched to bridge \`${bridge.name}\`.*\n\n`
+            : `⚠️ *Bridge \`${bridge.name}\` error: ${data.error || "unknown"}*\n\n`;
+        } catch (err: any) {
+          connectorNotice = `⚠️ *Failed to reach bridge \`${bridge.name}\`: ${err.message}*\n\n`;
         }
-      } else {
-        connectorNotice = `⚠️ *Slack connector not configured with a Webhook URL. Open Directory > Connectors to configure it.*\n\n`;
-      }
-    } else if (trimmedInput.startsWith("/discord")) {
-      const discordMsg = trimmedInput.replace(/^\/discord\s*/, "").trim();
-      const discordConn = (settings.connectors || DEFAULT_CONNECTORS).find((c) => c.id === "discord");
-      if (discordConn && discordConn.webhookUrl) {
+      } else if (bridge.customBridgeType === "local-http") {
         try {
-          await apiFetch("/api/connectors", {
+          const res = await apiFetch("/api/connectors", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              action: "webhook_send",
-              service: "discord",
-              webhookUrl: discordConn.webhookUrl,
-              payload: { content: discordMsg || "Notification from Ollama AI Workspace" },
+              action: "local_bridge_execute",
+              endpoint: bridge.endpoint,
+              apiKey: bridge.apiKey,
+              payload: { message },
             }),
           });
-          connectorNotice = `🎮 *Message dispatched to Discord channel via Webhook.*\n\n`;
-        } catch (dErr) {
-          console.warn("Discord dispatch failed:", dErr);
+          const data = await res.json().catch(() => ({}));
+          if (data.success) {
+            connectorNotice = `🔌 *Bridge \`${bridge.name}\` executed: ${data.message || "OK"}*\n\n`;
+          } else if (data.isBridgeOffline) {
+            connectorNotice = `⚠️ *Bridge \`${bridge.name}\` is offline. Make sure the app is running at \`${bridge.endpoint}\`.*\n\n`;
+          } else {
+            connectorNotice = `⚠️ *Bridge \`${bridge.name}\` error: ${data.error || data.message || "unknown"}*\n\n`;
+          }
+        } catch (err: any) {
+          connectorNotice = `⚠️ *Failed to reach bridge \`${bridge.name}\`: ${err.message}*\n\n`;
         }
       } else {
-        connectorNotice = `⚠️ *Discord connector not configured with a Webhook URL. Open Directory > Connectors to configure it.*\n\n`;
+        connectorNotice = `⚠️ *Bridge \`${bridge.name}\` has no configured type. Re-save it in Directory > Connectors.*\n\n`;
       }
-    } else if (trimmedInput.startsWith("/blender")) {
-      isBlenderCommand = true;
-      const blenderPrompt = trimmedInput.replace(/^\/blender\s*/, "").trim();
-      const blenderConn = (settings.connectors || DEFAULT_CONNECTORS).find((c) => c.id === "blender-mcp");
-      blenderBridgeUrl = blenderConn?.endpoint || "http://127.0.0.1:9876";
-
-      connectorContextText = `\n\n=== BLENDER 3D MCP SCRIPTING DIRECTIVE ===\n`;
-      connectorContextText += `User request: "${blenderPrompt || "Create a procedural 3D scene"}"\n`;
-      connectorContextText += `You are an expert 3D Technical Artist and Blender Python (bpy) developer.\n`;
-      connectorContextText += `Generate a clean, 100% executable Python script using 'bpy' that fulfills the user's 3D request.\n`;
-      connectorContextText += `CRITICAL RULES FOR BLENDER PYTHON (bpy) - FOLLOW STRICTLY:\n`;
-      connectorContextText += `1. IMPORTS: Always start with 'import bpy, math, mathutils'.\n`;
-      connectorContextText += `2. CLEANUP: To clean scene, use: for o in list(bpy.data.objects): bpy.data.objects.remove(o, do_unlink=True)\n`;
-      connectorContextText += `3. OBJECT CREATION: Use standard primitives (e.g. bpy.ops.mesh.primitive_cube_add, primitive_uv_sphere_add, primitive_cylinder_add). Always get active object via 'bpy.context.active_object' right after adding.\n`;
-      connectorContextText += `4. RIGID BODY PHYSICS (IMPORTANT):\n`;
-      connectorContextText += `   - To add physics: bpy.context.view_layer.objects.active = obj; bpy.ops.rigidbody.object_add()\n`;
-      connectorContextText += `   - Set properties on 'obj.rigid_body': obj.rigid_body.type = 'ACTIVE' (or 'PASSIVE' for ground floor), obj.rigid_body.mass = 10, obj.rigid_body.collision_shape = 'BOX' (or 'SPHERE').\n`;
-      connectorContextText += `   - NEVER use modifiers.new("RigidBody") or assign obj.rigid_body = ... (these cause fatal TypeErrors).\n`;
-      connectorContextText += `5. BOOLEAN MODIFIER: mod = obj.modifiers.new(name="Cut", type='BOOLEAN'); mod.operation = 'DIFFERENCE'; mod.object = cutter_obj. (NEVER use mod.inputs['Solver']).\n`;
-      connectorContextText += `6. MATERIALS: Use Principled BSDF. Always check 'bsdf = mat.node_tree.nodes.get("Principled BSDF")' before setting base_color, metallic, roughness.\n`;
-      connectorContextText += `7. LIGHTING: For lights, set energy on data: light.data.energy = 1000 (NEVER use 'data_supports').\n`;
-      connectorContextText += `8. ALL REQUESTED OBJECTS: Ensure EVERY object requested by the user is created (never crash midway).\n`;
-      connectorContextText += `9. OUTPUT: Wrap the complete script in a single \`\`\`python ... \`\`\` code block.\n`;
-      connectorContextText += `=== END OF BLENDER DIRECTIVE ===\n\n`;
-
-      connectorNotice = `🧊 *Blender 3D Procedural Engine: Generating & auto-injecting \`bpy\` Python script for: "${blenderPrompt || "3D Scene"}"* (Bridge: \`${blenderBridgeUrl}\`)\n\n`;
     }
 
     const assistantMessageId = `msg_ast_${Date.now() + 1}`;
@@ -1636,7 +1582,7 @@ export default function HomePage() {
       });
 
       // Skip re-generation if exact identical response is cached
-      if (!isBlenderCommand && !searchContextText && !modelBPlaceholder) {
+      if (!searchContextText && !modelBPlaceholder) {
         const cached = getCachedPromptResponse(cacheKey);
         if (cached) {
           setConversations((prev) => {
@@ -1712,38 +1658,6 @@ export default function HomePage() {
         onFinish: async (full, metrics, fullReasoning) => {
           let finalFullText = full || accumulatedText;
           const finalReasoning = fullReasoning || accumulatedReasoning || undefined;
-
-          // Automatic injection to live Blender scene if prompt is a /blender command
-          if (isBlenderCommand) {
-            const codeRegex = /```(?:python|py|bpy)?\s*\n([\s\S]*?)```/i;
-            const match = codeRegex.exec(finalFullText);
-            const pyCode = match ? match[1].trim() : "";
-
-            if (pyCode && (pyCode.includes("bpy") || pyCode.includes("import"))) {
-              try {
-                const bRes = await apiFetch("/api/connectors", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({
-                    action: "blender_execute",
-                    endpoint: blenderBridgeUrl,
-                    payload: { code: pyCode },
-                  }),
-                });
-                const bData = await bRes.json().catch(() => ({}));
-                if (bData.success) {
-                  finalFullText += "\n\n> 🧊 **Blender MCP Live**: 🚀 *Script Python otomatis di-inject & berhasil dieksekusi di viewport Blender kamu!*";
-                } else if (bData.isBridgeOffline) {
-                  finalFullText += "\n\n> ⚠️ **Blender MCP**: *Bridge Blender (port 9876) belum aktif. Klik tombol **Inject to Blender** di atas kode setelah menyalakan script listener di Blender.*";
-                } else {
-                  finalFullText += `\n\n> ⚠️ **Blender MCP**: *Eksekusi ke Blender: ${bData.error || bData.message || "Failed"}*`;
-                }
-              } catch (bErr: any) {
-                console.warn("Blender auto-inject error:", bErr);
-                finalFullText += `\n\n> ⚠️ **Blender MCP**: *Gagal menghubungi bridge Blender: ${bErr.message}*`;
-              }
-            }
-          }
 
           // Disk Tools: jalankan directive [TOOL_CALL:...] kalau toggle aktif.
           // Non-native (ReAct fallback) loop: model tulis directive -> kita eksekusi via
@@ -1937,7 +1851,7 @@ export default function HomePage() {
           });
 
           // Cache successful response for identical prompt repeats
-          if (!isBlenderCommand && !searchContextText && !modelBPlaceholder) {
+          if (!searchContextText && !modelBPlaceholder) {
             setCachedPromptResponse(cacheKey, {
               content: finalFullText,
               reasoning: finalReasoning,
@@ -2213,10 +2127,6 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
     const lastUserMessage = trimmedHistory.filter((m) => m.role === "user").pop();
     if (!lastUserMessage) return;
 
-    const isBlenderCmd = lastUserMessage.content.trim().startsWith("/blender");
-    const blenderConn = (settings.connectors || DEFAULT_CONNECTORS).find((c) => c.id === "blender-mcp");
-    const blenderBridgeUrl = blenderConn?.endpoint || "http://127.0.0.1:9876";
-
     const assistantMessageId = `msg_ast_${Date.now()}`;
     const assistantPlaceholder: Message = {
       id: assistantMessageId,
@@ -2317,38 +2227,6 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
         onFinish: async (full, metrics, fullReasoning) => {
           let finalFullText = full || accumulatedText;
           const finalReasoning = fullReasoning || accumulatedReasoning || undefined;
-
-          // Automatic injection to live Blender scene if prompt was a /blender command
-          if (isBlenderCmd) {
-            const codeRegex = /```(?:python|py|bpy)?\s*\n([\s\S]*?)```/i;
-            const match = codeRegex.exec(finalFullText);
-            const pyCode = match ? match[1].trim() : "";
-
-            if (pyCode && (pyCode.includes("bpy") || pyCode.includes("import"))) {
-              try {
-                const bRes = await apiFetch("/api/connectors", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({
-                    action: "blender_execute",
-                    endpoint: blenderBridgeUrl,
-                    payload: { code: pyCode },
-                  }),
-                });
-                const bData = await bRes.json().catch(() => ({}));
-                if (bData.success) {
-                  finalFullText += "\n\n> 🧊 **Blender MCP Live**: 🚀 *Script Python otomatis di-inject & berhasil dieksekusi di viewport Blender kamu!*";
-                } else if (bData.isBridgeOffline) {
-                  finalFullText += "\n\n> ⚠️ **Blender MCP**: *Bridge Blender (port 9876) belum aktif. Klik tombol **Inject to Blender** di atas kode setelah menyalakan script listener di Blender.*";
-                } else {
-                  finalFullText += `\n\n> ⚠️ **Blender MCP**: *Eksekusi ke Blender: ${bData.error || bData.message || "Failed"}*`;
-                }
-              } catch (bErr: any) {
-                console.warn("Blender auto-inject error:", bErr);
-                finalFullText += `\n\n> ⚠️ **Blender MCP**: *Gagal menghubungi bridge Blender: ${bErr.message}*`;
-              }
-            }
-          }
 
           setConversations((prev) => {
             const finished = prev.map((c) => {
