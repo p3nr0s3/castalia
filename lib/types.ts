@@ -562,9 +562,8 @@ export interface VoiceSettingsConfig {
   pitch: number;
   rate: number;
   tone: ToneMode;
-  engine: "natural" | "browser" | "openai";
+  engine: "natural" | "browser";
   autoSilenceMs: number;
-  openaiVoice?: string;
 }
 
 export interface AppSettings {

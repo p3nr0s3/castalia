@@ -24,7 +24,6 @@ import {
   resolveVoiceForConfig,
   speakUniversal,
   stopSpeaking,
-  speakOpenAiTts,
 } from "@/lib/voiceEngine";
 
 interface SettingsModalProps {
@@ -250,7 +249,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       tone: "casual",
       engine: "natural",
       autoSilenceMs: 1400,
-      openaiVoice: "nova",
     };
 
     const sample =
@@ -260,34 +258,23 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         ? "Siap. Menjawab langsung dengan cepat, ringkas, dan akurat."
         : "Halo! Senang bisa membantu Anda hari ini. Ada hal yang ingin Anda tanyakan?";
 
-    if (voiceCfg.engine === "openai" && formData.apiKeys?.openaiApiKey) {
-      await speakOpenAiTts({
-        text: sample,
-        apiKey: formData.apiKeys.openaiApiKey,
-        voice: voiceCfg.openaiVoice || "nova",
-        speed: voiceCfg.rate,
-        onEnd: () => setPreviewVoicePlaying(false),
-        onError: () => setPreviewVoicePlaying(false),
-      });
-    } else {
-      const target = resolveVoiceForConfig(
-        {
-          presetId: voiceCfg.presetId as any,
-          voiceName: voiceCfg.voiceName,
-          pitch: voiceCfg.pitch,
-          rate: voiceCfg.rate,
-        },
-        allSystemVoices
-      );
-      speakUniversal({
-        text: sample,
-        voice: target,
+    const target = resolveVoiceForConfig(
+      {
+        presetId: voiceCfg.presetId as any,
+        voiceName: voiceCfg.voiceName,
         pitch: voiceCfg.pitch,
         rate: voiceCfg.rate,
-        onEnd: () => setPreviewVoicePlaying(false),
-        onError: () => setPreviewVoicePlaying(false),
-      });
-    }
+      },
+      allSystemVoices
+    );
+    speakUniversal({
+      text: sample,
+      voice: target,
+      pitch: voiceCfg.pitch,
+      rate: voiceCfg.rate,
+      onEnd: () => setPreviewVoicePlaying(false),
+      onError: () => setPreviewVoicePlaying(false),
+    });
   };
 
   const updateVoice = (updates: Partial<VoiceSettingsConfig>) => {
@@ -298,7 +285,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       tone: "casual",
       engine: "natural",
       autoSilenceMs: 1400,
-      openaiVoice: "nova",
     };
     setFormData({
       ...formData,
@@ -433,7 +419,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     {
       id: "voice",
       label: "Voice & Speech Engine",
-      sublabel: `${(formData.voice?.presetId || "female_gadis").replace("female_", "").replace("male_", "")} • ${formData.voice?.engine === "openai" ? "OpenAI TTS" : "Natural Voice"}`,
+      sublabel: `${(formData.voice?.presetId || "female_gadis").replace("female_", "").replace("male_", "")} • Natural Voice`,
       icon: Headphones,
       color: "text-purple-400",
       badgeBg: "bg-purple-500/15 text-purple-400",
@@ -1396,15 +1382,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       </div>
                     </div>
                     <span className="text-[11px] font-mono font-medium text-purple-400 bg-purple-500/10 px-2 py-0.5 rounded-md">
-                      {formData.voice?.engine === "openai"
-                        ? "OpenAI Neural Audio"
-                        : formData.voice?.engine === "browser"
-                        ? "Browser Standard"
-                        : "Microsoft / Google Natural"}
+                      {formData.voice?.engine === "browser" ? "Browser Standard" : "Microsoft / Google Natural"}
                     </span>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5 pt-1">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 pt-1">
                     {/* Engine 1: Natural Neural */}
                     <button
                       type="button"
@@ -1429,36 +1411,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       </p>
                     </button>
 
-                    {/* Engine 2: OpenAI TTS */}
-                    <button
-                      type="button"
-                      onClick={() => updateVoice({ engine: "openai" })}
-                      className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
-                        formData.voice?.engine === "openai"
-                          ? "border-emerald-500 bg-emerald-500/10 text-[var(--foreground)] shadow-sm"
-                          : "border-[var(--card-border)] bg-[var(--card-bg)] text-[var(--muted)] hover:text-[var(--foreground)]"
-                      }`}
-                    >
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-xs font-bold text-emerald-300 flex items-center gap-1.5">
-                          <Zap className="w-3.5 h-3.5 text-emerald-400" />
-                          OpenAI Ultra-Fluent TTS
-                        </span>
-                        {formData.voice?.engine === "openai" && (
-                          <Check className="w-3.5 h-3.5 text-emerald-400" />
-                        )}
-                      </div>
-                      <p className="text-[10px] leading-relaxed text-[var(--muted)]">
-                        Model tts-1 super fasih setara manusia sungguhan.{" "}
-                        {formData.apiKeys?.openaiApiKey ? (
-                          <span className="text-emerald-400 font-semibold">API Key Aktif ✓</span>
-                        ) : (
-                          <span className="text-amber-400 font-semibold">Perlu OpenAI Key di Cloud</span>
-                        )}
-                      </p>
-                    </button>
-
-                    {/* Engine 3: Standard Browser */}
+                    {/* Engine 2: Standard Browser */}
                     <button
                       type="button"
                       onClick={() => updateVoice({ engine: "browser" })}
@@ -1482,40 +1435,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       </p>
                     </button>
                   </div>
-
-                  {/* OpenAI Voice Persona Selection if OpenAI engine active */}
-                  {formData.voice?.engine === "openai" && (
-                    <div className="mt-3 p-3 rounded-xl bg-[var(--card-bg)] border border-emerald-500/30 space-y-2">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold text-emerald-400">OpenAI Voice Persona:</span>
-                        <span className="text-[10px] text-[var(--muted)]">Model tts-1</span>
-                      </div>
-                      <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
-                        {[
-                          { id: "nova", name: "Nova", desc: "Perempuan ceria" },
-                          { id: "shimmer", name: "Shimmer", desc: "Perempuan lembut" },
-                          { id: "alloy", name: "Alloy", desc: "Netral seimbang" },
-                          { id: "echo", name: "Echo", desc: "Pria hangat" },
-                          { id: "fable", name: "Fable", desc: "Ekspresif" },
-                          { id: "onyx", name: "Onyx", desc: "Pria wibawa" },
-                        ].map((v) => (
-                          <button
-                            key={v.id}
-                            type="button"
-                            onClick={() => updateVoice({ openaiVoice: v.id })}
-                            className={`p-2 rounded-lg text-center border transition-all cursor-pointer ${
-                              (formData.voice?.openaiVoice || "nova") === v.id
-                                ? "border-emerald-500 bg-emerald-500/20 text-emerald-300 font-bold"
-                                : "border-[var(--card-border)] bg-[var(--sidebar-bg)] text-[var(--muted)] hover:text-[var(--foreground)]"
-                            }`}
-                          >
-                            <div className="text-xs">{v.name}</div>
-                            <div className="text-[9px] opacity-75">{v.desc}</div>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
                 </div>
 
                 {/* 2. Character Persona Grid (Moved from Voice Call screen) */}

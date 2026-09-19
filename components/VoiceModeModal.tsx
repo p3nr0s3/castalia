@@ -9,7 +9,6 @@ import {
   VoiceConfig,
   speakUniversal,
   stopSpeaking,
-  speakOpenAiTts,
   resolveVoiceForConfig,
   getAllSystemVoices,
 } from "@/lib/voiceEngine";
@@ -54,7 +53,6 @@ export const VoiceModeModal: React.FC<VoiceModeModalProps> = ({
     tone: "casual",
     engine: "natural",
     autoSilenceMs: 1400,
-    openaiVoice: "nova",
   };
 
   // Active voice preset
@@ -181,62 +179,37 @@ export const VoiceModeModal: React.FC<VoiceModeModalProps> = ({
         // Speak response via configured VoiceEngine
         setStatus("speaking");
 
-        if (activeVoice.engine === "openai" && apiKeys?.openaiApiKey) {
-          await speakOpenAiTts({
-            text: fullAiResponse,
-            apiKey: apiKeys.openaiApiKey,
-            voice: activeVoice.openaiVoice || "nova",
-            speed: activeVoice.rate,
-            onStart: () => {
-              if (!isComponentActiveRef.current) return;
-              setStatus("speaking");
-            },
-            onEnd: () => {
-              if (!isComponentActiveRef.current) return;
-              setStatus("listening");
-              setUserTranscript("");
-              setAiTranscript("");
-              startSpeechRecognition();
-            },
-            onError: () => {
-              if (!isComponentActiveRef.current) return;
-              setStatus("listening");
-              startSpeechRecognition();
-            },
-          });
-        } else {
-          const targetVoice = resolveVoiceForConfig(
-            {
-              presetId: activeVoice.presetId,
-              voiceName: activeVoice.voiceName,
-              pitch: activeVoice.pitch,
-              rate: activeVoice.rate,
-            },
-            getAllSystemVoices()
-          );
-
-          aiUtteranceRef.current = speakUniversal({
-            text: fullAiResponse,
-            voice: targetVoice,
+        const targetVoice = resolveVoiceForConfig(
+          {
+            presetId: activeVoice.presetId,
+            voiceName: activeVoice.voiceName,
             pitch: activeVoice.pitch,
             rate: activeVoice.rate,
-            onStart: () => {
-              setStatus("speaking");
-            },
-            onEnd: () => {
-              if (!isComponentActiveRef.current) return;
-              setStatus("listening");
-              setUserTranscript("");
-              setAiTranscript("");
-              startSpeechRecognition();
-            },
-            onError: () => {
-              if (!isComponentActiveRef.current) return;
-              setStatus("listening");
-              startSpeechRecognition();
-            },
-          });
-        }
+          },
+          getAllSystemVoices()
+        );
+
+        aiUtteranceRef.current = speakUniversal({
+          text: fullAiResponse,
+          voice: targetVoice,
+          pitch: activeVoice.pitch,
+          rate: activeVoice.rate,
+          onStart: () => {
+            setStatus("speaking");
+          },
+          onEnd: () => {
+            if (!isComponentActiveRef.current) return;
+            setStatus("listening");
+            setUserTranscript("");
+            setAiTranscript("");
+            startSpeechRecognition();
+          },
+          onError: () => {
+            if (!isComponentActiveRef.current) return;
+            setStatus("listening");
+            startSpeechRecognition();
+          },
+        });
       } catch (err: any) {
         if (err.name === "AbortError") return;
         setStatus("listening");
@@ -459,7 +432,7 @@ export const VoiceModeModal: React.FC<VoiceModeModalProps> = ({
               </span>
             </div>
             <p className="text-xs text-slate-400 font-mono">
-              Model: {selectedModel || "Local AI"} • Karakter: {currentPreset.name} • {activeVoice.engine === "openai" ? "OpenAI TTS" : "Natural Voice"}
+              Model: {selectedModel || "Local AI"} • Karakter: {currentPreset.name} • Natural Voice
             </p>
           </div>
         </div>

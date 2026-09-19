@@ -107,7 +107,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
     tone: "casual",
     engine: "natural",
     autoSilenceMs: 1400,
-    openaiVoice: "nova",
   },
 };
 
