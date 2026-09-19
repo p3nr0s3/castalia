@@ -87,35 +87,14 @@ ALLOW_EXTERNAL_ORIGIN=
 
 ## Security model
 
-This is a single-user local tool with no account system, but several routes can read/write your filesystem, spawn processes, or forward your cloud API keys — so they're not left open by default reasoning alone.
+This is a single-user local tool with no account system, but several routes can read/write your filesystem, spawn processes, or forward your cloud API keys — so they're not left open by default reasoning alone. Defenses are layered in `middleware.ts` and applied per-route based on what that route can touch:
 
-**Two independent layers**, enforced in `middleware.ts` on every `/api/*` route:
+- **Request authentication** — routes are gated by a bearer token (`APP_ACCESS_TOKEN` / `NEXT_PUBLIC_APP_ACCESS_TOKEN`), plus independent cross-site request rejection so a malicious page open in another tab can't drive this app even if a token is misconfigured. Fine to leave unset for solo `localhost` use; set it before running `npm run tunnel` or `dev:lan`.
+- **SSRF guards** (`lib/ssrfGuard.ts`) on every route that accepts a URL to fetch — custom bridge webhooks, deep-scrape targets, local app bridges, the Ollama proxy — each scoped to what that use case actually needs.
+- **Filesystem sandboxing** (`lib/pathSandbox.ts`) on every disk-touching route, so a request can't escape its intended base directory.
+- **Approval-token gate** on any file write/delete triggered from the chat tool loop or an autonomous agent — a UI confirm alone isn't enough; the server independently verifies the approval before acting.
 
-1. **Bearer token** (`APP_ACCESS_TOKEN` / `NEXT_PUBLIC_APP_ACCESS_TOKEN`) — proves a request came from this app's own frontend. If unset, this layer is a no-op (fine for solo localhost dev, **not** fine the moment you run `npm run tunnel` or `dev:lan`).
-2. **Cross-site request rejection** (`Sec-Fetch-Site` / `Origin` check) — blocks a request originating from a different site, even with no token configured. This is the layer that actually stops the realistic attack: some other tab open in your browser submitting a cross-site `fetch()` to `http://127.0.0.1:3000/api/codespace/run` with a script as the payload. `Sec-Fetch-Site` is set by the browser itself and can't be forged by page JavaScript.
-
-Layer 2 is applied unconditionally to a fixed set of routes regardless of token state:
-
-```
-/api/codespace/run
-/api/tools/execute
-/api/tools/execute-agent
-/api/fs
-```
-
-Every other `/api/*` route gets layer 1 only. `/api/db/stream` is a special case — it's loaded via `EventSource`, which can't set an `Authorization` header, so it accepts an equivalent `?token=` query param instead.
-
-**SSRF guards** (`lib/ssrfGuard.ts`), DNS-resolved (not string-matched, so DNS rebinding doesn't bypass them) — three policies depending on what a URL is for:
-
-| Guard | Used for | Allows |
-| :--- | :--- | :--- |
-| `assertPublicUrl` | Custom bridge webhooks (`/api/connectors`), deep-scrape URLs (`/api/search`) | Anything except loopback/RFC1918/link-local/cloud-metadata |
-| `assertLoopbackOnlyUrl` | Local app bridges (`lib/localAppBridge.ts`) | `127.0.0.1`/`::1` only — `http:`, `https:`, `ws:`, `wss:` |
-| `assertOllamaHostUrl` | Ollama proxy `?host=` param (`/api/ollama/[...path]`) | Loopback and RFC1918 (LAN Ollama is a legitimate setup), blocks link-local/metadata |
-
-**Filesystem sandboxing** (`lib/pathSandbox.ts`): every disk-touching route (`/api/fs`, `/api/tools/execute*`, `/api/scan`, the file-watcher) resolves paths relative to a base directory and rejects anything that escapes it via `../` or symlink tricks, rather than trusting the caller's path string.
-
-**Approval-token gate** for mutating disk operations: `write_file`/`delete_file` from the manual chat tool loop or an autonomous agent require a real, unexpired (5-minute freshness), unconsumed (anti-replay), tool-and-path-matched approval token verified server-side against `lib/serverDb.ts` — not just a UI confirm dialog. `/api/tools/execute` additionally requires the approval's `source` to be `"chat"`; `/api/tools/execute-agent` requires `"agent"` — one can't be replayed against the other.
+The mechanisms above are implemented in the files named next to them — read those directly for exact behavior rather than relying on this summary staying in sync with the code.
 
 ## API surface
 
