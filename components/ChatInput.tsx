@@ -421,7 +421,22 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     }
 
     if (e.key === "Enter" && !e.shiftKey) {
-      if (typeof window !== "undefined" && window.innerWidth < 768) {
+      // Enter-inserts-newline-instead-of-sending is meant for touch devices,
+      // where a virtual keyboard's "Enter"/"Go" key is unreliable for send
+      // vs newline. The previous check used window.innerWidth < 768 as a
+      // stand-in for "is this a phone" — but a narrow DESKTOP browser
+      // window (a laptop that isn't maximized, a window tiled next to
+      // another one, devtools open on the side) also has innerWidth < 768
+      // and a real physical Enter key that users expect to submit. That
+      // combination made Enter silently do nothing but add a newline on an
+      // ordinary desktop, with no visible error — indistinguishable from
+      // "the button is broken" from the user's side. Checking actual touch
+      // capability instead of viewport width fixes that without changing
+      // real mobile behavior at all.
+      const isTouchPrimaryDevice =
+        typeof window !== "undefined" &&
+        (window.matchMedia?.("(pointer: coarse)").matches || navigator.maxTouchPoints > 0);
+      if (isTouchPrimaryDevice) {
         return;
       }
       e.preventDefault();
@@ -664,7 +679,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               type="button"
               onClick={toggleVoiceDictation}
               disabled={disabled || isStreaming}
-              className={`flex items-center gap-0.5 p-1.5 sm:p-2 rounded-xl transition-all cursor-pointer flex-shrink-0 ${
+              className={`flex items-center gap-0.5 p-1.5 sm:p-2 rounded-xl transition-all cursor-pointer flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent ${
                 isListening
                   ? "bg-rose-500 text-white shadow-md shadow-rose-500/30 animate-pulse ring-2 ring-rose-500/40"
                   : "text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--sidebar-hover)]"
@@ -681,7 +696,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                 type="button"
                 onClick={onOpenVoiceCall}
                 disabled={disabled || isStreaming}
-                className="flex items-center gap-1 px-2 py-1 sm:px-2.5 sm:py-1.5 rounded-xl text-xs font-medium text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 shadow-2xs transition-all cursor-pointer flex-shrink-0"
+                className="flex items-center gap-1 px-2 py-1 sm:px-2.5 sm:py-1.5 rounded-xl text-xs font-medium text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 shadow-2xs transition-all cursor-pointer flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-emerald-500/10"
                 title="Interactive Chat (Percakapan Suara Real-Time)"
               >
                 <Headphones className="w-3.5 h-3.5 text-emerald-400" />
@@ -694,7 +709,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               type="button"
               onClick={() => setWebSearchActive(!webSearchActive)}
               disabled={disabled || isStreaming}
-              className={`flex items-center gap-1 px-2 py-1 sm:px-2.5 sm:py-1.5 rounded-xl text-xs font-medium transition-all cursor-pointer flex-shrink-0 ${
+              className={`flex items-center gap-1 px-2 py-1 sm:px-2.5 sm:py-1.5 rounded-xl text-xs font-medium transition-all cursor-pointer flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed ${
                 webSearchActive
                   ? "bg-blue-600 text-white font-semibold shadow-xs shadow-blue-500/30"
                   : "text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--sidebar-hover)]"
@@ -716,7 +731,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               type="button"
               onClick={() => setDiskToolsActive(!diskToolsActive)}
               disabled={disabled || isStreaming}
-              className={`flex items-center gap-1 px-2 py-1 sm:px-2.5 sm:py-1.5 rounded-xl text-xs font-medium transition-all cursor-pointer flex-shrink-0 ${
+              className={`flex items-center gap-1 px-2 py-1 sm:px-2.5 sm:py-1.5 rounded-xl text-xs font-medium transition-all cursor-pointer flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed ${
                 diskToolsActive
                   ? "bg-emerald-600 text-white font-semibold shadow-xs shadow-emerald-500/30"
                   : "text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--sidebar-hover)]"
@@ -739,7 +754,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                 type="button"
                 onClick={handleToggleThinkingMode}
                 disabled={disabled || isStreaming}
-                className={`flex items-center gap-1 px-2 py-1 sm:px-2.5 sm:py-1.5 rounded-xl text-xs font-medium transition-all cursor-pointer flex-shrink-0 ${
+                className={`flex items-center gap-1 px-2 py-1 sm:px-2.5 sm:py-1.5 rounded-xl text-xs font-medium transition-all cursor-pointer flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed ${
                   thinkingMode === "think"
                     ? "bg-purple-600 text-white font-semibold shadow-xs shadow-purple-500/30"
                     : thinkingMode === "nothink"
