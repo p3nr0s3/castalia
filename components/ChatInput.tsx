@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useRef, useEffect, useState } from "react";
-import { ArrowUp, Square, Sparkle as Sparkles, Paperclip, Plus, CaretDown as ChevronDown, X, FileText, Globe, Microphone as Mic, MicrophoneSlash as MicOff, CodeSimple as Code2, Brain, Lightning as Zap, Folder, Trash as Trash2, Terminal, Translate as Languages, TextAlignLeft as AlignLeft, Lightbulb, Wrench, GitBranch, Headphones, PhoneCall, Warning as AlertTriangle, ShieldCheck } from "@phosphor-icons/react";
+import { ArrowUp, Square, Sparkle as Sparkles, Paperclip, Plus, CaretDown as ChevronDown, X, FileText, Globe, Microphone as Mic, MicrophoneSlash as MicOff, CodeSimple as Code2, Brain, Lightning as Zap, Folder, Trash as Trash2, Terminal, Translate as Languages, TextAlignLeft as AlignLeft, Lightbulb, Wrench, GitBranch, Headphones, PhoneCall, Warning as AlertTriangle, ShieldCheck, Clock } from "@phosphor-icons/react";
 import { Attachment, ThinkingMode, OllamaModel, ApiKeysConfig, Skill } from "@/lib/types";
 import { formatBytes, detectModelProvider, getApiKeyForProvider } from "@/lib/ollama";
 import { processSelectedFiles } from "@/lib/fileUtils";
@@ -28,6 +28,9 @@ interface ChatInputProps {
   onSend: () => void;
   onStop: () => void;
   isStreaming: boolean;
+  queuedMessage?: string | null;
+  onQueueMessage?: () => void;
+  onCancelQueuedMessage?: () => void;
   disabled?: boolean;
   placeholder?: string;
   models?: OllamaModel[];
@@ -62,6 +65,9 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   onSend,
   onStop,
   isStreaming,
+  queuedMessage,
+  onQueueMessage,
+  onCancelQueuedMessage,
   disabled = false,
   placeholder = "Write a message...",
   models,
@@ -421,6 +427,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       e.preventDefault();
       if (!isStreaming && (input.trim() || attachments.length > 0) && !disabled) {
         onSend();
+      } else if (isStreaming && input.trim() && attachments.length === 0 && !queuedMessage && onQueueMessage) {
+        onQueueMessage();
       }
     }
   };
@@ -462,6 +470,18 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     !isStreaming &&
     !disabled &&
     modelHealth.isHealthy;
+
+  // Queuing is scoped to text-only (see the prop comment upstream) and to
+  // one slot at a time — if something's already queued, the input stays
+  // usable for editing but won't queue a second message until the first
+  // one sends or is canceled.
+  const canQueue =
+    isStreaming &&
+    input.trim().length > 0 &&
+    attachments.length === 0 &&
+    !queuedMessage &&
+    !disabled &&
+    !!onQueueMessage;
 
   return (
     <div className={`flex-shrink-0 p-2 sm:p-3 mx-auto w-full relative ${chatFullWidth ? "max-w-none sm:px-4" : "max-w-4xl"}`}>
@@ -541,6 +561,25 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           </div>
         )}
 
+        {/* Queued Message — will auto-send once the current stream finishes */}
+        {queuedMessage && (
+          <div className="flex items-center gap-2 px-3 py-2 border-b border-[var(--sidebar-border)] bg-blue-500/5">
+            <Clock className="w-3.5 h-3.5 text-blue-400 flex-shrink-0" />
+            <span className="text-[11px] text-[var(--muted)] flex-shrink-0">Queued:</span>
+            <span className="truncate flex-1 text-xs text-[var(--foreground)]">{queuedMessage}</span>
+            {onCancelQueuedMessage && (
+              <button
+                type="button"
+                onClick={onCancelQueuedMessage}
+                className="p-0.5 rounded-full hover:bg-rose-500/20 hover:text-rose-400 text-[var(--muted)] transition-colors flex-shrink-0"
+                title="Cancel queued message"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+        )}
+
         {/* Model Health Inline Warning Banner */}
         {!modelHealth.isHealthy && modelHealth.warning && (
           <div className="flex items-center justify-between gap-2 px-3.5 py-2 bg-amber-500/10 border-b border-amber-500/20 text-xs text-amber-300">
@@ -587,9 +626,13 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               ? "Ask with live Web Search & Scraper..."
               : disabled
               ? "Please select a model..."
+              : isStreaming && queuedMessage
+              ? "One message already queued..."
+              : isStreaming
+              ? "Type a follow-up — it'll send once this reply finishes..."
               : placeholder
           }
-          disabled={disabled || isStreaming}
+          disabled={disabled || (isStreaming && !!queuedMessage)}
           rows={1}
           className="w-full resize-none bg-transparent px-3.5 sm:px-4 pt-3 pb-2 text-sm text-[var(--foreground)] placeholder-[var(--muted)] focus:outline-none max-h-[180px] leading-relaxed block"
         />
@@ -727,14 +770,26 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
           <div className="flex items-center gap-1.5 flex-shrink-0">
             {isStreaming ? (
-              <button
-                type="button"
-                onClick={onStop}
-                className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-xl bg-rose-500/15 hover:bg-rose-500/25 text-rose-500 border border-rose-500/30 transition-all active:scale-95 cursor-pointer"
-              >
-                <Square className="w-3.5 h-3.5 fill-current" />
-                <span>Stop</span>
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={onStop}
+                  className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-xl bg-rose-500/15 hover:bg-rose-500/25 text-rose-500 border border-rose-500/30 transition-all active:scale-95 cursor-pointer"
+                >
+                  <Square className="w-3.5 h-3.5 fill-current" />
+                  <span>Stop</span>
+                </button>
+                {canQueue && (
+                  <button
+                    type="button"
+                    onClick={onQueueMessage}
+                    className="w-8 h-8 flex items-center justify-center rounded-xl bg-blue-600 hover:bg-blue-700 text-white shadow-md shadow-blue-500/25 active:scale-90 cursor-pointer transition-all"
+                    title="Queue — sends automatically once this reply finishes"
+                  >
+                    <ArrowUp className="w-4 h-4" />
+                  </button>
+                )}
+              </>
             ) : (
               <button
                 type="button"

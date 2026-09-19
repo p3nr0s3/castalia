@@ -95,6 +95,13 @@ export default function HomePage() {
   const [webSearchActive, setWebSearchActive] = useState<boolean>(false);
   const [diskToolsActive, setDiskToolsActive] = useState<boolean>(false);
   const [isStreaming, setIsStreaming] = useState<boolean>(false);
+  // Single-slot message queue: lets the user type and submit a follow-up
+  // while the current response is still streaming, instead of the input
+  // being fully locked. Only one message can be queued at a time (v1
+  // scope) — text only, no attachments, since an attachment queued
+  // mid-stream would need its own upload/preview lifecycle held open
+  // across the wait, which is real added complexity for a rare case.
+  const [queuedMessage, setQueuedMessage] = useState<string | null>(null);
   const [liveStats, setLiveStats] = useState<{ tokenCount: number; liveTps: number } | undefined>(undefined);
   const [thinkingMode, setThinkingMode] = useState<ThinkingMode>("default");
   const [mainView, setMainView] = useState<"workspace" | "codespace" | "journal">("workspace");
@@ -1171,9 +1178,24 @@ export default function HomePage() {
     }
   };
 
-  const handleSendMessage = async () => {
-    const trimmedInput = input.trim();
-    const currentAttachments = [...attachments];
+  // Fires the queued message the moment the current stream finishes.
+  // Watches the isStreaming transition rather than being called from
+  // each of the ~10 individual setIsStreaming(false) call sites (regular
+  // send, regenerate, edit-resend, agent runs, error paths, etc.) — a
+  // single watcher here can't be missed by a future call site that
+  // forgets to also trigger the queue.
+  useEffect(() => {
+    if (!isStreaming && queuedMessage) {
+      const text = queuedMessage;
+      setQueuedMessage(null);
+      handleSendMessage(text);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isStreaming]);
+
+  const handleSendMessage = async (overrideText?: string) => {
+    const trimmedInput = (overrideText ?? input).trim();
+    const currentAttachments = overrideText ? [] : [...attachments];
 
     if ((!trimmedInput && currentAttachments.length === 0) || isStreaming || !selectedModel) return;
 
@@ -2563,6 +2585,14 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
           onSendMessage={handleSendMessage}
           onStopStreaming={handleStopStreaming}
           isStreaming={isStreaming}
+          queuedMessage={queuedMessage}
+          onQueueMessage={() => {
+            const text = input.trim();
+            if (!text) return;
+            setQueuedMessage(text);
+            setInput("");
+          }}
+          onCancelQueuedMessage={() => setQueuedMessage(null)}
           liveStats={liveStats}
           onRegenerate={handleRegenerate}
           onEditMessage={handleEditMessage}

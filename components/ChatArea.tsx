@@ -40,6 +40,9 @@ interface ChatAreaProps {
   onSendMessage: () => void;
   onStopStreaming: () => void;
   isStreaming: boolean;
+  queuedMessage?: string | null;
+  onQueueMessage?: () => void;
+  onCancelQueuedMessage?: () => void;
   liveStats?: { tokenCount: number; liveTps: number };
   onRegenerate: (messageId: string) => void;
   onEditMessage: (messageId: string, content: string) => void;
@@ -100,6 +103,9 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   onSendMessage,
   onStopStreaming,
   isStreaming,
+  queuedMessage,
+  onQueueMessage,
+  onCancelQueuedMessage,
   liveStats,
   onRegenerate,
   onEditMessage,
@@ -605,6 +611,9 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
         onSend={onSendMessage}
         onStop={onStopStreaming}
         isStreaming={isStreaming}
+        queuedMessage={queuedMessage}
+        onQueueMessage={onQueueMessage}
+        onCancelQueuedMessage={onCancelQueuedMessage}
         disabled={models.length === 0 && !selectedModel}
         models={models}
         selectedModel={selectedModel}
