@@ -909,11 +909,31 @@ export async function searchDuckDuckGoEngine(
     const html = await res.text();
     const results: SearchSource[] = [];
 
-    const resultRegex = /<div class="result[^"]*results_links[^"]*"[^>]*>([\s\S]*?)<\/div>\s*<\/div>\s*<\/div>/gi;
-    let match: RegExpExecArray | null;
+    // Cross-checked against several independently-maintained DDG HTML-endpoint
+    // scrapers (Rust crates, HF spaces, as of 2026) to confirm result__a /
+    // result__snippet / results_links are still the right class names. What
+    // was NOT safe to assume: exact div nesting depth. The previous version
+    // of this regex required precisely 3 consecutive closing </div> tags to
+    // close the result container — if DuckDuckGo's real markup nests one
+    // level shallower or deeper (a wrapper div added for an A/B test, an ad
+    // slot, accessibility markup, etc.), that assumption breaks silently and
+    // this whole engine returns zero results with no visible error.
+    //
+    // Instead of counting closing tags, split on each result's OPENING tag
+    // (a single class-name match, not a depth count) and take everything up
+    // to the next result's opening tag as that result's chunk. This can't be
+    // broken by a nesting-depth change — only by the class name itself
+    // disappearing, which the anomaly-detection check below already guards
+    // against reporting silently.
+    const containerOpenRegex = /<div class="result[^"]*results_links[^"]*"[^>]*>/gi;
+    const openMatches = [...html.matchAll(containerOpenRegex)];
+    const MAX_CHUNK_LENGTH = 20000; // defensive cap in case a match is sparse/malformed
 
-    while ((match = resultRegex.exec(html)) !== null) {
-      const block = match[1];
+    for (let i = 0; i < openMatches.length; i++) {
+      const start = openMatches[i].index! + openMatches[i][0].length;
+      const end = i + 1 < openMatches.length ? openMatches[i + 1].index! : Math.min(html.length, start + MAX_CHUNK_LENGTH);
+      const block = html.slice(start, end);
+
       const linkMatch = block.match(/<a[^>]*class="result__a"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/i);
       if (!linkMatch) continue;
 
@@ -933,8 +953,27 @@ export async function searchDuckDuckGoEngine(
       }
     }
 
-    if (results.length === 0 && /anomaly|unusual activity/i.test(html)) {
-      console.warn("[search] DuckDuckGo appears to have blocked/challenged this request (0 results parsed).");
+    if (results.length === 0) {
+      // "Unfortunately, bots use DuckDuckGo too" is DuckDuckGo's actual
+      // bot-challenge copy (confirmed against other scrapers' literal checks
+      // for it) — checked alongside the previous generic anomaly/unusual
+      // activity wording rather than replacing it, in case either phrasing
+      // is currently live.
+      if (/anomaly|unusual activity|Unfortunately, bots use DuckDuckGo too/i.test(html)) {
+        console.warn("[search] DuckDuckGo appears to have blocked/challenged this request (0 results parsed).");
+      } else if (openMatches.length === 0) {
+        console.warn(
+          "[search] DuckDuckGo returned a page with no result containers matched at all — " +
+            "the container markup may have changed. Run `curl -X POST 'https://html.duckduckgo.com/html/?q=test'` " +
+            "and compare against the container class name in searchDuckDuckGoEngine()."
+        );
+      } else {
+        console.warn(
+          `[search] DuckDuckGo matched ${openMatches.length} result container(s) but extracted 0 results — ` +
+            "the container class matched but result__a/result__snippet inside it didn't. Compare a fresh " +
+            "response against the link/snippet regexes in searchDuckDuckGoEngine()."
+        );
+      }
     }
 
     return results;
