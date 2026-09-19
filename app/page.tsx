@@ -22,7 +22,8 @@ import {
 } from "@/lib/types";
 import { storage } from "@/lib/storage";
 import { DEFAULT_SETTINGS, PRESET_PERSONAS, DEFAULT_CUSTOM_THEME } from "@/lib/constants";
-import { checkOllamaHealth, fetchOllamaModels, streamChatCompletion } from "@/lib/ollama";
+import { checkOllamaHealth, fetchOllamaModels, streamChatCompletion, detectModelProvider, checkVramPressure } from "@/lib/ollama";
+import { getBatterySignal, isBatteryConstrained } from "@/lib/hardwareSignals";
 import { buildToolDirectivePrompt, parseToolDirective, MUTATING_TOOLS } from "@/lib/tools";
 import { executeToolCall, revertApproval } from "@/lib/toolEngine";
 import { executeAgent, calculateNextRun, resumeAgentAfterApproval } from "@/lib/agentEngine";
@@ -126,6 +127,7 @@ export default function HomePage() {
   const [isApprovalModalOpen, setIsApprovalModalOpen] = useState<boolean>(false);
   const [resolvingApprovalIds, setResolvingApprovalIds] = useState<string[]>([]);
   const [revertingApprovalIds, setRevertingApprovalIds] = useState<string[]>([]);
+  const [hardwareHint, setHardwareHint] = useState<{ modelName: string; vramRatio: number; batteryLow: boolean } | null>(null);
   const [selectedAgentForLogs, setSelectedAgentForLogs] = useState<AgentTask | null>(null);
   const [pendingApprovals, setPendingApprovals] = useState<PendingApproval[]>([]);
   // Paused agent context (message history, effective system prompt) needed to resume
@@ -1155,6 +1157,36 @@ export default function HomePage() {
     };
   };
 
+  /**
+   * Advisory-only hardware signal check, after a local Ollama response
+   * finishes. Never auto-switches anything — this app is approval-gated by
+   * design (see the revert/approval-queue code), so silently swapping which
+   * model answers the user's next message would be the one place that
+   * philosophy got quietly abandoned. It only ever surfaces a dismissible
+   * hint the user can act on themselves.
+   *
+   * Fire-and-forget like runMemoryExtraction above: every failure path is
+   * swallowed, because a hint about hardware pressure must never be able to
+   * disturb a conversation that already succeeded.
+   */
+  const checkHardwareSignals = async (modelName: string) => {
+    if (detectModelProvider(modelName) !== "ollama") return; // cloud models: not applicable
+
+    try {
+      const [vram, battery] = await Promise.all([
+        checkVramPressure(settings.ollamaUrl, modelName),
+        getBatterySignal(),
+      ]);
+
+      const batteryLow = isBatteryConstrained(battery);
+      if (vram?.constrained || batteryLow) {
+        setHardwareHint({ modelName, vramRatio: vram?.vramRatio ?? 1, batteryLow });
+      }
+    } catch {
+      // Best-effort only — never surface this failure to the user.
+    }
+  };
+
   // Send Message Logic
   /**
    * Extracts durable memories from a completed exchange, if the user has
@@ -1969,6 +2001,7 @@ export default function HomePage() {
           // must stay invisible. Honors MemoryConfig.generateFromChats,
           // which until now was a persisted setting nothing ever read.
           void runMemoryExtraction(trimmedInput, finalFullText);
+          void checkHardwareSignals(selectedModel);
         },
         onError: (err) => {
           setConversations((prev) => {
@@ -2623,6 +2656,8 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
             setInput("");
           }}
           onCancelQueuedMessage={() => setQueuedMessage(null)}
+          hardwareHint={hardwareHint}
+          onDismissHardwareHint={() => setHardwareHint(null)}
           liveStats={liveStats}
           onRegenerate={handleRegenerate}
           onEditMessage={handleEditMessage}

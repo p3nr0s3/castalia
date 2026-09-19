@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useRef, useEffect, useState } from "react";
-import { SidebarSimple as PanelLeft, CaretLineLeft as PanelLeftClose, Faders as Sliders, Download, ArrowDown, Robot as Bot, Folder, FileText, Lightning as Zap, Sparkle as Sparkles, CodeSimple as Code2, CaretDown as ChevronDown, CaretRight as ChevronRight, Check, PencilSimple as Edit2, PushPin as Pin, EnvelopeSimple as Mail, Trash as Trash2, Headphones, Gear as Settings } from "@phosphor-icons/react";
+import { SidebarSimple as PanelLeft, CaretLineLeft as PanelLeftClose, Faders as Sliders, Download, ArrowDown, Robot as Bot, Folder, FileText, Lightning as Zap, Sparkle as Sparkles, CodeSimple as Code2, CaretDown as ChevronDown, CaretRight as ChevronRight, Check, PencilSimple as Edit2, PushPin as Pin, EnvelopeSimple as Mail, Trash as Trash2, Headphones, Gear as Settings, Warning, X } from "@phosphor-icons/react";
 import { Conversation, OllamaModel, Attachment, Project, ApiKeysConfig, ThinkingMode, Skill } from "@/lib/types";
 import { STARTER_PROMPTS } from "@/lib/constants";
 import { processSelectedFiles } from "@/lib/fileUtils";
@@ -43,6 +43,10 @@ interface ChatAreaProps {
   queuedMessage?: string | null;
   onQueueMessage?: () => void;
   onCancelQueuedMessage?: () => void;
+  /** Advisory-only VRAM/battery hint after a local model response — see
+   *  app/page.tsx's checkHardwareSignals. Never auto-switches anything. */
+  hardwareHint?: { modelName: string; vramRatio: number; batteryLow: boolean } | null;
+  onDismissHardwareHint?: () => void;
   liveStats?: { tokenCount: number; liveTps: number };
   onRegenerate: (messageId: string) => void;
   onEditMessage: (messageId: string, content: string) => void;
@@ -106,6 +110,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   queuedMessage,
   onQueueMessage,
   onCancelQueuedMessage,
+  hardwareHint,
+  onDismissHardwareHint,
   liveStats,
   onRegenerate,
   onEditMessage,
@@ -595,6 +601,32 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
           <ArrowDown className="w-3.5 h-3.5 text-emerald-400" />
           <span className="text-[11px]">Latest</span>
         </button>
+      )}
+
+      {/* Hardware-pressure hint — advisory only, dismissible, never auto-switches
+          the model. See app/page.tsx's checkHardwareSignals for what sets this. */}
+      {hardwareHint && (hardwareHint.vramRatio < 1 || hardwareHint.batteryLow) && (
+        <div className="mx-auto w-full max-w-3xl px-4 sm:px-0">
+          <div className="flex items-start gap-2.5 mb-2 px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/25 text-xs text-amber-200">
+            <Warning className="w-4 h-4 flex-shrink-0 mt-0.5 text-amber-400" />
+            <div className="flex-1 min-w-0">
+              {hardwareHint.batteryLow && hardwareHint.vramRatio < 0.85
+                ? "Baterai rendah dan sebagian model berjalan di CPU (VRAM terbatas) — respons berikutnya mungkin lambat dan boros daya."
+                : hardwareHint.batteryLow
+                ? "Baterai rendah — pertimbangkan model yang lebih ringan atau cloud untuk menghemat daya."
+                : "Sebagian model ini berjalan di CPU karena VRAM tidak cukup — respons mungkin lambat. Coba model yang lebih kecil kalau ini terasa berat."}
+            </div>
+            {onDismissHardwareHint && (
+              <button
+                onClick={onDismissHardwareHint}
+                className="flex-shrink-0 p-0.5 rounded hover:bg-amber-500/20 text-amber-300"
+                title="Tutup"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+        </div>
       )}
 
       {/* Sticky Bottom Input Composer */}

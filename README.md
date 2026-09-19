@@ -133,6 +133,13 @@ Trigger a configured bridge from chat with `/bridge <bridge-id> <message>`. See 
 
 A project's Knowledge tab can point at a real folder on the server's machine (`lib/fileWatcher.ts`) instead of (or alongside) manually uploaded files. Changes are picked up via `fs.watch`, debounced, and re-synced automatically — capped at 500 files per scan and 2MB per file, plain-text/code extensions only (binary formats like PDF still require manual upload, since their parsers run client-side via the browser's File API with no server-side equivalent). Watchers resume automatically after a server restart via `instrumentation.ts`.
 
+## Hardware-pressure hint
+
+After a local Ollama response finishes, a dismissible banner can appear suggesting a lighter or cloud model — never an automatic switch, this app is approval-gated by design. Two signals feed it, both intentionally scoped to what's actually measurable rather than guessed:
+
+- **VRAM**: `lib/ollama.ts`'s `checkVramPressure` compares `size` against `size_vram` from Ollama's own `/api/ps` — i.e. how much of the model that just ran actually stayed resident in VRAM vs. spilled to system RAM. This is retrospective, not predictive: Ollama has no endpoint reporting total/free VRAM, and querying that portably across NVIDIA/AMD/Intel/Apple Silicon isn't realistic without shelling out to vendor-specific tools that may not be installed. It reports on a model that already ran, not whether one you haven't loaded yet will fit.
+- **Battery**: `lib/hardwareSignals.ts`'s `getBatterySignal` feature-detects `navigator.getBattery` — Chrome/Edge/Android Chrome only; Firefox removed it and Safari never implemented it, both over fingerprinting concerns (not Baseline per MDN). Every other browser gets `null` here and the hint falls back to the VRAM signal alone.
+
 ## Testing
 
 ```bash
@@ -141,7 +148,7 @@ npx tsc --noEmit       # typecheck only
 npm run build          # production build check
 ```
 
-25 test files, 260 tests, covering (non-exhaustively):
+28 test files, 285 tests, covering (non-exhaustively):
 
 - SSRF guard policies, including DNS-rebinding and IPv4-mapped-IPv6 edge cases
 - The approval-token gate for both tool-execution routes (freshness, anti-replay, tool/path matching, source restriction)

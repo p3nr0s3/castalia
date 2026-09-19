@@ -94,6 +94,79 @@ export async function fetchOllamaModels(hostUrl = "http://localhost:11434"): Pro
   }
 }
 
+// ============================================================================
+// VRAM PRESSURE — a scoped, honest version of "hardware-aware fallback"
+// ============================================================================
+// What this deliberately does NOT do: predict whether a model that hasn't
+// been loaded yet will fit in VRAM. Ollama has no endpoint that reports
+// total or free system VRAM, and querying that portably across
+// NVIDIA/AMD/Intel/Apple Silicon from a Node server isn't realistic without
+// shelling out to vendor-specific tools that may not even be installed.
+//
+// What it DOES do: after a model has already been loaded and run, Ollama's
+// own /api/ps reports `size` (the model's total footprint) alongside
+// `size_vram` (how much of that Ollama actually managed to keep resident in
+// VRAM — the rest silently spills to system RAM/CPU, which is why a model
+// that "fits" on paper can still run far slower than expected). Comparing
+// the two after the fact is a real, measured signal — not a guess — that
+// this device is VRAM-constrained for this specific model.
+
+export interface OllamaRunningModel {
+  model: string;
+  name?: string;
+  size: number;
+  size_vram: number;
+  expires_at?: string;
+}
+
+export interface VramPressureResult {
+  constrained: boolean;
+  /** size_vram / size, 0..1. Lower means more of the model spilled to CPU/system RAM. */
+  vramRatio: number;
+  sizeBytes: number;
+  vramBytes: number;
+}
+
+// Below this ratio, enough of the model is running outside VRAM that it's
+// worth mentioning — chosen loosely (not derived from a fixed benchmark)
+// as "more than a small rounding sliver has spilled to CPU".
+const VRAM_PRESSURE_THRESHOLD = 0.85;
+
+/** Pure — no I/O, so this is unit-testable without mocking fetch. */
+export function evaluateVramPressure(models: OllamaRunningModel[], modelName: string): VramPressureResult | null {
+  const running = models.find((m) => m.model === modelName || m.name === modelName);
+  if (!running || !running.size || running.size_vram === undefined || running.size_vram === null) return null;
+
+  const vramRatio = running.size_vram / running.size;
+  return {
+    constrained: vramRatio < VRAM_PRESSURE_THRESHOLD,
+    vramRatio,
+    sizeBytes: running.size,
+    vramBytes: running.size_vram,
+  };
+}
+
+export async function fetchRunningOllamaModels(hostUrl = "http://localhost:11434"): Promise<OllamaRunningModel[]> {
+  try {
+    const res = await apiFetch(`/api/ollama/api/ps?host=${encodeURIComponent(hostUrl)}`, {
+      method: "GET",
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return data.models || [];
+  } catch {
+    return [];
+  }
+}
+
+/** Convenience glue: fetch + evaluate in one call, for callers that don't need the raw list. */
+export async function checkVramPressure(hostUrl: string, modelName: string): Promise<VramPressureResult | null> {
+  const models = await fetchRunningOllamaModels(hostUrl);
+  return evaluateVramPressure(models, modelName);
+}
+
 export async function streamChatCompletion({
   hostUrl = "http://localhost:11434",
   provider,
