@@ -12,6 +12,7 @@ const dbState: { pendingApprovals: PendingApproval[] } = { pendingApprovals: [] 
 
 vi.mock("../lib/serverDb", () => ({
   readServerDb: vi.fn(async () => ({ ...dbState })),
+  getPendingApprovalById: vi.fn(async (id: string) => dbState.pendingApprovals.find((a) => a.id === id) || null),
   writeServerDb: vi.fn(async (patch: { pendingApprovals?: PendingApproval[] }) => {
     if (patch.pendingApprovals) {
       for (const updated of patch.pendingApprovals) {

@@ -3,7 +3,7 @@ import path from "path";
 import os from "os";
 import { runDiskTool } from "@/lib/diskToolOps";
 import { resolveWithinBase } from "@/lib/pathSandbox";
-import { readServerDb, writeServerDb } from "@/lib/serverDb";
+import { getPendingApprovalById, writeServerDb } from "@/lib/serverDb";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -71,8 +71,7 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      const db = await readServerDb();
-      const approval = db.pendingApprovals.find((a) => a.id === approvalToken);
+      const approval = await getPendingApprovalById(approvalToken);
 
       if (!approval) {
         return NextResponse.json(

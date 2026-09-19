@@ -3,7 +3,7 @@ import path from "path";
 import os from "os";
 import { runDiskTool } from "@/lib/diskToolOps";
 import { resolveOnLocalDisk, resolveWithinBase } from "@/lib/pathSandbox";
-import { readServerDb, writeServerDb } from "@/lib/serverDb";
+import { getPendingApprovalById, writeServerDb } from "@/lib/serverDb";
 import { PendingApproval } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -62,8 +62,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: "Missing required 'approvalId'." }, { status: 400 });
     }
 
-    const db = await readServerDb();
-    const approval = db.pendingApprovals.find((a) => a.id === approvalId);
+    const approval = await getPendingApprovalById(approvalId);
 
     if (!approval) {
       return NextResponse.json({ success: false, error: `Unknown approval id '${approvalId}'.` }, { status: 404 });
