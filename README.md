@@ -93,6 +93,7 @@ This is a single-user local tool with no account system, but several routes can 
 - **SSRF guards** (`lib/ssrfGuard.ts`) on every route that accepts a URL to fetch — custom bridge webhooks, deep-scrape targets, local app bridges, the Ollama proxy — each scoped to what that use case actually needs.
 - **Filesystem sandboxing** (`lib/pathSandbox.ts`) on every disk-touching route, so a request can't escape its intended base directory.
 - **Approval-token gate** on any file write/delete triggered from the chat tool loop or an autonomous agent — a UI confirm alone isn't enough; the server independently verifies the approval before acting.
+- **Revert** — an already-approved write/delete can be undone from the approval history (one click, one-shot). Refuses automatically if the file has changed again since the original action, rather than risking a silent overwrite of that newer change.
 
 The mechanisms above are implemented in the files named next to them — read those directly for exact behavior rather than relying on this summary staying in sync with the code.
 
@@ -106,6 +107,7 @@ The mechanisms above are implemented in the files named next to them — read th
 | `GET/POST /api/db`, `GET /api/db/stream` | Database read/write and a Server-Sent Events stream for cross-tab live sync |
 | `GET/POST /api/fs` | Sandboxed file explorer under a fixed base directory |
 | `POST /api/tools/execute`, `POST /api/tools/execute-agent` | Disk tool execution for manual chat vs. autonomous agents, each with its own approval-source restriction |
+| `POST /api/tools/revert` | Undoes an already-approved write_file/delete_file — refuses if the file has changed again since, so it can't silently clobber a newer edit |
 | `POST /api/codespace/run` | Spawns a real child process (Python/Node/PowerShell/bash) to run in-browser Codespace code |
 | `POST /api/scan` | Passive OWASP Top 10 checks against a target URL |
 | `POST /api/search` | Built-in web search engine with deep-scrape fallback |
@@ -139,7 +141,7 @@ npx tsc --noEmit       # typecheck only
 npm run build          # production build check
 ```
 
-20 test files, 198 tests, covering (non-exhaustively):
+25 test files, 260 tests, covering (non-exhaustively):
 
 - SSRF guard policies, including DNS-rebinding and IPv4-mapped-IPv6 edge cases
 - The approval-token gate for both tool-execution routes (freshness, anti-replay, tool/path matching, source restriction)
