@@ -446,10 +446,6 @@ export function getIndonesianFemaleVoice(): VoiceSelection {
   };
 }
 
-export function getAvailableIndonesianVoices(): SpeechSynthesisVoice[] {
-  return getIndonesianVoices();
-}
-
 export function speakIndonesianFemale({
   text,
   voice,

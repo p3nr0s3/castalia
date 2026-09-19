@@ -69,25 +69,6 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
 ];
 
 /** Payload gaya OpenAI/Ollama `tools: [...]` untuk model yang dukung native function calling. */
-export function buildNativeToolsPayload() {
-  return TOOL_DEFINITIONS.map((t) => ({
-    type: "function",
-    function: {
-      name: t.name,
-      description: t.description,
-      parameters: {
-        type: "object",
-        properties: Object.fromEntries(
-          Object.entries(t.parameters).map(([key, p]) => [key, { type: p.type, description: p.description }])
-        ),
-        required: Object.entries(t.parameters)
-          .filter(([, p]) => p.required)
-          .map(([key]) => key),
-      },
-    },
-  }));
-}
-
 /**
  * Directive fallback untuk model tanpa native tool calling.
  * Model diinstruksikan menulis baris persis: [TOOL_CALL:nama_tool:{"arg":"value"}]

@@ -59,13 +59,3 @@ export function tryAcquireGenerationSlot(): RateLimitResult {
 export function releaseGenerationSlot(): void {
   activeGenerations = Math.max(0, activeGenerations - 1);
 }
-
-export function getRateLimitStatus() {
-  return {
-    activeGenerations,
-    maxConcurrent: MAX_CONCURRENT_GENERATIONS,
-    windowCount,
-    maxPerWindow: MAX_REQUESTS_PER_WINDOW,
-    windowMs: WINDOW_MS,
-  };
-}

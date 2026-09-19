@@ -85,10 +85,6 @@ export async function executeToolCall(
 }
 
 /** Format error untuk disuapkan balik ke model sebagai hasil tool, atau ditampilkan di UI. */
-export function formatToolError(toolName: ToolName, error: ToolExecutionError): string {
-  return `Tool '${toolName}' gagal: ${error.message}`;
-}
-
 // ============================================================================
 // AGENT VARIANT — disk-wide (home dir), approval-gated for write_file/delete_file
 // ============================================================================
