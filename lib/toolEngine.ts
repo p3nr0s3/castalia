@@ -84,6 +84,47 @@ export async function executeToolCall(
   };
 }
 
+// ============================================================================
+// REVERT — undo an already-executed write_file/delete_file approval
+// ============================================================================
+
+const TOOL_REVERT_API = "/api/tools/revert";
+
+/**
+ * Calls /api/tools/revert for a resolved approval (works for both
+ * source: "chat" and source: "agent" records — the server resolves the
+ * path under whichever sandboxing rule that source originally ran under).
+ * Throws ToolExecutionError with the server's explanation on refusal
+ * (e.g. the file changed again since, so an automatic revert was refused
+ * rather than risking a silent overwrite of that newer change).
+ */
+export async function revertApproval(approvalId: string, signal?: AbortSignal): Promise<{ message: string }> {
+  let response: Response;
+  try {
+    response = await apiFetch(TOOL_REVERT_API, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ approvalId }),
+      signal,
+    });
+  } catch (networkErr: any) {
+    throw new ToolExecutionError(`Gagal menghubungi revert API: ${networkErr.message || networkErr}`);
+  }
+
+  let json: any;
+  try {
+    json = await response.json();
+  } catch {
+    throw new ToolExecutionError(`Respons tidak valid dari server (status ${response.status}).`);
+  }
+
+  if (!response.ok || !json.success) {
+    throw new ToolExecutionError(json.error || `Revert gagal (status ${response.status}).`);
+  }
+
+  return { message: json.message || "Berhasil di-revert." };
+}
+
 /** Format error untuk disuapkan balik ke model sebagai hasil tool, atau ditampilkan di UI. */
 // ============================================================================
 // AGENT VARIANT — disk-wide (home dir), approval-gated for write_file/delete_file

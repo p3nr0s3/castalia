@@ -24,7 +24,7 @@ import { storage } from "@/lib/storage";
 import { DEFAULT_SETTINGS, PRESET_PERSONAS, DEFAULT_CUSTOM_THEME } from "@/lib/constants";
 import { checkOllamaHealth, fetchOllamaModels, streamChatCompletion } from "@/lib/ollama";
 import { buildToolDirectivePrompt, parseToolDirective, MUTATING_TOOLS } from "@/lib/tools";
-import { executeToolCall } from "@/lib/toolEngine";
+import { executeToolCall, revertApproval } from "@/lib/toolEngine";
 import { executeAgent, calculateNextRun, resumeAgentAfterApproval } from "@/lib/agentEngine";
 import { composeSkillsPrompt, skillsRequireDiskTools, DEFAULT_SKILLS } from "@/lib/skills";
 import dynamic from "next/dynamic";
@@ -125,6 +125,7 @@ export default function HomePage() {
   const [isAgentLogsModalOpen, setIsAgentLogsModalOpen] = useState<boolean>(false);
   const [isApprovalModalOpen, setIsApprovalModalOpen] = useState<boolean>(false);
   const [resolvingApprovalIds, setResolvingApprovalIds] = useState<string[]>([]);
+  const [revertingApprovalIds, setRevertingApprovalIds] = useState<string[]>([]);
   const [selectedAgentForLogs, setSelectedAgentForLogs] = useState<AgentTask | null>(null);
   const [pendingApprovals, setPendingApprovals] = useState<PendingApproval[]>([]);
   // Paused agent context (message history, effective system prompt) needed to resume
@@ -654,6 +655,30 @@ export default function HomePage() {
     } finally {
       setRunningAgentIds((prev) => prev.filter((id) => id !== approval.agentId));
       setResolvingApprovalIds((prev) => prev.filter((id) => id !== approvalId));
+    }
+  };
+
+  // Undo an already-executed write_file/delete_file approval. The server
+  // independently re-checks eligibility (approved, revertible tool, not
+  // already reverted) and refuses if the file has changed again since —
+  // this handler just relays that outcome, it doesn't decide it.
+  const handleRevertApproval = async (approvalId: string) => {
+    setRevertingApprovalIds((prev) => [...prev, approvalId]);
+    try {
+      await revertApproval(approvalId);
+      setPendingApprovals((prev) => {
+        const next = prev.map((a) => (a.id === approvalId ? { ...a, reverted: true, revertedAt: Date.now() } : a));
+        storage.savePendingApprovals(next);
+        return next;
+      });
+    } catch (err: any) {
+      // No toast system in this app yet — a blocking alert is the simplest
+      // way to make sure a refused revert (e.g. "file changed since") isn't
+      // silently missed, since it means the file is NOT in the state the
+      // user just asked for.
+      window.alert(err?.message || "Gagal melakukan revert.");
+    } finally {
+      setRevertingApprovalIds((prev) => prev.filter((id) => id !== approvalId));
     }
   };
 
@@ -1772,13 +1797,18 @@ export default function HomePage() {
 
               if (isMutating) {
                 let previousContent: string | undefined;
-                if (directive.toolName === "write_file" && typeof directive.args.path === "string") {
+                if (
+                  (directive.toolName === "write_file" || directive.toolName === "delete_file") &&
+                  typeof directive.args.path === "string"
+                ) {
                   try {
                     const readResult = await executeToolCall("read_file", { path: directive.args.path }, abortController.signal);
                     previousContent = readResult.raw?.content;
                   } catch {
-                    // File doesn't exist yet (new file) or isn't readable — previousContent
-                    // stays undefined, diff preview shows it as a new file.
+                    // write_file: file doesn't exist yet (new file) or isn't readable —
+                    // previousContent stays undefined, diff preview shows it as a new
+                    // file. delete_file: same undefined-on-failure, but it also means
+                    // this deletion can't be reverted later (nothing to restore).
                   }
                 }
 
@@ -2720,6 +2750,8 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
         approvals={pendingApprovals}
         onDecision={handleApprovalDecision}
         resolvingIds={resolvingApprovalIds}
+        onRevert={handleRevertApproval}
+        revertingIds={revertingApprovalIds}
       />
 
       {/* Local Disk Explorer Modal */}

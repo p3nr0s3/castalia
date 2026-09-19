@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import path from "path";
-import os from "os";
 import { runDiskTool } from "@/lib/diskToolOps";
+import { resolveOnLocalDisk } from "@/lib/pathSandbox";
 import { readServerDb, writeServerDb } from "@/lib/serverDb";
 
 export const runtime = "nodejs";
@@ -23,41 +22,10 @@ export const dynamic = "force-dynamic";
 // DB (source: "chat"), for this exact tool+path, resolved recently, and not
 // already consumed — verified against lib/serverDb.ts, not just "some
 // token was present". Mirrors the same check in execute-agent/route.ts.
-const DENYLISTED_ROOTS = [
-  // Windows
-  "C:\\Windows",
-  "C:\\Program Files",
-  "C:\\Program Files (x86)",
-  "C:\\ProgramData",
-  // macOS / Linux, in case this is ever run there
-  "/System",
-  "/Library",
-  "/usr",
-  "/bin",
-  "/sbin",
-  "/etc",
-  "/boot",
-].map((p) => path.normalize(p).toLowerCase());
-
-function resolveSafePath(inputPath?: string): string {
-  if (!inputPath || inputPath.trim() === "" || inputPath === ".") {
-    return path.resolve(os.homedir());
-  }
-
-  const resolved = path.resolve(inputPath);
-  const normalizedLower = path.normalize(resolved).toLowerCase();
-
-  const hitsDenylist = DENYLISTED_ROOTS.some(
-    (root) => normalizedLower === root || normalizedLower.startsWith(root + path.sep)
-  );
-  if (hitsDenylist) {
-    throw new Error(
-      `Access denied: '${resolved}' is inside a protected OS system directory. Disk tools cannot touch Windows/Program Files/system folders.`
-    );
-  }
-
-  return resolved;
-}
+// Denylist + resolver now live in lib/pathSandbox.ts (resolveOnLocalDisk) so
+// app/api/tools/revert/route.ts can resolve chat-sourced paths under the
+// exact same rules without a second copy of the OS-critical-directories list.
+const resolveSafePath = resolveOnLocalDisk;
 
 const MUTATING_TOOLS = new Set(["write_file", "delete_file"]);
 const APPROVAL_FRESHNESS_MS = 5 * 60 * 1000;

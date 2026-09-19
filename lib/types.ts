@@ -370,12 +370,23 @@ export interface PendingApproval {
   result?: any;
   error?: string;
   /**
-   * Untuk toolName "write_file" saja: isi file SEBELUM ditimpa, dibaca saat approval
-   * dibuat (bukan saat di-approve — supaya diff yang ditampilkan ke user akurat
-   * mencerminkan apa yang bakal berubah, bukan state file yang mungkin sudah beda
-   * lagi pas mereka klik approve). `undefined` berarti file belum ada (file baru).
+   * Untuk toolName "write_file" dan "delete_file": isi file SEBELUM ditimpa/dihapus,
+   * dibaca saat approval dibuat (bukan saat di-approve — supaya diff yang ditampilkan
+   * ke user akurat mencerminkan apa yang bakal berubah, bukan state file yang mungkin
+   * sudah beda lagi pas mereka klik approve). Untuk write_file, `undefined` berarti
+   * file belum ada (file baru). Untuk delete_file, `undefined` berarti file gagal
+   * dibaca saat itu (mis. permission) — revert tidak mungkin dilakukan untuk approval
+   * seperti ini karena isi lama tidak pernah tersimpan.
    */
   previousContent?: string;
+  /**
+   * true setelah aksi ini di-undo lewat /api/tools/revert. Sekali di-revert,
+   * tidak bisa di-revert lagi (one-shot, sama seperti approval token yang
+   * cuma bisa dipakai sekali) — mencegah klik ganda menjalankan ulang
+   * operasi kebalikannya dua kali.
+   */
+  reverted?: boolean;
+  revertedAt?: number;
 }
 
 // ============================================================================

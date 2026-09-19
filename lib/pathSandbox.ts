@@ -1,4 +1,5 @@
 import path from "path";
+import os from "os";
 
 /**
  * Resolve `inputPath` against `baseDir` and guarantee the result stays
@@ -55,4 +56,54 @@ export function isTextFile(filePath: string): boolean {
   const basename = path.basename(filePath).toLowerCase();
   if (basename === "dockerfile" || basename === "makefile" || basename === ".env") return true;
   return TEXT_FILE_EXTENSIONS.has(ext);
+}
+
+/**
+ * Manual chat's disk tools are intentionally NOT sandboxed to a base
+ * directory (widened to the whole local filesystem per explicit user
+ * request — see app/api/tools/execute/route.ts). The only thing still
+ * blocked is a short denylist of OS-critical system directories where a
+ * stray write_file/delete_file could brick the machine itself.
+ *
+ * This lived as a private copy inside execute/route.ts. It now also needs
+ * to be reachable from app/api/tools/revert/route.ts (reverting a
+ * chat-sourced write/delete has to resolve the path with the exact same
+ * rules the original action was executed under) — centralized here for the
+ * same reason resolveWithinBase is: two copies of a denylist can only ever
+ * drift apart, never stay in sync by accident.
+ */
+const OS_CRITICAL_DENYLIST = [
+  // Windows
+  "C:\\Windows",
+  "C:\\Program Files",
+  "C:\\Program Files (x86)",
+  "C:\\ProgramData",
+  // macOS / Linux, in case this is ever run there
+  "/System",
+  "/Library",
+  "/usr",
+  "/bin",
+  "/sbin",
+  "/etc",
+  "/boot",
+].map((p) => path.normalize(p).toLowerCase());
+
+export function resolveOnLocalDisk(inputPath?: string, homeDir: string = os.homedir()): string {
+  if (!inputPath || inputPath.trim() === "" || inputPath === ".") {
+    return path.resolve(homeDir);
+  }
+
+  const resolved = path.resolve(inputPath);
+  const normalizedLower = path.normalize(resolved).toLowerCase();
+
+  const hitsDenylist = OS_CRITICAL_DENYLIST.some(
+    (root) => normalizedLower === root || normalizedLower.startsWith(root + path.sep)
+  );
+  if (hitsDenylist) {
+    throw new Error(
+      `Access denied: '${resolved}' is inside a protected OS system directory. Disk tools cannot touch Windows/Program Files/system folders.`
+    );
+  }
+
+  return resolved;
 }

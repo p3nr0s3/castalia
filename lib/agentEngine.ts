@@ -187,13 +187,16 @@ async function runAgentToolLoop(
       // Pause here. Caller persists this approval and re-invokes
       // resumeAgentAfterApproval() once the user decides.
       let previousContent: string | undefined;
-      if (toolName === "write_file" && typeof args.path === "string") {
+      if ((toolName === "write_file" || toolName === "delete_file") && typeof args.path === "string") {
         try {
           const readResult = await executeAgentToolCall("read_file", { path: args.path });
           previousContent = readResult.raw?.content;
         } catch {
-          // File doesn't exist yet (new file) or isn't readable — leave
-          // previousContent undefined, the diff preview treats that as "new file".
+          // write_file: file doesn't exist yet (new file) or isn't readable —
+          // leave previousContent undefined, the diff preview treats that as
+          // "new file". delete_file: same undefined-on-failure, but here it
+          // also means this deletion can never be reverted later (nothing to
+          // restore) — /api/tools/revert checks for exactly this.
         }
       }
 

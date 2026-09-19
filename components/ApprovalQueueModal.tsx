@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { X, ShieldWarning as ShieldAlert, Check, XCircle, NotePencil as FileEdit, Trash as Trash2, Clock } from "@phosphor-icons/react";
+import { X, ShieldWarning as ShieldAlert, Check, XCircle, NotePencil as FileEdit, Trash as Trash2, Clock, ArrowCounterClockwise as Undo2 } from "@phosphor-icons/react";
 import { PendingApproval } from "@/lib/types";
 import { DiffPreview } from "./DiffPreview";
 
@@ -11,6 +11,20 @@ interface ApprovalQueueModalProps {
   approvals: PendingApproval[];
   onDecision: (approvalId: string, decision: "approved" | "rejected") => void;
   resolvingIds: string[];
+  /** Undo an already-executed write_file/delete_file approval. Optional so
+   *  callers that haven't wired revert yet (or older embeds) don't break. */
+  onRevert?: (approvalId: string) => void;
+  revertingIds?: string[];
+}
+
+/** Only write_file/delete_file with a captured previousContent can be
+ *  reverted — mirrors the checks the server repeats independently in
+ *  /api/tools/revert (this is just what decides whether to SHOW the button). */
+function canRevert(approval: PendingApproval): boolean {
+  if (approval.status !== "approved" || approval.reverted) return false;
+  if (approval.toolName === "write_file") return true; // undefined previousContent just means "delete the new file" on revert
+  if (approval.toolName === "delete_file") return approval.previousContent !== undefined; // nothing to restore from otherwise
+  return false;
 }
 
 function ToolIcon({ toolName }: { toolName: string }) {
@@ -18,7 +32,15 @@ function ToolIcon({ toolName }: { toolName: string }) {
   return <FileEdit className="w-4 h-4 text-amber-400" />;
 }
 
-export function ApprovalQueueModal({ isOpen, onClose, approvals, onDecision, resolvingIds }: ApprovalQueueModalProps) {
+export function ApprovalQueueModal({
+  isOpen,
+  onClose,
+  approvals,
+  onDecision,
+  resolvingIds,
+  onRevert,
+  revertingIds = [],
+}: ApprovalQueueModalProps) {
   if (!isOpen) return null;
 
   const pending = approvals.filter((a) => a.status === "pending");
@@ -102,25 +124,47 @@ export function ApprovalQueueModal({ isOpen, onClose, approvals, onDecision, res
             <div className="pt-2">
               <p className="text-xs text-neutral-500 mb-2 font-medium uppercase tracking-wide">Riwayat</p>
               <div className="space-y-2">
-                {resolved.map((approval) => (
-                  <div key={approval.id} className="rounded-lg border border-white/5 bg-white/[0.02] p-3 flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <ToolIcon toolName={approval.toolName} />
-                      <span className="text-xs text-neutral-400 truncate">
-                        {approval.source === "chat" ? "Chat" : approval.agentName} — {approval.toolName}
-                      </span>
+                {resolved.map((approval) => {
+                  const isRevertable = !!onRevert && canRevert(approval);
+                  const isReverting = revertingIds.includes(approval.id);
+                  return (
+                    <div key={approval.id} className="rounded-lg border border-white/5 bg-white/[0.02] p-3 flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <ToolIcon toolName={approval.toolName} />
+                        <span className="text-xs text-neutral-400 truncate">
+                          {approval.source === "chat" ? "Chat" : approval.agentName} — {approval.toolName}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        {approval.reverted ? (
+                          <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-sky-500/15 text-sky-400">
+                            Direvert
+                          </span>
+                        ) : (
+                          <span
+                            className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${
+                              approval.status === "approved"
+                                ? "bg-emerald-500/15 text-emerald-400"
+                                : "bg-red-500/15 text-red-400"
+                            }`}
+                          >
+                            {approval.status === "approved" ? "Disetujui" : "Ditolak"}
+                          </span>
+                        )}
+                        {isRevertable && (
+                          <button
+                            onClick={() => onRevert!(approval.id)}
+                            disabled={isReverting}
+                            title="Kembalikan file ke kondisi sebelum aksi ini dijalankan"
+                            className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 text-neutral-300 text-[11px] font-medium transition-colors disabled:opacity-50"
+                          >
+                            <Undo2 className="w-3 h-3" /> {isReverting ? "Membatalkan..." : "Revert"}
+                          </button>
+                        )}
+                      </div>
                     </div>
-                    <span
-                      className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${
-                        approval.status === "approved"
-                          ? "bg-emerald-500/15 text-emerald-400"
-                          : "bg-red-500/15 text-red-400"
-                      }`}
-                    >
-                      {approval.status === "approved" ? "Disetujui" : "Ditolak"}
-                    </span>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}
