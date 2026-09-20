@@ -1251,8 +1251,19 @@ export default function HomePage() {
   }, [isStreaming]);
 
   const handleSendMessage = async (overrideText?: string) => {
-    const trimmedInput = (overrideText ?? input).trim();
-    const currentAttachments = overrideText ? [] : [...attachments];
+    // Defense-in-depth against a real bug that shipped: a bare
+    // `onClick={onSend}` in ChatInput.tsx (fixed there too) let React pass
+    // the raw MouseEvent as this function's first argument instead of
+    // undefined, since a function whose only parameter is optional is
+    // structurally assignable to `() => void` — TypeScript never caught
+    // it. `overrideText ?? input` then kept the (truthy, non-string) event
+    // instead of falling back to `input`, and `.trim()` threw. Normalizing
+    // here means any future accidental bare-reference callback (in this
+    // file or elsewhere) fails safe — falls back to the real input —
+    // instead of crashing the whole page.
+    const safeOverrideText = typeof overrideText === "string" ? overrideText : undefined;
+    const trimmedInput = (safeOverrideText ?? input).trim();
+    const currentAttachments = safeOverrideText ? [] : [...attachments];
 
     if ((!trimmedInput && currentAttachments.length === 0) || isStreaming || !selectedModel) return;
 

@@ -808,7 +808,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
             ) : (
               <button
                 type="button"
-                onClick={onSend}
+                onClick={() => onSend()}
                 disabled={!canSend}
                 className={`w-8 h-8 flex items-center justify-center rounded-xl transition-all ${
                   canSend

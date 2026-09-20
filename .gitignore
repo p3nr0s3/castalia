@@ -52,3 +52,5 @@ Thumbs.db
 # the "forgot to delete" case harmless too.
 *.patch
 *.diff
+*.save
+*.save.*
