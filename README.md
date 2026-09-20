@@ -21,6 +21,22 @@ For a broader feature walkthrough and architecture diagrams, see [`DOCUMENTATION
 
 `better-sqlite3` is an optional native dependency. If there's no prebuilt binary for your Node version and no C++ toolchain to compile it, `lib/serverDb.ts` falls back to `data/db.json` automatically at startup — same API surface either way, just without SQLite's crash-safety and indexing. On Linux this usually "just works" if `build-essential`/`python3` are present; on Windows it needs the "Desktop development with C++" workload in Visual Studio Installer, or a Node LTS version more likely to already have a prebuilt binary.
 
+## Architecture
+
+The shape of the system, not just its file list (see [Project layout](#project-layout) below for that) — how a message actually gets from the input box to a model and back, and how the pieces that aren't plain chat fit in.
+
+**Chat send path.** `app/page.tsx` is a single large client controller — it owns conversation state, the active project, streaming state, and the message queue, and is the only place that calls `lib/ollama.ts`'s `streamChatCompletion` (which itself branches to either the local Ollama proxy at `/api/ollama/[...path]` or, for a cloud model, the redacting proxy at `/api/cloud/chat`). There's no server-side chat orchestration route — the Next.js server here is a set of stateless tool/data endpoints the client drives, not a chat backend that owns the conversation.
+
+**Tool-calling is directive-based, not native function-calling.** The model is prompted (`lib/tools.ts`'s `buildToolDirectivePrompt`/`buildAgentToolDirectivePrompt`) to emit a `[TOOL_CALL:name:{json}]` marker in its own output text, which the client regex-parses out of the streamed response (`parseToolDirective`). This was a deliberate choice over Ollama's native tool-calling API: directive parsing works identically across every model this app can point at (local or cloud, whether or not that specific model/provider actually implements OpenAI-style function calling), at the cost of the client needing to parse it out of free text. Read-only tools (`list_directory`, `read_file`, `search_files`, `graphify_*`) execute immediately; mutating tools (`write_file`, `delete_file`) stop and wait for an approval token that the server verifies independently at execution time — a client-side confirm dialog is never trusted on its own (see [Security model](#security-model)).
+
+**Two execution surfaces, one implementation.** `lib/toolEngine.ts` (client) posts a parsed tool call to either `/api/tools/execute` (manual chat) or `/api/tools/execute-agent` (autonomous agent) — same tool set, different approval-source tag, so an approval minted for one can't be replayed against the other. Both routes funnel disk-touching tools through the same `runDiskTool` (`lib/diskToolOps.ts`), sandboxed by `lib/pathSandbox.ts`. Tools with no meaningful "path" concept — `graphify_explain`/`graphify_query`/`graphify_path` — are dispatched directly in the route instead, since they don't fit that path-resolution-centric shape.
+
+**Autonomous agents run client-side, not as a server process.** `lib/agentEngine.ts`'s tool loop is invoked from a `setInterval` scheduler inside `app/page.tsx` — it's a timer running in whatever browser tab has this app open, calling the same client-side `streamChatCompletion`/tool-execution path as manual chat, not a background job on the Next.js server. This means a scheduled agent only fires while a tab is open; the Agent schedule UI says this explicitly rather than implying a real cron. (`instrumentation.ts` does run genuine server-side background work, but only for the ambient file-watchers — see below — not for agents.)
+
+**RAG, file-watching, and code-graph queries are the three ways the model gets context beyond the conversation itself** — a project's uploaded/watched files ranked into the prompt ([RAG / retrieval](#rag--retrieval)), a live-synced project folder on disk ([Ambient file-watcher](#ambient-file-watcher)), and, new as of the `graphify_*` tools, an on-demand queryable graph of this codebase's own functions/files/call-relationships (`lib/graphifyOps.ts`, spawning the external `graphify` CLI) so the model can answer questions about its own implementation by traversing real structure instead of guessing from training data.
+
+**Persistence is one flat store, not per-feature tables.** `lib/serverDb.ts` holds conversations, projects, agents, connectors, and settings behind one read/write API (SQLite when available, JSON-file fallback otherwise), broadcast to other open tabs of the same app via `/api/db/stream` (Server-Sent Events) rather than each browser tab polling independently.
+
 ## Requirements
 
 - Node.js 18+ (tested on 20 and 22)
@@ -148,7 +164,7 @@ npx tsc --noEmit       # typecheck only
 npm run build          # production build check
 ```
 
-28 test files, 285 tests, covering (non-exhaustively):
+29 test files, 290 tests, covering (non-exhaustively):
 
 - SSRF guard policies, including DNS-rebinding and IPv4-mapped-IPv6 edge cases
 - The approval-token gate for both tool-execution routes (freshness, anti-replay, tool/path matching, source restriction)
@@ -169,17 +185,21 @@ ollama-chat-web/
 │   └── page.tsx                 # Main controller: chat state, streaming, tool loop
 ├── components/                  # UI components (chat, codespace, journal, settings, directory)
 ├── lib/
-│   ├── agentEngine.ts            # Autonomous agent tool-calling loop
+│   ├── agentEngine.ts             # Client-driven autonomous agent tool-calling loop
 │   ├── diskToolOps.ts             # Sandboxed disk tool implementations
 │   ├── embeddings.ts               # Ollama embedding client + content-hash cache
 │   ├── fileWatcher.ts               # Ambient project-folder sync
+│   ├── graphifyOps.ts                # Spawns `graphify` for self-codebase graph queries
 │   ├── localAppBridge.ts             # Generic loopback bridge framework
+│   ├── memoryExtractor.ts             # Auto-extracts durable facts from chat turns
 │   ├── pathSandbox.ts                 # Filesystem path containment
 │   ├── rag.ts                          # BM25 + hybrid semantic retrieval
 │   ├── responseCache.ts                 # LRU exact-match response cache
 │   ├── serverDb.ts                       # SQLite (WAL) with JSON fallback
 │   ├── ssrfGuard.ts                       # DNS-resolved SSRF policies
-│   └── types.ts                            # Shared TypeScript types
+│   ├── tools.ts                            # Tool schemas + directive-parsing prompt builder
+│   ├── toolEngine.ts                        # Client dispatcher: parsed directive -> API call
+│   └── types.ts                              # Shared TypeScript types
 ├── middleware.ts                 # Bearer token + CSRF gate for /api/*
 ├── instrumentation.ts             # Resumes file-watchers on server start
 ├── next.config.mjs
