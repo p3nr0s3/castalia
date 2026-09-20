@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { runDiskTool } from "@/lib/diskToolOps";
 import { resolveOnLocalDisk } from "@/lib/pathSandbox";
 import { getPendingApprovalById, writeServerDb } from "@/lib/serverDb";
+import { explainSymbol, queryGraph, pathBetween, GraphifyError } from "@/lib/graphifyOps";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -110,6 +111,26 @@ export async function POST(req: NextRequest) {
 
       const consumedApproval = { ...approval, result: { ...(approval.result || {}), consumedAt: Date.now() } };
       await writeServerDb({ pendingApprovals: [consumedApproval] });
+    }
+
+    // Graphify tools answer questions about THIS project's own codebase via a
+    // local code graph — read-only, no path resolution / disk sandbox involved,
+    // so they're dispatched here rather than inside runDiskTool.
+    if (tool === "graphify_explain" || tool === "graphify_query" || tool === "graphify_path") {
+      try {
+        let output: string;
+        if (tool === "graphify_explain") {
+          output = await explainSymbol(String(args.symbol ?? ""));
+        } else if (tool === "graphify_query") {
+          output = await queryGraph(String(args.question ?? ""));
+        } else {
+          output = await pathBetween(String(args.from ?? ""), String(args.to ?? ""));
+        }
+        return NextResponse.json({ success: true, tool, output });
+      } catch (graphifyErr: any) {
+        const message = graphifyErr instanceof GraphifyError ? graphifyErr.message : `Graphify tool failed: ${graphifyErr.message || graphifyErr}`;
+        return NextResponse.json({ success: false, tool, error: message }, { status: 200 });
+      }
     }
 
     const { status, body: resultBody } = await runDiskTool(tool, args, resolveSafePath);

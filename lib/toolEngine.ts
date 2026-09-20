@@ -38,6 +38,10 @@ function summarize(toolName: ToolName, raw: any): string {
       return raw.message || `File dihapus: ${raw.path}`;
     case "search_files":
       return `${raw.totalMatches} hasil untuk "${raw.query}" di ${raw.searchedPath}`;
+    case "graphify_explain":
+    case "graphify_query":
+    case "graphify_path":
+      return "Code graph query selesai.";
     default:
       return "Tool berhasil dijalankan.";
   }

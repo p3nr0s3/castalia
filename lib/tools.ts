@@ -5,10 +5,25 @@
 // dipakai baik untuk native tool-calling payload maupun untuk membangun
 // directive fallback (ReAct) buat model yang tidak dukung native tools.
 
-export type ToolName = "list_directory" | "read_file" | "write_file" | "search_files" | "delete_file";
+export type ToolName =
+  | "list_directory"
+  | "read_file"
+  | "write_file"
+  | "search_files"
+  | "delete_file"
+  | "graphify_explain"
+  | "graphify_query"
+  | "graphify_path";
 
 /** Tool read-only dieksekusi otomatis; tool yang mengubah state (write/delete) wajib approval manual untuk agent. */
-export const READ_ONLY_TOOLS: ToolName[] = ["list_directory", "read_file", "search_files"];
+export const READ_ONLY_TOOLS: ToolName[] = [
+  "list_directory",
+  "read_file",
+  "search_files",
+  "graphify_explain",
+  "graphify_query",
+  "graphify_path",
+];
 export const MUTATING_TOOLS: ToolName[] = ["write_file", "delete_file"];
 
 export interface ToolParamSchema {
@@ -64,6 +79,29 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     description: "Hapus sebuah file. Aksi ini permanen dan selalu menunggu persetujuan manual user sebelum benar-benar dieksekusi.",
     parameters: {
       path: { type: "string", description: "Path file yang akan dihapus.", required: true },
+    },
+  },
+  {
+    name: "graphify_explain",
+    description:
+      "Jelaskan satu simbol (fungsi/kelas/file) di codebase project INI sendiri lewat code graph lokal — siapa memanggilnya, apa yang dipanggilnya. Bukan untuk folder/proyek lain.",
+    parameters: {
+      symbol: { type: "string", description: "Nama simbol yang mau dijelaskan, mis. 'rankChunksHybrid' atau 'lib/serverDb.ts'.", required: true },
+    },
+  },
+  {
+    name: "graphify_query",
+    description: "Ajukan pertanyaan arsitektur bebas soal codebase project INI; menelusuri code graph lokal (BFS) untuk jawaban yang relevan, bukan tebakan dari training data.",
+    parameters: {
+      question: { type: "string", description: "Pertanyaan arsitektur, mis. 'apa yang memanggil executeToolCall?'", required: true },
+    },
+  },
+  {
+    name: "graphify_path",
+    description: "Cari jalur terpendek di code graph antara dua simbol di codebase project INI (bagaimana A terhubung ke B).",
+    parameters: {
+      from: { type: "string", description: "Simbol/node awal.", required: true },
+      to: { type: "string", description: "Simbol/node tujuan.", required: true },
     },
   },
 ];

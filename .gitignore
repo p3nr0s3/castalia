@@ -54,3 +54,7 @@ Thumbs.db
 *.diff
 *.save
 *.save.*
+
+# graphify-generated code graph — local build artifact, rebuilt on demand
+# by lib/graphifyOps.ts (once per server-process lifetime), not source.
+/graphify-out/
