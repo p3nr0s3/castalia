@@ -24,7 +24,7 @@ export async function OPTIONS() {
 
 export async function GET() {
   try {
-    const status = detectBsk();
+    const status = await detectBsk();
     return NextResponse.json(status, { headers: CORS_HEADERS });
   } catch (err: any) {
     return NextResponse.json(

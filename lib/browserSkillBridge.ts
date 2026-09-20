@@ -1,4 +1,4 @@
-import { spawnSync } from "child_process";
+import { spawn } from "child_process";
 import os from "os";
 import path from "path";
 
@@ -13,10 +13,17 @@ import path from "path";
  * WebSocket. There's no single "port + endpoint path" to hit directly,
  * so localAppBridge's BridgeDefinition / executeBridgeAction shape
  * (built around fetch()) doesn't fit here. This module wraps a CLI
- * invocation (spawnSync) instead, following the same conventions already
- * used for the codespace runner in app/api/codespace/run/route.ts:
- * an argument array (never a shell string), shell: false, and a bounded
- * timeout.
+ * invocation instead, following the same conventions already used for
+ * the codespace runner in app/api/codespace/run/route.ts: an argument
+ * array (never a shell string), shell: false, and a bounded timeout.
+ *
+ * Uses child_process.spawn (async), never spawnSync — see e61a596 in
+ * this project's history: a sync child-process call here blocks the
+ * whole Node event loop for every concurrent request while it runs, not
+ * just the caller. An earlier version of this file used spawnSync
+ * despite that lesson already being learned elsewhere in the codebase;
+ * fixed here before any tool gets built on top of it, following the
+ * exact same async-spawn shape used in lib/graphifyOps.ts.
  *
  * Scope of this first pass: availability detection and a generic,
  * argument-array command runner only. It does NOT yet know the actual
@@ -55,38 +62,102 @@ function extraCandidatePaths(): string[] {
 }
 
 /**
+ * Runs one candidate's `--version` check asynchronously with a short
+ * timeout. Resolves to null (never rejects) on any failure — not found,
+ * non-zero exit, empty output, or timeout — so the caller can just try
+ * the next candidate without a try/catch at every call site.
+ */
+function tryVersionCheck(candidate: string): Promise<BskStatus | null> {
+  return new Promise((resolve) => {
+    let settled = false;
+    let stdout = "";
+    let stderr = "";
+
+    let child;
+    try {
+      child = spawn(candidate, ["--version"], { shell: false });
+    } catch {
+      resolve(null);
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      child.kill("SIGKILL");
+      resolve(null);
+    }, 2000);
+
+    child.stdout?.on("data", (chunk) => {
+      stdout += chunk.toString();
+    });
+    child.stderr?.on("data", (chunk) => {
+      stderr += chunk.toString();
+    });
+
+    child.on("error", () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(null);
+    });
+
+    child.on("close", (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      const output = (stdout + stderr).trim();
+      if (code === 0 && output) {
+        resolve({ installed: true, command: candidate, version: output });
+      } else {
+        resolve(null);
+      }
+    });
+  });
+}
+
+// Cached across the server process lifetime, same rationale as
+// findPythonBinary's cache in app/api/codespace/run/route.ts: whether
+// `bsk` is installed doesn't change mid-session, and re-spawning a
+// process (even async) on every status check is wasted work once the
+// answer is already known. Concurrent callers dedupe onto one in-flight
+// detection instead of racing separate spawns.
+let cachedStatus: BskStatus | null = null;
+let detectPromise: Promise<BskStatus> | null = null;
+
+/**
  * Checks whether the `bsk` CLI is installed and reachable, without
  * touching the browser/daemon/extension at all — `bsk --version` doesn't
  * require the daemon or extension to be running, only the CLI binary
- * itself. Mirrors findPythonBinary's approach in
- * app/api/codespace/run/route.ts: try each candidate with a short
- * timeout via spawnSync, shell: false, and treat any non-zero exit or
- * thrown error as "not this one" rather than a hard failure, so a
- * missing binary never surfaces as an unhandled exception to callers.
+ * itself.
  */
-export function detectBsk(): BskStatus {
-  const candidates = [...CANDIDATE_COMMANDS, ...extraCandidatePaths()];
+export async function detectBsk(): Promise<BskStatus> {
+  if (cachedStatus) return cachedStatus;
+  if (detectPromise) return detectPromise;
 
-  for (const candidate of candidates) {
-    try {
-      const result = spawnSync(candidate, ["--version"], {
-        timeout: 2000,
-        encoding: "utf-8",
-        shell: false,
-      });
-
-      if (result.status === 0) {
-        const output = ((result.stdout || "") + (result.stderr || "")).trim();
-        if (output) {
-          return { installed: true, command: candidate, version: output };
-        }
+  detectPromise = (async () => {
+    const candidates = [...CANDIDATE_COMMANDS, ...extraCandidatePaths()];
+    for (const candidate of candidates) {
+      const result = await tryVersionCheck(candidate);
+      if (result) {
+        cachedStatus = result;
+        return result;
       }
-    } catch {
-      // Not found via this candidate — try the next one.
     }
-  }
+    const notInstalled: BskStatus = { installed: false };
+    cachedStatus = notInstalled;
+    return notInstalled;
+  })().finally(() => {
+    detectPromise = null;
+  });
 
-  return { installed: false };
+  return detectPromise;
+}
+
+/** Test/debug hook — clears the cached detection result. */
+export function clearBskDetectionCache(): void {
+  cachedStatus = null;
+  detectPromise = null;
 }
 
 export interface BskCommandResult {
@@ -96,10 +167,10 @@ export interface BskCommandResult {
   exitCode: number | null;
   /**
    * Best-effort: true when the process appears to have been killed by
-   * the timeout rather than exiting on its own (status is null and a
-   * kill signal is present). A process an external actor killed for an
-   * unrelated reason would look the same — this is a heuristic, not a
-   * guarantee, same caveat as isTimedOut in the codespace runner.
+   * the timeout rather than exiting on its own. A process an external
+   * actor killed for an unrelated reason would look the same — this is
+   * a heuristic, not a guarantee, same caveat as isTimedOut in the
+   * codespace runner.
    */
   timedOut: boolean;
 }
@@ -118,24 +189,54 @@ function truncate(text: string): string {
  * (shell: false), so there is no shell-injection surface here regardless
  * of what a caller passes as an argument value.
  *
+ * Async (spawn), not spawnSync — with a default 15s timeout, a sync call
+ * here would freeze the entire Node process (every other in-flight
+ * request, not just this one) for up to 15 seconds per invocation.
+ *
  * This is intentionally generic — it doesn't know what a "browser task"
  * looks like. Callers supply the actual bsk subcommand and its args once
  * that command surface is defined (see the module docstring above).
  */
-export function runBskCommand(command: string, args: string[], timeoutMs = 15000): BskCommandResult {
-  const result = spawnSync(command, args, {
-    timeout: timeoutMs,
-    encoding: "utf-8",
-    shell: false,
+export function runBskCommand(command: string, args: string[], timeoutMs = 15000): Promise<BskCommandResult> {
+  return new Promise((resolve) => {
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+
+    let child;
+    try {
+      child = spawn(command, args, { shell: false });
+    } catch (err: any) {
+      resolve({ success: false, stdout: "", stderr: err?.message || "Failed to spawn process.", exitCode: null, timedOut: false });
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      child.kill("SIGKILL");
+      resolve({ success: false, stdout: truncate(stdout), stderr: truncate(stderr), exitCode: null, timedOut: true });
+    }, timeoutMs);
+
+    child.stdout?.on("data", (chunk) => {
+      stdout += chunk.toString();
+    });
+    child.stderr?.on("data", (chunk) => {
+      stderr += chunk.toString();
+    });
+
+    child.on("error", (err: NodeJS.ErrnoException) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve({ success: false, stdout: truncate(stdout), stderr: truncate(stderr || err.message), exitCode: null, timedOut: false });
+    });
+
+    child.on("close", (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve({ success: code === 0, stdout: truncate(stdout), stderr: truncate(stderr), exitCode: code, timedOut: false });
+    });
   });
-
-  const timedOut = result.status === null && result.signal !== null;
-
-  return {
-    success: result.status === 0 && !timedOut,
-    stdout: truncate(result.stdout || ""),
-    stderr: truncate(result.stderr || (result.error ? result.error.message : "")),
-    exitCode: result.status,
-    timedOut,
-  };
 }
