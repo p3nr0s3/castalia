@@ -23,19 +23,14 @@ For a broader feature walkthrough and architecture diagrams, see [`DOCUMENTATION
 
 ## Architecture
 
-The shape of the system, not just its file list (see [Project layout](#project-layout) below for that) — how a message actually gets from the input box to a model and back, and how the pieces that aren't plain chat fit in.
+How a message flows, not the file list (see [Project layout](#project-layout)).
 
-**Chat send path.** `app/page.tsx` is a single large client controller — it owns conversation state, the active project, streaming state, and the message queue, and is the only place that calls `lib/ollama.ts`'s `streamChatCompletion` (which itself branches to either the local Ollama proxy at `/api/ollama/[...path]` or, for a cloud model, the redacting proxy at `/api/cloud/chat`). There's no server-side chat orchestration route — the Next.js server here is a set of stateless tool/data endpoints the client drives, not a chat backend that owns the conversation.
-
-**Tool-calling is directive-based, not native function-calling.** The model is prompted (`lib/tools.ts`'s `buildToolDirectivePrompt`/`buildAgentToolDirectivePrompt`) to emit a `[TOOL_CALL:name:{json}]` marker in its own output text, which the client regex-parses out of the streamed response (`parseToolDirective`). This was a deliberate choice over Ollama's native tool-calling API: directive parsing works identically across every model this app can point at (local or cloud, whether or not that specific model/provider actually implements OpenAI-style function calling), at the cost of the client needing to parse it out of free text. Read-only tools (`list_directory`, `read_file`, `search_files`, `graphify_*`) execute immediately; mutating tools (`write_file`, `delete_file`) stop and wait for an approval token that the server verifies independently at execution time — a client-side confirm dialog is never trusted on its own (see [Security model](#security-model)).
-
-**Two execution surfaces, one implementation.** `lib/toolEngine.ts` (client) posts a parsed tool call to either `/api/tools/execute` (manual chat) or `/api/tools/execute-agent` (autonomous agent) — same tool set, different approval-source tag, so an approval minted for one can't be replayed against the other. Both routes funnel disk-touching tools through the same `runDiskTool` (`lib/diskToolOps.ts`), sandboxed by `lib/pathSandbox.ts`. Tools with no meaningful "path" concept — `graphify_explain`/`graphify_query`/`graphify_path` — are dispatched directly in the route instead, since they don't fit that path-resolution-centric shape.
-
-**Autonomous agents run client-side, not as a server process.** `lib/agentEngine.ts`'s tool loop is invoked from a `setInterval` scheduler inside `app/page.tsx` — it's a timer running in whatever browser tab has this app open, calling the same client-side `streamChatCompletion`/tool-execution path as manual chat, not a background job on the Next.js server. This means a scheduled agent only fires while a tab is open; the Agent schedule UI says this explicitly rather than implying a real cron. (`instrumentation.ts` does run genuine server-side background work, but only for the ambient file-watchers — see below — not for agents.)
-
-**RAG, file-watching, and code-graph queries are the three ways the model gets context beyond the conversation itself** — a project's uploaded/watched files ranked into the prompt ([RAG / retrieval](#rag--retrieval)), a live-synced project folder on disk ([Ambient file-watcher](#ambient-file-watcher)), and, new as of the `graphify_*` tools, an on-demand queryable graph of this codebase's own functions/files/call-relationships (`lib/graphifyOps.ts`, spawning the external `graphify` CLI) so the model can answer questions about its own implementation by traversing real structure instead of guessing from training data.
-
-**Persistence is one flat store, not per-feature tables.** `lib/serverDb.ts` holds conversations, projects, agents, connectors, and settings behind one read/write API (SQLite when available, JSON-file fallback otherwise), broadcast to other open tabs of the same app via `/api/db/stream` (Server-Sent Events) rather than each browser tab polling independently.
+- **`app/page.tsx` owns everything client-side** — conversation state, streaming, the message queue — and is the only caller of `streamChatCompletion` (`lib/ollama.ts`), which routes to the local Ollama proxy or, for cloud models, the redacting `/api/cloud/chat` proxy. The server here is stateless tool/data endpoints the client drives, not a chat backend.
+- **Tool-calling is directive-based, not native function-calling**: the model is prompted to emit `[TOOL_CALL:name:{json}]` in its own text (`lib/tools.ts`), which the client regex-parses out. Chosen over Ollama's native API because it works identically across every model/provider regardless of whether that one implements function-calling. Read-only tools (`list_directory`, `read_file`, `search_files`, `graphify_*`) run immediately; mutating tools (`write_file`, `delete_file`) wait for a server-verified approval token — never a client confirm alone (see [Security model](#security-model)).
+- **One tool implementation, two entry points**: `lib/toolEngine.ts` posts to `/api/tools/execute` (chat) or `/api/tools/execute-agent` (agents) — same tools, different approval-source tag so one can't replay the other. Disk tools funnel through `runDiskTool` + `lib/pathSandbox.ts`; `graphify_*` (no path concept) is dispatched directly.
+- **Agents run client-side**, not as a server process — `lib/agentEngine.ts`'s loop fires from a `setInterval` in `app/page.tsx`, so a schedule only runs while a tab is open (the Agent UI says this explicitly). `instrumentation.ts` does run real server-side background work, but only for file-watchers.
+- **Three ways the model gets context beyond the conversation**: ranked project files ([RAG](#rag--retrieval)), a live-synced folder ([file-watcher](#ambient-file-watcher)), and, via `graphify_*`, an on-demand graph of this codebase's own structure (`lib/graphifyOps.ts`) instead of guessing from training data.
+- **One flat store**: `lib/serverDb.ts` holds conversations/projects/agents/connectors/settings behind one API (SQLite or JSON fallback), synced across tabs via SSE (`/api/db/stream`).
 
 ## Requirements
 
@@ -141,20 +136,18 @@ Trigger a configured bridge from chat with `/bridge <bridge-id> <message>`. See 
 
 ## RAG / retrieval
 
-`lib/rag.ts` implements hybrid retrieval: BM25 keyword ranking always runs (zero GPU/VRAM cost, in-memory); an optional semantic pass blends in cosine similarity over Ollama embeddings when enabled. Per-project settings (chunk size, chunk overlap, top-K, and the BM25/semantic blend weight) are configurable in each project's Knowledge tab rather than hardcoded — defaults match the original hardcoded values, so existing projects behave identically until you change something.
-
-`lib/embeddings.ts` caches embeddings by content hash + model, so re-embedding only happens for chunks that actually changed between chat turns, not the whole project on every message.
+`lib/rag.ts`: BM25 keyword ranking always runs (in-memory, no GPU cost); an optional semantic pass blends in cosine similarity over Ollama embeddings when enabled. Chunk size, overlap, top-K, and the BM25/semantic blend weight are per-project settings (Knowledge tab), not hardcoded. `lib/embeddings.ts` caches by content hash + model, so only changed chunks get re-embedded between turns.
 
 ## Ambient file-watcher
 
-A project's Knowledge tab can point at a real folder on the server's machine (`lib/fileWatcher.ts`) instead of (or alongside) manually uploaded files. Changes are picked up via `fs.watch`, debounced, and re-synced automatically — capped at 500 files per scan and 2MB per file, plain-text/code extensions only (binary formats like PDF still require manual upload, since their parsers run client-side via the browser's File API with no server-side equivalent). Watchers resume automatically after a server restart via `instrumentation.ts`.
+A project's Knowledge tab can point at a real folder (`lib/fileWatcher.ts`) instead of manual uploads. Changes sync via debounced `fs.watch` — capped at 500 files/scan, 2MB/file, text/code extensions only (binaries like PDF still need manual upload). Resumes automatically after a server restart via `instrumentation.ts`.
 
 ## Hardware-pressure hint
 
-After a local Ollama response finishes, a dismissible banner can appear suggesting a lighter or cloud model — never an automatic switch, this app is approval-gated by design. Two signals feed it, both intentionally scoped to what's actually measurable rather than guessed:
+A dismissible banner can suggest a lighter/cloud model after a local response — never an automatic switch. Two signals, scoped to what's actually measurable:
 
-- **VRAM**: `lib/ollama.ts`'s `checkVramPressure` compares `size` against `size_vram` from Ollama's own `/api/ps` — i.e. how much of the model that just ran actually stayed resident in VRAM vs. spilled to system RAM. This is retrospective, not predictive: Ollama has no endpoint reporting total/free VRAM, and querying that portably across NVIDIA/AMD/Intel/Apple Silicon isn't realistic without shelling out to vendor-specific tools that may not be installed. It reports on a model that already ran, not whether one you haven't loaded yet will fit.
-- **Battery**: `lib/hardwareSignals.ts`'s `getBatterySignal` feature-detects `navigator.getBattery` — Chrome/Edge/Android Chrome only; Firefox removed it and Safari never implemented it, both over fingerprinting concerns (not Baseline per MDN). Every other browser gets `null` here and the hint falls back to the VRAM signal alone.
+- **VRAM**: `checkVramPressure` (`lib/ollama.ts`) compares `size` vs `size_vram` from Ollama's `/api/ps` — retrospective (how much of the model that just ran spilled to RAM), not predictive; Ollama has no total/free-VRAM endpoint portable across vendors.
+- **Battery**: `getBatterySignal` (`lib/hardwareSignals.ts`) feature-detects `navigator.getBattery` — Chrome/Edge/Android only (Firefox/Safari never shipped it, fingerprinting concerns). Falls back to VRAM alone elsewhere.
 
 ## Testing
 
