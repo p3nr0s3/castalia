@@ -20,6 +20,7 @@
     "@types/katex": "^0.16.7",
     "@types/react-syntax-highlighter": "^15.5.13",
     "clsx": "^2.1.1",
+    "js-tiktoken": "^1.0.21",
     "jszip": "^3.10.2",
     "katex": "^0.16.11",
     "next": "^14.2.35",

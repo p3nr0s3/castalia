@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { tryAcquireGenerationSlot, releaseGenerationSlot } from "@/lib/ollamaRateLimit";
+import { acquireOllamaSlot, releaseOllamaSlot, OllamaOpType } from "@/lib/ollamaRateLimit";
 import { assertOllamaHostUrl, SsrfBlockedError } from "@/lib/ssrfGuard";
 
 export const runtime = "nodejs";
@@ -103,13 +103,14 @@ export async function POST(
   const blocked = await validateOllamaHost(host);
   if (blocked) return blocked;
 
-  // Only the actual generation endpoints need the concurrency/burst guard —
-  // lightweight calls (pull progress checks, embeddings, etc.) pass through.
+  // Guard chat generations and embeddings with a concurrency + VRAM queue semaphore
   const isGenerationEndpoint = path === "api/generate" || path === "api/chat";
+  const isEmbeddingEndpoint = path === "api/embeddings" || path === "api/embed";
+  const opType: OllamaOpType | null = isGenerationEndpoint ? "chat" : isEmbeddingEndpoint ? "embed" : null;
 
   let slotAcquired = false;
-  if (isGenerationEndpoint) {
-    const limit = tryAcquireGenerationSlot();
+  if (opType) {
+    const limit = await acquireOllamaSlot(opType, { timeoutMs: 35000 });
     if (!limit.allowed) {
       return NextResponse.json(
         {
@@ -149,11 +150,6 @@ export async function POST(
 
     // Handle Streaming Response for Mobile, Tunnels & Web
     if (response.body) {
-      // The generation slot must stay held until the stream actually finishes
-      // (this is the whole point — it's a concurrency guard, not a request-count
-      // guard). Release happens exactly once, in this background reader, and
-      // slotAcquired is flipped to false so the outer finally block below does
-      // not release it a second time.
       const [streamForClient, streamForRelease] = response.body.tee();
       slotAcquired = false; // ownership of the release transfers to the reader below
 
@@ -167,7 +163,9 @@ export async function POST(
         } catch {
           // Ignore — client aborts or upstream errors still fall through to release.
         } finally {
-          releaseGenerationSlot();
+          if (opType) {
+            releaseOllamaSlot(opType);
+          }
         }
       })();
 
@@ -196,11 +194,8 @@ export async function POST(
       { status: 502, headers: CORS_HEADERS }
     );
   } finally {
-    // Covers every non-streaming exit path (error before streaming started,
-    // non-ok response, non-streaming success). The streaming path releases
-    // its own slot above once the tee'd reader actually finishes.
-    if (slotAcquired) {
-      releaseGenerationSlot();
+    if (slotAcquired && opType) {
+      releaseOllamaSlot(opType);
     }
   }
 }

@@ -139,7 +139,7 @@ describe("assembleContextFromRanked (via buildOptimizedKnowledgeContextAsync) â€
     const result = await buildOptimizedKnowledgeContextAsync(
       files,
       "blender physics",
-      150,
+      100,
       { ollamaUrl: "http://x", enabled: false },
       { chunkSizeChars: 60, chunkOverlapChars: 10, topK: 20 }
     );
@@ -166,7 +166,7 @@ describe("assembleContextFromRanked (via buildOptimizedKnowledgeContextAsync) â€
     const result = await buildOptimizedKnowledgeContextAsync(
       files,
       "blender physics collision",
-      150,
+      100,
       { ollamaUrl: "http://x", enabled: false },
       { chunkSizeChars: 60, chunkOverlapChars: 10, topK: 20 }
     );

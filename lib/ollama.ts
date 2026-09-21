@@ -1,6 +1,8 @@
 import { Message, OllamaModel, GenerationMetrics, ModelProvider, ApiKeysConfig, ModelPullProgress } from "./types";
 import { apiFetch } from "./apiClient";
 import { CLOUD_MODEL_PRESETS } from "./constants";
+import { ReasoningStreamParser } from "./reasoningParser";
+import { buildToolDirectivePrompt } from "./tools";
 
 export interface ChatStreamOptions {
   hostUrl?: string;
@@ -22,10 +24,18 @@ export interface ChatStreamOptions {
   keepAlive?: string;
   apiKeys?: ApiKeysConfig;
   signal?: AbortSignal;
+  tools?: any[];
+  format?: "json" | Record<string, any>;
   onToken: (chunk: string, liveStats?: { tokenCount: number; liveTps: number }) => void;
   onReasoning?: (reasoningChunk: string) => void;
+  onToolCall?: (toolCall: { name: string; args: Record<string, any> }) => void;
   onError?: (err: Error) => void;
-  onFinish?: (fullText: string, metrics?: GenerationMetrics, fullReasoning?: string) => void;
+  onFinish?: (
+    fullText: string,
+    metrics?: GenerationMetrics,
+    fullReasoning?: string,
+    toolCalls?: { name: string; args: Record<string, any> }[]
+  ) => void;
 }
 
 export function detectModelProvider(modelName: string): ModelProvider {
@@ -187,8 +197,11 @@ export async function streamChatCompletion({
   keepAlive,
   apiKeys,
   signal,
+  tools,
+  format,
   onToken,
   onReasoning,
+  onToolCall,
   onError,
   onFinish,
 }: ChatStreamOptions): Promise<string> {
@@ -241,6 +254,7 @@ export async function streamChatCompletion({
       const startTime = performance.now();
       let tokenChunkCount = 0;
       let finalMetrics: GenerationMetrics | undefined;
+      const reasoningParser = new ReasoningStreamParser();
 
       while (true) {
         const { done, value } = await reader.read();
@@ -264,13 +278,20 @@ export async function streamChatCompletion({
             }
 
             if (parsed.message?.content) {
-              const token = parsed.message.content;
-              fullResponse += token;
-              tokenChunkCount++;
-
-              const elapsedSec = (performance.now() - startTime) / 1000;
-              const liveTps = elapsedSec > 0.1 ? Math.round((tokenChunkCount / elapsedSec) * 10) / 10 : 0;
-              onToken(token, { tokenCount: tokenChunkCount, liveTps });
+              const contentChunk = parsed.message.content;
+              reasoningParser.processChunk(contentChunk, {
+                onToken: (t) => {
+                  fullResponse += t;
+                  tokenChunkCount++;
+                  const elapsedSec = (performance.now() - startTime) / 1000;
+                  const liveTps = elapsedSec > 0.1 ? Math.round((tokenChunkCount / elapsedSec) * 10) / 10 : 0;
+                  onToken(t, { tokenCount: tokenChunkCount, liveTps });
+                },
+                onReasoning: (r) => {
+                  fullReasoning += r;
+                  if (onReasoning) onReasoning(r);
+                },
+              });
             }
 
             if (parsed.done) {
@@ -285,6 +306,18 @@ export async function streamChatCompletion({
           } catch {}
         }
       }
+
+      reasoningParser.flush({
+        onToken: (t) => {
+          fullResponse += t;
+          tokenChunkCount++;
+          onToken(t);
+        },
+        onReasoning: (r) => {
+          fullReasoning += r;
+          if (onReasoning) onReasoning(r);
+        },
+      });
 
       if (onFinish) {
         onFinish(fullResponse, finalMetrics, fullReasoning || undefined);
@@ -370,11 +403,17 @@ export async function streamChatCompletion({
       stream: true,
       options: optionsPayload,
     };
+    if (format) {
+      payload.format = format;
+    }
+    if (tools && tools.length > 0) {
+      payload.tools = tools;
+    }
     if (keepAlive) {
       payload.keep_alive = keepAlive;
     }
 
-    const res = await apiFetch(`/api/ollama/api/chat?host=${encodeURIComponent(hostUrl)}`, {
+    let res = await apiFetch(`/api/ollama/api/chat?host=${encodeURIComponent(hostUrl)}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -382,6 +421,37 @@ export async function streamChatCompletion({
       body: JSON.stringify(payload),
       signal,
     });
+
+    // If custom format schema fails on older Ollama, fallback gracefully to format: "json"
+    if (!res.ok && payload.format && typeof payload.format === "object") {
+      payload.format = "json";
+      res = await apiFetch(`/api/ollama/api/chat?host=${encodeURIComponent(hostUrl)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        signal,
+      });
+    }
+
+    // If the model does not support native tools, retry with tool directive fallback gracefully
+    if (!res.ok && payload.tools) {
+      const errClone = await res.clone().text();
+      if (errClone.toLowerCase().includes("does not support tools") || res.status === 400) {
+        delete payload.tools;
+        const directive = buildToolDirectivePrompt();
+        if (formattedMessages.length > 0 && formattedMessages[0].role === "system") {
+          formattedMessages[0].content = `${formattedMessages[0].content}\n\n${directive}`;
+        } else {
+          formattedMessages.unshift({ role: "system", content: directive });
+        }
+        res = await apiFetch(`/api/ollama/api/chat?host=${encodeURIComponent(hostUrl)}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+          signal,
+        });
+      }
+    }
 
     if (!res.ok) {
       const errorText = await res.text();
@@ -403,6 +473,8 @@ export async function streamChatCompletion({
     const startTime = performance.now();
     let tokenChunkCount = 0;
     let finalMetrics: GenerationMetrics | undefined;
+    const accumulatedToolCalls: { name: string; args: Record<string, any> }[] = [];
+    const reasoningParser = new ReasoningStreamParser();
 
     while (true) {
       const { done, value } = await reader.read();
@@ -425,14 +497,39 @@ export async function streamChatCompletion({
             if (onReasoning) onReasoning(reasoningChunk);
           }
 
-          if (parsed.message?.content) {
-            const token = parsed.message.content;
-            fullResponse += token;
-            tokenChunkCount++;
+          // Parse native Ollama tool calls
+          const rawToolCalls = parsed.message?.tool_calls;
+          if (Array.isArray(rawToolCalls) && rawToolCalls.length > 0) {
+            for (const tc of rawToolCalls) {
+              const fnName = tc.function?.name || tc.name;
+              let fnArgs = tc.function?.arguments ?? tc.arguments ?? {};
+              if (typeof fnArgs === "string") {
+                try {
+                  fnArgs = JSON.parse(fnArgs);
+                } catch {}
+              }
+              if (fnName) {
+                accumulatedToolCalls.push({ name: fnName, args: fnArgs });
+                if (onToolCall) onToolCall({ name: fnName, args: fnArgs });
+              }
+            }
+          }
 
-            const elapsedSec = (performance.now() - startTime) / 1000;
-            const liveTps = elapsedSec > 0.1 ? Math.round((tokenChunkCount / elapsedSec) * 10) / 10 : 0;
-            onToken(token, { tokenCount: tokenChunkCount, liveTps });
+          if (parsed.message?.content) {
+            const contentChunk = parsed.message.content;
+            reasoningParser.processChunk(contentChunk, {
+              onToken: (t) => {
+                fullResponse += t;
+                tokenChunkCount++;
+                const elapsedSec = (performance.now() - startTime) / 1000;
+                const liveTps = elapsedSec > 0.1 ? Math.round((tokenChunkCount / elapsedSec) * 10) / 10 : 0;
+                onToken(t, { tokenCount: tokenChunkCount, liveTps });
+              },
+              onReasoning: (r) => {
+                fullReasoning += r;
+                if (onReasoning) onReasoning(r);
+              },
+            });
           }
 
           if (parsed.done) {
@@ -469,8 +566,25 @@ export async function streamChatCompletion({
       }
     }
 
+    reasoningParser.flush({
+      onToken: (t) => {
+        fullResponse += t;
+        tokenChunkCount++;
+        onToken(t);
+      },
+      onReasoning: (r) => {
+        fullReasoning += r;
+        if (onReasoning) onReasoning(r);
+      },
+    });
+
     if (onFinish) {
-      onFinish(fullResponse, finalMetrics, fullReasoning || undefined);
+      onFinish(
+        fullResponse,
+        finalMetrics,
+        fullReasoning || undefined,
+        accumulatedToolCalls.length > 0 ? accumulatedToolCalls : undefined
+      );
     }
 
     return fullResponse;
@@ -571,5 +685,81 @@ export async function deleteOllamaModel(
   });
 
   return res.ok;
+}
+
+/**
+ * Predictive model pre-warming: pre-loads an Ollama model into VRAM
+ * before the user finishes typing (e.g. on input focus or after typing starts).
+ * Cuts cold-load latency on the first token.
+ */
+export async function prewarmModel(
+  model: string,
+  hostUrl = "http://localhost:11434",
+  keepAlive = "10m"
+): Promise<boolean> {
+  if (!model || model.startsWith("gemini") || model.startsWith("gpt") || model.startsWith("claude")) {
+    return false;
+  }
+  try {
+    const res = await apiFetch(`/api/ollama/api/generate?host=${encodeURIComponent(hostUrl)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model: model.trim(), keep_alive: keepAlive }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+// In-memory cache for model context capabilities fetched from /api/show
+const MODEL_CONTEXT_CACHE = new Map<string, number>();
+
+/**
+ * Fetches context length from Ollama's /api/show or falls back to known defaults.
+ */
+export async function fetchModelContextLimit(
+  model: string,
+  hostUrl = "http://localhost:11434"
+): Promise<number | null> {
+  const cacheKey = `${hostUrl}:${model}`;
+  if (MODEL_CONTEXT_CACHE.has(cacheKey)) {
+    return MODEL_CONTEXT_CACHE.get(cacheKey)!;
+  }
+
+  try {
+    const res = await apiFetch(`/api/ollama/api/show?host=${encodeURIComponent(hostUrl)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: model.trim() }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+
+    // Check model_info for *.context_length
+    if (data.model_info && typeof data.model_info === "object") {
+      for (const [k, v] of Object.entries(data.model_info)) {
+        if (k.endsWith(".context_length") && typeof v === "number" && v > 0) {
+          MODEL_CONTEXT_CACHE.set(cacheKey, v);
+          return v;
+        }
+      }
+    }
+
+    // Check parameters for num_ctx
+    if (data.parameters && typeof data.parameters === "string") {
+      const match = data.parameters.match(/num_ctx\s+(\d+)/);
+      if (match && match[1]) {
+        const parsed = parseInt(match[1], 10);
+        if (!isNaN(parsed) && parsed > 0) {
+          MODEL_CONTEXT_CACHE.set(cacheKey, parsed);
+          return parsed;
+        }
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
 

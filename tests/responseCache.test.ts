@@ -70,12 +70,16 @@ describe("responseCache", () => {
     setCachedPromptResponse(key, {
       content: "fn main() { println!(\"Hello, world!\"); }",
       reasoning: "Simple hello world",
+      metrics: { evalCount: 15, evalDuration: 500000000, evalTps: 30 },
     });
 
     const cached = getCachedPromptResponse(key);
     expect(cached).not.toBeNull();
     expect(cached?.content).toContain("Hello, world!");
     expect(cached?.reasoning).toBe("Simple hello world");
+    expect(cached?.servedFromCache).toBe(true);
+    expect(cached?.metrics?.evalTps).toBe(30); // NOT fabricated 999
+    expect(cached?.metrics?.evalCount).toBe(15);
 
     clearPromptCache();
     expect(getCachedPromptResponse(key)).toBeNull();

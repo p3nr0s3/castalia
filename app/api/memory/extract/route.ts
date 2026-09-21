@@ -4,7 +4,9 @@ import {
   buildExtractionPrompt,
   parseExtractionResponse,
   mergeExtractedMemories,
+  MEMORY_EXTRACTION_JSON_SCHEMA,
 } from "@/lib/memoryExtractor";
+import { acquireOllamaSlot, releaseOllamaSlot } from "@/lib/ollamaRateLimit";
 import type { MemoryItem } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -70,21 +72,34 @@ export async function POST(req: NextRequest) {
     const timeout = setTimeout(() => controller.abort(), 20000);
 
     let raw = "";
+    const chatPayload: Record<string, any> = {
+      model,
+      stream: false,
+      format: MEMORY_EXTRACTION_JSON_SCHEMA,
+      messages: [{ role: "user", content: prompt }],
+      options: { temperature: 0.1 },
+    };
+
+    await acquireOllamaSlot("chat");
     try {
-      const res = await fetch(`${hostUrl}/api/chat`, {
+      let res = await fetch(`${hostUrl}/api/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         signal: controller.signal,
-        body: JSON.stringify({
-          model,
-          stream: false,
-          messages: [{ role: "user", content: prompt }],
-          // Low temperature: this is an extraction task, not a creative
-          // one — sampling variety here just produces inconsistent
-          // memories across turns.
-          options: { temperature: 0.1 },
-        }),
+        body: JSON.stringify(chatPayload),
       });
+
+      // Fallback to format: "json" if an older Ollama doesn't support custom schema
+      if (!res.ok && res.status === 400 && typeof chatPayload.format === "object") {
+        chatPayload.format = "json";
+        res = await fetch(`${hostUrl}/api/chat`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          signal: controller.signal,
+          body: JSON.stringify(chatPayload),
+        });
+      }
+
       if (!res.ok) {
         return NextResponse.json(
           { success: false, error: `Ollama returned ${res.status}` },
@@ -97,6 +112,7 @@ export async function POST(req: NextRequest) {
       const reason = err?.name === "AbortError" ? "extraction timed out" : err?.message || "request failed";
       return NextResponse.json({ success: false, error: reason }, { status: 504 });
     } finally {
+      releaseOllamaSlot("chat");
       clearTimeout(timeout);
     }
 

@@ -829,7 +829,7 @@ const ChatMessageComponent: React.FC<ChatMessageProps> = ({
                   )}
 
                   {/* Finished Performance Metrics & Tokens Engine Badge */}
-                  {!isUser && !isStreaming && metrics && (metrics.evalTps || metrics.evalCount) && (
+                  {!isUser && !isStreaming && (message.servedFromCache || (metrics && (metrics.evalTps || metrics.evalCount))) && (
                     <button
                       type="button"
                       onClick={() => setShowMetricsDetail(!showMetricsDetail)}
@@ -842,17 +842,17 @@ const ChatMessageComponent: React.FC<ChatMessageProps> = ({
                     >
                       <Zap className="w-2.5 h-2.5 text-blue-400" />
                       <span>
-                        {metrics.evalTps === 999 ? (
+                        {message.servedFromCache ? (
                           <span className="text-amber-400 font-semibold">⚡ Instant Cached</span>
-                        ) : metrics.evalTps ? (
+                        ) : metrics?.evalTps ? (
                           `${metrics.evalTps.toFixed(1)} t/s`
                         ) : (
                           "Tokens Engine"
                         )}
-                        {metrics.evalCount ? ` • ${metrics.evalCount} tok` : ""}
-                        {metrics.evalTps !== 999 && metrics.totalSeconds
+                        {metrics?.evalCount ? ` • ${metrics.evalCount} tok` : ""}
+                        {!message.servedFromCache && metrics?.totalSeconds
                           ? ` • ${metrics.totalSeconds}s`
-                          : metrics.evalDuration
+                          : !message.servedFromCache && metrics?.evalDuration
                           ? ` • ${(metrics.evalDuration / 1e9).toFixed(1)}s`
                           : ""}
                       </span>

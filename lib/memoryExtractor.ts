@@ -270,3 +270,19 @@ that is the normal and expected result for most exchanges.
 
 Format: [{"category":"preference|profile|project|topic|other","title":"short label","content":"the fact, one sentence"}]`;
 }
+
+export const MEMORY_EXTRACTION_JSON_SCHEMA = {
+  type: "array",
+  items: {
+    type: "object",
+    properties: {
+      category: {
+        type: "string",
+        enum: ["preference", "profile", "project", "topic", "other"],
+      },
+      title: { type: "string" },
+      content: { type: "string" },
+    },
+    required: ["category", "title", "content"],
+  },
+};

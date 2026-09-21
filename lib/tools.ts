@@ -106,7 +106,70 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
 ];
 
+export interface NativeToolCall {
+  name: ToolName;
+  args: Record<string, any>;
+  id?: string;
+}
+
 /** Payload gaya OpenAI/Ollama `tools: [...]` untuk model yang dukung native function calling. */
+export function getNativeOllamaTools(): any[] {
+  return TOOL_DEFINITIONS.map((t) => ({
+    type: "function",
+    function: {
+      name: t.name,
+      description: t.description,
+      parameters: {
+        type: "object",
+        properties: Object.fromEntries(
+          Object.entries(t.parameters).map(([key, p]) => [
+            key,
+            {
+              type: p.type,
+              description: p.description,
+            },
+          ])
+        ),
+        required: Object.entries(t.parameters)
+          .filter(([, p]) => p.required)
+          .map(([key]) => key),
+      },
+    },
+  }));
+}
+
+/**
+ * Parses tool_calls returned natively by Ollama/OpenAI APIs into validated NativeToolCall objects.
+ */
+export function parseNativeToolCalls(rawToolCalls: any[]): NativeToolCall[] {
+  if (!Array.isArray(rawToolCalls) || rawToolCalls.length === 0) return [];
+  const validNames = new Set(TOOL_DEFINITIONS.map((t) => t.name));
+  const result: NativeToolCall[] = [];
+
+  for (const tc of rawToolCalls) {
+    const fn = tc.function || tc;
+    const name = fn.name;
+    if (!name || !validNames.has(name as ToolName)) continue;
+
+    let args = fn.arguments || {};
+    if (typeof args === "string") {
+      try {
+        args = JSON.parse(args);
+      } catch {
+        continue;
+      }
+    }
+
+    result.push({
+      name: name as ToolName,
+      args,
+      id: tc.id,
+    });
+  }
+
+  return result;
+}
+
 /**
  * Directive fallback untuk model tanpa native tool calling.
  * Model diinstruksikan menulis baris persis: [TOOL_CALL:nama_tool:{"arg":"value"}]

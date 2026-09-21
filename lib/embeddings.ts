@@ -24,20 +24,8 @@ const IS_SERVER = typeof window === "undefined";
 
 // In-memory embedding cache, backed by data/embeddings-cache.json on disk
 // (server-side only — in the browser this is just the in-memory Map).
-// rankChunksHybrid re-embeds every project chunk on every chat turn even
-// when the file content hasn't changed — for a project with many/large
-// chunks this adds a full round of Ollama calls to every message before
-// generation can even start. Keyed by a hash of the exact text + model (not
-// chunk.id, which can be reused across edits — a content hash means a stale
-// hit is structurally impossible). Capped with simple insertion-order
-// eviction so long sessions with many distinct projects/files don't grow
-// this unboundedly.
-//
-// Without disk persistence this cache was thrown away on every dev-server
-// restart, forcing a full project re-embed (one Ollama call per chunk) on
-// the very next query — this file keeps it warm across restarts, keyed by
-// content hash so edited files simply miss and re-embed individually rather
-// than invalidating anything else.
+// Keyed by model:hash(text).
+// Eviction policy: True LRU (Least Recently Used) via touch-on-read.
 const EMBEDDING_CACHE_MAX_ENTRIES = 5000;
 const embeddingCache = new Map<string, number[]>();
 
@@ -58,8 +46,7 @@ function loadCacheFromDisk(): void {
       if (Array.isArray(parsed[key])) embeddingCache.set(key, parsed[key]);
     }
   } catch {
-    // No cache file yet, or it's corrupt — start empty. Never let a bad
-    // cache file break embedding/retrieval.
+    // No cache file yet, or it's corrupt — start empty.
   }
 }
 
@@ -77,18 +64,13 @@ function persistCacheToDisk(): void {
     });
     fs.writeFileSync(cacheFile, JSON.stringify(obj), "utf8");
   } catch {
-    // Best-effort — a failed write just means the cache stays in-memory
-    // only for this process, same as before this change.
+    // Best-effort
   }
 }
 
 function schedulePersist(): void {
   if (!IS_SERVER) return;
   if (persistTimer) clearTimeout(persistTimer);
-  // Debounced: embedTexts() calls embedOne() once per chunk, often dozens
-  // per query — write once after the batch settles instead of once per
-  // chunk, so indexing a whole project doesn't turn into dozens of disk
-  // writes on the request path.
   persistTimer = setTimeout(persistCacheToDisk, PERSIST_DEBOUNCE_MS);
 }
 
@@ -97,11 +79,12 @@ export function clearEmbeddingCache(): void {
   embeddingCache.clear();
 }
 
+/** Test hook to inspect keys in LRU order (oldest first). */
+export function getEmbeddingCacheKeys(): string[] {
+  return Array.from(embeddingCache.keys());
+}
+
 function hashText(text: string): string {
-  // Fast non-cryptographic hash (FNV-1a) — this is a cache key, not a
-  // security boundary, so collision resistance only needs to be good
-  // enough to avoid accidental hits, which FNV-1a comfortably provides
-  // for this volume of distinct chunks.
   let hash = 0x811c9dc5;
   for (let i = 0; i < text.length; i++) {
     hash ^= text.charCodeAt(i);
@@ -114,28 +97,47 @@ function cacheKey(text: string, model: string): string {
   return `${model}:${hashText(text)}`;
 }
 
-async function embedOne(text: string, options: EmbeddingRequestOptions): Promise<number[] | null> {
+/**
+ * Touch a cache entry on read to maintain true LRU order.
+ */
+function touchCache(key: string, value: number[]): void {
+  embeddingCache.delete(key);
+  embeddingCache.set(key, value);
+}
+
+/**
+ * Insert or update a cache entry with true LRU eviction.
+ */
+function setCacheWithLru(key: string, value: number[]): void {
+  if (embeddingCache.has(key)) {
+    embeddingCache.delete(key);
+  } else if (embeddingCache.size >= EMBEDDING_CACHE_MAX_ENTRIES) {
+    const oldestKey = embeddingCache.keys().next().value;
+    if (oldestKey !== undefined) {
+      embeddingCache.delete(oldestKey);
+    }
+  }
+  embeddingCache.set(key, value);
+}
+
+export async function embedOne(text: string, options: EmbeddingRequestOptions): Promise<number[] | null> {
   loadCacheFromDisk();
   const model = options.model || DEFAULT_EMBEDDING_MODEL;
   const key = cacheKey(text, model);
   const cached = embeddingCache.get(key);
-  if (cached) return cached;
+  if (cached) {
+    touchCache(key, cached);
+    return cached;
+  }
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? 4000);
+  const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? 5000);
 
   try {
-    const res = await fetch(`${options.ollamaUrl.replace(/\/+$/, "")}/api/embeddings`, {
+    const baseUrl = options.ollamaUrl.replace(/\/+$/, "");
+    const res = await fetch(`${baseUrl}/api/embeddings`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      // keep_alive kept short on purpose: the chat model and the embedding
-      // model are usually two different Ollama models competing for the
-      // same VRAM budget. If both ask to stay resident, every RAG-enabled
-      // turn forces Ollama to swap one out to load the other, and then
-      // swap back for the next chat turn — a load/unload cycle on *every*
-      // message. The embedding model is small and cheap to reload, so we
-      // let it drop from VRAM almost immediately after use instead of
-      // holding a slot the chat model needs back.
       body: JSON.stringify({ model, prompt: text, keep_alive: "5s" }),
       signal: controller.signal,
     });
@@ -144,13 +146,7 @@ async function embedOne(text: string, options: EmbeddingRequestOptions): Promise
     const embedding = Array.isArray(data?.embedding) ? data.embedding : null;
 
     if (embedding) {
-      if (embeddingCache.size >= EMBEDDING_CACHE_MAX_ENTRIES) {
-        // Evict oldest entry (Map preserves insertion order) rather than
-        // clearing everything — keeps recently-used project chunks warm.
-        const oldestKey = embeddingCache.keys().next().value;
-        if (oldestKey !== undefined) embeddingCache.delete(oldestKey);
-      }
-      embeddingCache.set(key, embedding);
+      setCacheWithLru(key, embedding);
       schedulePersist();
     }
 
@@ -163,17 +159,110 @@ async function embedOne(text: string, options: EmbeddingRequestOptions): Promise
 }
 
 /**
- * Embed several texts. Returns one entry per input, in order; an entry is
- * `null` if that particular embedding call failed (missing model, timeout,
- * network error) — callers should treat `null` as "no semantic signal for
- * this text", not throw.
- *
- * Repeated calls with the same text + model (the common case: unchanged
- * project files across chat turns) are served from the in-memory cache
- * above instead of re-hitting Ollama.
+ * Attempt batch embedding using Ollama's newer `/api/embed` endpoint.
+ * Returns array of embeddings or null if endpoint is unsupported or fails.
  */
-export async function embedTexts(texts: string[], options: EmbeddingRequestOptions): Promise<(number[] | null)[]> {
-  return Promise.all(texts.map((t) => embedOne(t, options)));
+async function embedBatchApi(
+  texts: string[],
+  options: EmbeddingRequestOptions
+): Promise<(number[] | null)[] | null> {
+  const model = options.model || DEFAULT_EMBEDDING_MODEL;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? 10000);
+
+  try {
+    const baseUrl = options.ollamaUrl.replace(/\/+$/, "");
+    const res = await fetch(`${baseUrl}/api/embed`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model,
+        input: texts,
+        keep_alive: "5s",
+      }),
+      signal: controller.signal,
+    });
+
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (!data || !Array.isArray(data.embeddings) || data.embeddings.length !== texts.length) {
+      return null;
+    }
+
+    return data.embeddings.map((emb: any) => (Array.isArray(emb) ? emb : null));
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+/**
+ * Embed several texts. Employs a batched `/api/embed` call for all uncached texts
+ * in a single HTTP round-trip, falling back to parallel single `/api/embeddings`
+ * calls if the batch endpoint is unavailable.
+ *
+ * Repeated calls with identical text + model are served from the LRU cache.
+ */
+export async function embedTexts(
+  texts: string[],
+  options: EmbeddingRequestOptions
+): Promise<(number[] | null)[]> {
+  loadCacheFromDisk();
+  const model = options.model || DEFAULT_EMBEDDING_MODEL;
+
+  const results: (number[] | null)[] = new Array(texts.length).fill(null);
+  const uncachedIndices: number[] = [];
+  const uncachedTexts: string[] = [];
+
+  for (let i = 0; i < texts.length; i++) {
+    const text = texts[i];
+    const key = cacheKey(text, model);
+    const cached = embeddingCache.get(key);
+    if (cached) {
+      touchCache(key, cached);
+      results[i] = cached;
+    } else {
+      uncachedIndices.push(i);
+      uncachedTexts.push(text);
+    }
+  }
+
+  // All hits served from cache!
+  if (uncachedIndices.length === 0) {
+    return results;
+  }
+
+  // Try batch `/api/embed` endpoint first for meaningful latency savings
+  let batchEmbeddings: (number[] | null)[] | null = null;
+  if (uncachedTexts.length > 0) {
+    batchEmbeddings = await embedBatchApi(uncachedTexts, options);
+  }
+
+  if (batchEmbeddings && batchEmbeddings.length === uncachedTexts.length) {
+    for (let j = 0; j < uncachedTexts.length; j++) {
+      const idx = uncachedIndices[j];
+      const emb = batchEmbeddings[j];
+      results[idx] = emb;
+      if (emb) {
+        setCacheWithLru(cacheKey(uncachedTexts[j], model), emb);
+      }
+    }
+    schedulePersist();
+    return results;
+  }
+
+  // Fallback to individual `/api/embeddings` calls
+  const individualResults = await Promise.all(
+    uncachedTexts.map((t) => embedOne(t, options))
+  );
+
+  for (let j = 0; j < uncachedTexts.length; j++) {
+    const idx = uncachedIndices[j];
+    results[idx] = individualResults[j];
+  }
+
+  return results;
 }
 
 export function cosineSimilarity(a: number[], b: number[]): number {

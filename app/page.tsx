@@ -22,9 +22,9 @@ import {
 } from "@/lib/types";
 import { storage } from "@/lib/storage";
 import { DEFAULT_SETTINGS, PRESET_PERSONAS, DEFAULT_CUSTOM_THEME } from "@/lib/constants";
-import { checkOllamaHealth, fetchOllamaModels, streamChatCompletion, detectModelProvider, checkVramPressure } from "@/lib/ollama";
+import { checkOllamaHealth, fetchOllamaModels, streamChatCompletion, detectModelProvider, checkVramPressure, prewarmModel } from "@/lib/ollama";
 import { getBatterySignal, isBatteryConstrained } from "@/lib/hardwareSignals";
-import { buildToolDirectivePrompt, parseToolDirective, MUTATING_TOOLS } from "@/lib/tools";
+import { buildToolDirectivePrompt, parseToolDirective, getNativeOllamaTools, MUTATING_TOOLS, ToolName } from "@/lib/tools";
 import { executeToolCall, revertApproval } from "@/lib/toolEngine";
 import { executeAgent, calculateNextRun, resumeAgentAfterApproval } from "@/lib/agentEngine";
 import { composeSkillsPrompt, skillsRequireDiskTools, DEFAULT_SKILLS } from "@/lib/skills";
@@ -66,6 +66,7 @@ import {
   buildRetrievalQuery,
   trimChatHistoryForBudget,
   formatUserEphemeralContext,
+  calculateDynamicTokenBudgets,
 } from "@/lib/rag";
 import { calculateContextBreakdown } from "@/lib/contextVisualizer";
 import {
@@ -986,6 +987,8 @@ export default function HomePage() {
       );
       updateConversations(updated);
     }
+    // Predictive pre-warming: pre-load newly selected model into VRAM immediately
+    void prewarmModel(modelName, settings.ollamaUrl);
   };
 
   // Stop Streaming
@@ -1049,10 +1052,12 @@ export default function HomePage() {
       // words. Only affects what's used for ranking — the model still
       // sees the real conversation history separately, unchanged.
       const retrievalQuery = buildRetrievalQuery(userQuery, conv.messages);
+      const targetCtx = conv.numCtx ?? proj.numCtx ?? settings.numCtx ?? 16384;
+      const dynamicBudgets = calculateDynamicTokenBudgets(targetCtx);
       const knowledgeResult = await buildOptimizedKnowledgeContextAsync(
         proj.files,
         retrievalQuery,
-        3500,
+        dynamicBudgets.knowledgeBudget,
         {
           ollamaUrl: settings.ollamaUrl,
           embeddingModel: settings.embeddingModel,
@@ -1069,7 +1074,7 @@ export default function HomePage() {
         dynamicContext = knowledgeResult.contextText;
         retrievedChunks = knowledgeResult.retrievedChunks;
         if (knowledgeResult.isChunked) {
-          knowledgeNotice = `⚡ *16K Context Guard: Retrieved ${knowledgeResult.matchedChunksCount} most relevant passages from ${knowledgeResult.matchedFiles.join(", ")} (~${knowledgeResult.totalEstimatedTokens} tokens)*\n\n`;
+          knowledgeNotice = `⚡ *Retrieved ${knowledgeResult.matchedChunksCount} most relevant passages from ${knowledgeResult.matchedFiles.join(", ")} (~${knowledgeResult.totalEstimatedTokens} tokens)*\n\n`;
         }
       }
     }
@@ -1089,10 +1094,12 @@ export default function HomePage() {
       basePrompt += "\n\n=== FAST / DIRECT MODE: ACTIVE ===\nDo NOT output internal thoughts or verbose reasoning. Provide the direct, concise solution immediately.\n";
     }
 
-    // 4. Inject Persistent User Memory & Personalization (Static)
+    // 4. Inject Persistent User Memory & Personalization (Static & Prefix-Stable)
     const memoryConfig = settings.memory || DEFAULT_MEMORY_CONFIG;
     if (memoryConfig && memoryConfig.items && memoryConfig.items.length > 0) {
-      const activeMemories = memoryConfig.items.filter((m) => m.enabled);
+      const activeMemories = memoryConfig.items
+        .filter((m) => m.enabled)
+        .sort((a, b) => a.id.localeCompare(b.id));
       if (activeMemories.length > 0) {
         let memorySection = "\n\n=== PERSISTENT USER MEMORY & CONTEXT ===\n";
         memorySection += "The following are persistent facts, preferences, and background about the user. Always respect these across all answers:\n";
@@ -1104,9 +1111,11 @@ export default function HomePage() {
       }
     }
 
-    // 4b. Inject Project-Specific Memories (Static)
+    // 4b. Inject Project-Specific Memories (Static & Prefix-Stable)
     if (proj && proj.memories && proj.memories.length > 0) {
-      const activeProjMemories = proj.memories.filter((m) => m.enabled);
+      const activeProjMemories = proj.memories
+        .filter((m) => m.enabled)
+        .sort((a, b) => a.id.localeCompare(b.id));
       if (activeProjMemories.length > 0) {
         let projMemSection = `\n\n=== PROJECT MEMORIES: ${proj.name.toUpperCase()} ===\n`;
         projMemSection += "The following are key facts, constraints, and project rules specific to this project. Always respect them in this workspace:\n";
@@ -1665,8 +1674,10 @@ export default function HomePage() {
       // - systemPrompt is pure STATIC (basePrompt + directives + tool directive)
       // - dynamic context is injected into the active user turn
       let effectiveSystemPrompt = baseEffectivePrompt;
+      const isOllamaProvider = detectModelProvider(selectedModel) === "ollama";
+
       if (isSmartContext) {
-        effectiveSystemPrompt = effectiveDiskToolsActive
+        effectiveSystemPrompt = effectiveDiskToolsActive && !isOllamaProvider
           ? `${staticPrompt}\n\n${buildToolDirectivePrompt()}`
           : staticPrompt;
       } else {
@@ -1679,16 +1690,20 @@ export default function HomePage() {
         if (connectorContextText) {
           effectiveSystemPrompt = `${effectiveSystemPrompt}${connectorContextText}`;
         }
-        if (effectiveDiskToolsActive) {
+        if (effectiveDiskToolsActive && !isOllamaProvider) {
           effectiveSystemPrompt = `${effectiveSystemPrompt}\n\n${buildToolDirectivePrompt()}`;
         }
       }
 
-      // Enforce 16K Context Window Budget: trim chat history so (system + knowledge + history + predict) never overflows
+      // Enforce Context Window Budget dynamically
       const targetCtx = targetConv.numCtx ?? proj?.numCtx ?? settings.numCtx ?? 16384;
-      const historyBudget = Math.max(2000, Math.floor(targetCtx * 0.45));
+      const dynamicBudgets = calculateDynamicTokenBudgets(targetCtx);
+      const historyBudget = dynamicBudgets.historyBudget;
       const rawMessagesToSend = newMessages.slice(0, -1);
-      const budgetedMessages = trimChatHistoryForBudget(rawMessagesToSend, historyBudget, { smartShift: isSmartContext });
+      const budgetedMessages = trimChatHistoryForBudget(rawMessagesToSend, historyBudget, {
+        smartShift: isSmartContext,
+        condensedSummary: targetConv.condensedSummary,
+      });
 
       // If smart context is enabled and there is dynamic context, inject into the active user turn message
       let finalMessagesToSend = budgetedMessages;
@@ -1730,6 +1745,7 @@ export default function HomePage() {
                       content: cached.content,
                       reasoning: cached.reasoning,
                       metrics: cached.metrics,
+                      servedFromCache: true,
                       sources: cached.sources,
                       retrievedChunks: cached.retrievedChunks || retrievedChunks,
                       toolExecutions: cached.toolExecutions,
@@ -1764,6 +1780,7 @@ export default function HomePage() {
         stop: targetConv.stopSequences ?? proj?.stopSequences,
         keepAlive: settings.ollamaKeepAlive || "60m",
         apiKeys: settings.apiKeys,
+        tools: effectiveDiskToolsActive ? getNativeOllamaTools() : undefined,
         signal: abortController.signal,
         onReasoning: (rChunk) => {
           accumulatedReasoning += rChunk;
@@ -1790,16 +1807,11 @@ export default function HomePage() {
             })
           );
         },
-        onFinish: async (full, metrics, fullReasoning) => {
+        onFinish: async (full, metrics, fullReasoning, nativeToolCalls) => {
           let finalFullText = full || accumulatedText;
           const finalReasoning = fullReasoning || accumulatedReasoning || undefined;
 
-          // Disk Tools: jalankan directive [TOOL_CALL:...] kalau toggle aktif.
-          // Non-native (ReAct fallback) loop: model tulis directive -> kita eksekusi via
-          // /api/tools/execute (sudah dijail ke BASE_DIR project) -> hasil disuapkan balik
-          // ke model sebagai pesan baru -> ulangi sampai model tidak minta tool lagi
-          // atau limit iterasi tercapai. Toggle ini hanya kontrol UX, bukan boundary
-          // keamanan — proteksi sebenarnya ada di endpoint.
+          // Disk Tools: primary path uses native tool_calls, falling back to directive parsing
           let toolExecutions: ToolCallExecution[] = [];
           if (effectiveDiskToolsActive) {
             let loopText = finalFullText;
@@ -1808,15 +1820,30 @@ export default function HomePage() {
               { id: assistantMessageId, role: "assistant", content: loopText, timestamp: Date.now() },
             ];
             const maxIterations = 3;
+            let pendingNativeCalls = nativeToolCalls ? [...nativeToolCalls] : [];
 
             for (let iteration = 0; iteration < maxIterations; iteration++) {
-              const directive = parseToolDirective(loopText);
-              if (!directive) break;
+              let toolName: ToolName | null = null;
+              let args: Record<string, any> = {};
+
+              if (pendingNativeCalls.length > 0) {
+                const nextCall = pendingNativeCalls.shift()!;
+                toolName = nextCall.name as ToolName;
+                args = nextCall.args;
+              } else {
+                const directive = parseToolDirective(loopText);
+                if (directive) {
+                  toolName = directive.toolName;
+                  args = directive.args;
+                }
+              }
+
+              if (!toolName) break;
 
               const execId = `tool_${assistantMessageId}_${iteration}`;
               toolExecutions = [
                 ...toolExecutions,
-                { id: execId, toolName: directive.toolName, args: directive.args, status: "running", timestamp: Date.now() },
+                { id: execId, toolName, args, status: "running", timestamp: Date.now() },
               ];
               // Bersihkan baris directive dari teks yang ditampilkan ke user.
               loopText = loopText.replace(/\[TOOL_CALL:[a-z_]+:\{[\s\S]*?\}\]/, "").trim();
@@ -1834,18 +1861,18 @@ export default function HomePage() {
               );
 
               let toolResultText: string;
-              const isMutating = MUTATING_TOOLS.includes(directive.toolName);
+              const isMutating = MUTATING_TOOLS.includes(toolName);
               let approvalDecision: "approved" | "rejected" = "approved";
               const chatApprovalId = isMutating ? `chatapproval_${execId}` : undefined;
 
               if (isMutating) {
                 let previousContent: string | undefined;
                 if (
-                  (directive.toolName === "write_file" || directive.toolName === "delete_file") &&
-                  typeof directive.args.path === "string"
+                  (toolName === "write_file" || toolName === "delete_file") &&
+                  typeof args.path === "string"
                 ) {
                   try {
-                    const readResult = await executeToolCall("read_file", { path: directive.args.path }, abortController.signal);
+                    const readResult = await executeToolCall("read_file", { path: args.path }, abortController.signal);
                     previousContent = readResult.raw?.content;
                   } catch {
                     // write_file: file doesn't exist yet (new file) or isn't readable —
@@ -1859,8 +1886,8 @@ export default function HomePage() {
                   id: chatApprovalId!,
                   source: "chat",
                   conversationId: targetId,
-                  toolName: directive.toolName,
-                  args: directive.args,
+                  toolName,
+                  args,
                   status: "pending",
                   createdAt: Date.now(),
                   previousContent,
@@ -1895,12 +1922,12 @@ export default function HomePage() {
                 toolExecutions = toolExecutions.map((t) =>
                   t.id === execId ? { ...t, status: "error", error: "Ditolak oleh user." } : t
                 );
-                toolResultText = `DITOLAK oleh user. Tool '${directive.toolName}' tidak dijalankan. Lanjutkan tanpa hasil ini, atau jelaskan ke user kenapa langkah ini diperlukan jika masih relevan.`;
+                toolResultText = `DITOLAK oleh user. Tool '${toolName}' tidak dijalankan. Lanjutkan tanpa hasil ini, atau jelaskan ke user kenapa langkah ini diperlukan jika masih relevan.`;
               } else {
                 try {
                   const result = await executeToolCall(
-                    directive.toolName,
-                    directive.args,
+                    toolName,
+                    args,
                     abortController.signal,
                     chatApprovalId
                   );
@@ -1921,7 +1948,7 @@ export default function HomePage() {
                 {
                   id: `${execId}_result`,
                   role: "user",
-                  content: `[TOOL_RESULT untuk ${directive.toolName}]:\n${toolResultText}\n\nLanjutkan jawabanmu ke user berdasarkan hasil ini. Jangan panggil tool yang sama dengan argumen sama persis lagi kalau sudah berhasil.`,
+                  content: `[TOOL_RESULT untuk ${toolName}]:\n${toolResultText}\n\nLanjutkan jawabanmu ke user berdasarkan hasil ini. Jangan panggil tool yang sama dengan argumen sama persis lagi kalau sudah berhasil.`,
                   timestamp: Date.now(),
                 },
               ];

@@ -4,6 +4,7 @@
 
 import { ProjectFile, Message, RetrievedChunkInfo } from "./types";
 import { embedTexts, cosineSimilarity } from "./embeddings";
+import { countTokens } from "./tokenizer";
 
 export interface DocumentChunk {
   id: string;
@@ -31,12 +32,47 @@ export interface OptimizedKnowledgeResult {
   retrievedChunks?: RetrievedChunkInfo[];
 }
 
-// Token estimation: 1 token is approximately 3.8 to 4 characters in English/code,
-// or approx 0.75 words.
-export function estimateTokens(text: string): number {
-  if (!text) return 0;
-  return Math.ceil(text.length / 3.8);
+export interface DynamicTokenBudgets {
+  totalContext: number;
+  knowledgeBudget: number;
+  historyBudget: number;
+  reserveBudget: number;
 }
+
+/**
+ * Derives context window budgets dynamically from the model's actual num_ctx.
+ * Eliminates hardcoded magic numbers (e.g. 3500, 6000) so large-context models (128K)
+ * utilize full capacity while small-context models never overflow.
+ */
+export function calculateDynamicTokenBudgets(numCtx = 16384): DynamicTokenBudgets {
+  const safeCtx = Math.max(1024, numCtx);
+  // Reserve ~25% for generation output and prompt overhead (min 512, max 16384)
+  const reserveBudget = Math.min(16384, Math.max(512, Math.floor(safeCtx * 0.25)));
+  const usableCtx = safeCtx - reserveBudget;
+
+  // Knowledge retrieval gets ~35% of usable context
+  const knowledgeBudget = Math.max(500, Math.floor(usableCtx * 0.35));
+
+  // Chat history gets ~65% of usable context
+  const historyBudget = Math.max(500, usableCtx - knowledgeBudget);
+
+  return {
+    totalContext: safeCtx,
+    knowledgeBudget,
+    historyBudget,
+    reserveBudget,
+  };
+}
+
+/**
+ * Counts exact tokens for text using js-tiktoken (cl100k_base).
+ * Retained under the estimateTokens name for backward compatibility across all call sites.
+ */
+export function estimateTokens(text: string): number {
+  return countTokens(text);
+}
+
+export { countTokens };
 
 // English & programming common stopwords to filter noise in BM25
 const STOPWORDS = new Set([
@@ -175,9 +211,96 @@ export function buildRetrievalQuery(
   return [...priorUserTurns, currentQuery].join("\n");
 }
 
+const CODE_FILE_EXTENSIONS = new Set([
+  "ts", "tsx", "js", "jsx", "mjs", "cjs",
+  "py", "go", "rs", "java", "c", "cpp", "h", "hpp", "cs",
+  "php", "rb", "swift", "kt", "scala", "sql", "sh", "bash",
+  "zsh", "vue", "svelte", "json", "yaml", "yml", "toml"
+]);
+
+export function isCodeFile(fileName: string): boolean {
+  const ext = fileName.split(".").pop()?.toLowerCase();
+  return ext ? CODE_FILE_EXTENSIONS.has(ext) : false;
+}
+
+// Regex to identify top-level code constructs (functions, classes, interfaces, types)
+const CODE_CONSTRUCT_START_REGEX =
+  /^(\s*(?:export\s+(?:default\s+)?)?(?:async\s+)?function\b|\s*(?:export\s+)?(?:const|let|var)\s+\w+\s*=\s*(?:async\s*)?(?:\([^)]*\)|[a-zA-Z0-9_$]+)\s*=>|\s*(?:export\s+)?(?:class|interface|type|enum|struct|impl|trait)\b|\s*(?:async\s+)?def\s+\w+|\s*class\s+\w+|\s*func\s+(?:\([^)]+\)\s+)?\w+|\s*(?:pub(?:\([^)]+\))?\s+)?(?:async\s+)?(?:fn|struct|enum|trait|impl|type)\b)/;
+
+function chunkCodeDocument(
+  file: ProjectFile,
+  targetChunkChars = 1800,
+  overlapChars = 200
+): DocumentChunk[] {
+  const content = file.textContent || "";
+  const lines = content.split("\n");
+  const chunks: string[] = [];
+  let currentLines: string[] = [];
+  let currentLength = 0;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const isBoundary = CODE_CONSTRUCT_START_REGEX.test(line);
+
+    // If we hit a code boundary and already have accumulated enough content, close the chunk
+    if (isBoundary && currentLength >= Math.floor(targetChunkChars * 0.65)) {
+      if (currentLines.length > 0) {
+        chunks.push(currentLines.join("\n"));
+        // Calculate overlap lines from the end of the previous chunk
+        const overlapLines: string[] = [];
+        let overlapCount = 0;
+        for (let j = currentLines.length - 1; j >= 0; j--) {
+          if (overlapCount + currentLines[j].length + 1 > overlapChars) break;
+          overlapLines.unshift(currentLines[j]);
+          overlapCount += currentLines[j].length + 1;
+        }
+        currentLines = overlapLines;
+        currentLength = overlapCount;
+      }
+    }
+
+    currentLines.push(line);
+    currentLength += line.length + 1;
+
+    // Hard ceiling if single block exceeds targetChunkChars
+    if (currentLength >= targetChunkChars) {
+      chunks.push(currentLines.join("\n"));
+      const overlapLines: string[] = [];
+      let overlapCount = 0;
+      for (let j = currentLines.length - 1; j >= 0; j--) {
+        if (overlapCount + currentLines[j].length + 1 > overlapChars) break;
+        overlapLines.unshift(currentLines[j]);
+        overlapCount += currentLines[j].length + 1;
+      }
+      currentLines = overlapLines;
+      currentLength = overlapCount;
+    }
+  }
+
+  if (currentLines.length > 0 && currentLines.some((l) => l.trim().length > 0)) {
+    const lastChunk = currentLines.join("\n").trim();
+    if (lastChunk.length > 0) {
+      chunks.push(lastChunk);
+    }
+  }
+
+  return chunks.map((chunkText, idx) => ({
+    id: `${file.id}_chk_${idx}`,
+    fileName: file.name,
+    fileId: file.id,
+    chunkIndex: idx,
+    totalChunks: chunks.length,
+    text: chunkText,
+    charCount: chunkText.length,
+    estimatedTokens: estimateTokens(chunkText),
+    preview: chunkText.slice(0, 120).replace(/\n/g, " "),
+  }));
+}
+
 /**
  * Splits document text into semantic chunks (~400-600 tokens each)
  * respecting markdown sections, code blocks, paragraphs, and lists.
+ * For source code files, uses language-aware boundary chunking.
  */
 export function chunkDocument(
   file: ProjectFile,
@@ -187,7 +310,7 @@ export function chunkDocument(
   const content = file.textContent || "";
   if (!content.trim()) return [];
 
-  // Short documents (under ~2,000 chars / ~500 tokens) don't need splitting
+  // Short documents (under targetChunkChars) don't need splitting
   if (content.length <= targetChunkChars) {
     return [
       {
@@ -202,6 +325,12 @@ export function chunkDocument(
         preview: content.slice(0, 120).replace(/\n/g, " "),
       },
     ];
+  }
+
+  // Language-aware chunking for code file types
+  if (isCodeFile(file.name)) {
+    const codeChunks = chunkCodeDocument(file, targetChunkChars, overlapChars);
+    if (codeChunks.length > 0) return codeChunks;
   }
 
   // Split on semantic boundaries: Double newlines (paragraphs), headings (#, ##), or code blocks (```)
@@ -435,7 +564,7 @@ function assembleContextFromRanked(
   // interleave first-pass and deferred-pass picks out of score order).
   selectedChunks.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
 
-  let contextText = "\n\n=== 16K CONTEXT-GUARD: RETRIEVED PROJECT KNOWLEDGE ===\n";
+  let contextText = "\n\n=== RETRIEVED PROJECT KNOWLEDGE ===\n";
   contextText += "The user has loaded the following project files:\n";
   for (const file of files) {
     const fileTok = estimateTokens(file.textContent || "");
@@ -521,14 +650,12 @@ export async function rankChunksHybrid(
  * Async, embeddings-aware counterpart to buildOptimizedKnowledgeContext.
  * Same behavior and return shape; the only difference is CASE 2 (large
  * document sets) uses rankChunksHybrid instead of rankChunksBM25 alone when
- * `embeddingOptions.enabled` is true. Kept as a separate function rather
- * than making the original async, so every existing call site keeps
- * working unchanged — adopt this one where an async call site is fine.
+ * `embeddingOptions.enabled` is true.
  */
 export async function buildOptimizedKnowledgeContextAsync(
   files: ProjectFile[],
   userQuery = "",
-  tokenBudget = 3500,
+  tokenBudget?: number,
   embeddingOptions?: {
     ollamaUrl: string;
     embeddingModel?: string;
@@ -548,10 +675,11 @@ export async function buildOptimizedKnowledgeContextAsync(
     };
   }
 
+  const effectiveBudget = tokenBudget ?? calculateDynamicTokenBudgets().knowledgeBudget;
   const totalTokens = files.reduce((acc, f) => acc + estimateTokens(f.textContent || ""), 0);
 
-  if (totalTokens <= tokenBudget) {
-    return buildOptimizedKnowledgeContext(files, userQuery, tokenBudget);
+  if (totalTokens <= effectiveBudget) {
+    return buildOptimizedKnowledgeContext(files, userQuery, effectiveBudget);
   }
 
   const chunkSizeChars = ragOptions?.chunkSizeChars ?? 1800;
@@ -568,18 +696,18 @@ export async function buildOptimizedKnowledgeContextAsync(
       ? await rankChunksHybrid(allChunks, userQuery, topK, embeddingOptions)
       : rankChunksBM25(allChunks, userQuery, topK);
 
-  return assembleContextFromRanked(files, ranked, tokenBudget);
+  return assembleContextFromRanked(files, ranked, effectiveBudget);
 }
 
 /**
  * Builds an optimized, token-budgeted knowledge base context for local models.
  * Automatically switches between full inclusion (for small files) and smart BM25 retrieval
- * (for larger files) to strictly protect the 16K context window.
+ * (for larger files) dynamically sized to model context capability.
  */
 export function buildOptimizedKnowledgeContext(
   files: ProjectFile[],
   userQuery = "",
-  tokenBudget = 3500
+  tokenBudget?: number
 ): OptimizedKnowledgeResult {
   if (!files || files.length === 0) {
     return {
@@ -592,13 +720,15 @@ export function buildOptimizedKnowledgeContext(
     };
   }
 
+  const effectiveBudget = tokenBudget ?? calculateDynamicTokenBudgets().knowledgeBudget;
+
   // Calculate total tokens across all loaded files
   const totalTokens = files.reduce((acc, f) => acc + estimateTokens(f.textContent || ""), 0);
 
   // CASE 1: All files together are already small enough to fit within budget.
   // Inject with 100% full fidelity without chunking.
-  if (totalTokens <= tokenBudget) {
-    let contextText = "\n\n=== CLAUDE-STYLE PROJECT KNOWLEDGE BASE ===\n";
+  if (totalTokens <= effectiveBudget) {
+    let contextText = "\n\n=== PROJECT KNOWLEDGE BASE ===\n";
     contextText += "The following persistent knowledge files belong to this project. Refer to them whenever relevant:\n";
     for (const file of files) {
       contextText += `\n[Project Document: ${file.name}]\n\`\`\`\n${file.textContent}\n\`\`\`\n`;
@@ -635,7 +765,24 @@ export function buildOptimizedKnowledgeContext(
   // Rank chunks against the user's latest query
   const ranked = rankChunksBM25(allChunks, userQuery, 8);
 
-  return assembleContextFromRanked(files, ranked, tokenBudget);
+  return assembleContextFromRanked(files, ranked, effectiveBudget);
+}
+
+/**
+ * Extracts a concise recap of omitted messages for context shift notices.
+ */
+export function extractQuickSummary(messages: Message[]): string {
+  if (!messages || messages.length === 0) return "";
+  const points: string[] = [];
+  for (const m of messages) {
+    const rolePrefix = m.role === "user" ? "User asked" : "Discussed";
+    const firstLine = (m.content || "").trim().split("\n")[0];
+    const snippet = firstLine.slice(0, 140).trim();
+    if (snippet) {
+      points.push(`- ${rolePrefix}: "${snippet}${snippet.length >= 140 ? "..." : ""}"`);
+    }
+  }
+  return points.slice(0, 5).join("\n");
 }
 
 /**
@@ -644,16 +791,17 @@ export function buildOptimizedKnowledgeContext(
  * - If smartShift is enabled (default true) and messages exceed budget:
  *   - Preserves Turn 0 (Anchor: initial user message + first assistant response) so the model never forgets the original objective/instructions.
  *   - Fills remaining budget with the most recent messages (Tail Window).
- *   - If middle messages are omitted, inserts a lightweight context shift notice so the model is aware of the gap.
+ *   - Compresses omitted middle turns with a summary recap instead of dropping information silently.
  */
 export function trimChatHistoryForBudget(
   messages: Message[],
-  maxHistoryTokens = 6000,
-  options?: { smartShift?: boolean }
+  maxHistoryTokens?: number,
+  options?: { smartShift?: boolean; condensedSummary?: string }
 ): Message[] {
   if (!messages || messages.length <= 1) return messages;
 
   const smartShift = options?.smartShift ?? true;
+  const effectiveMaxTokens = maxHistoryTokens ?? calculateDynamicTokenBudgets().historyBudget;
 
   // Calculate total tokens of all messages
   let totalTokens = 0;
@@ -662,7 +810,7 @@ export function trimChatHistoryForBudget(
   }
 
   // If already within budget, return as is
-  if (totalTokens <= maxHistoryTokens) {
+  if (totalTokens <= effectiveMaxTokens) {
     return messages;
   }
 
@@ -673,7 +821,7 @@ export function trimChatHistoryForBudget(
     for (let i = messages.length - 1; i >= 0; i--) {
       const msg = messages[i];
       const msgTokens = estimateTokens(msg.content) + 50;
-      if (accumulated + msgTokens <= maxHistoryTokens || kept.length === 0) {
+      if (accumulated + msgTokens <= effectiveMaxTokens || kept.length === 0) {
         kept.unshift(msg);
         accumulated += msgTokens;
       } else {
@@ -684,8 +832,8 @@ export function trimChatHistoryForBudget(
   }
 
   // Smart Context Shift: Anchor (Turn 0) + Tail Window
-  // Reserve up to 25% of maxHistoryTokens for Anchor turn (first user + assistant)
-  const anchorBudget = Math.floor(maxHistoryTokens * 0.25);
+  // Reserve up to 25% of history budget for Anchor turn (first user + assistant)
+  const anchorBudget = Math.floor(effectiveMaxTokens * 0.25);
   const anchorMessages: Message[] = [];
   let anchorTokens = 0;
 
@@ -708,7 +856,7 @@ export function trimChatHistoryForBudget(
   }
 
   // The remaining budget is for the Tail Window (recent messages)
-  const tailBudget = maxHistoryTokens - anchorTokens;
+  const tailBudget = effectiveMaxTokens - anchorTokens;
   let tailTokens = 0;
   const tailMessages: Message[] = [];
 
@@ -730,10 +878,14 @@ export function trimChatHistoryForBudget(
   const omittedCount = firstTailIndex > anchorCount ? firstTailIndex - anchorCount : 0;
 
   if (omittedCount > 0) {
+    const omittedTurns = messages.slice(anchorCount, firstTailIndex);
+    const summary = options?.condensedSummary || extractQuickSummary(omittedTurns);
+    const summarySection = summary ? `\nSummary of condensed dialogue:\n${summary}\n` : " ";
+
     const shiftNoticeMessage: Message = {
       id: "context_shift_notice",
       role: "system",
-      content: `[Context Shift: ${omittedCount} earlier dialogue turns were condensed to fit context window. Retaining initial objective anchor above and recent context below.]`,
+      content: `[Context Shift: ${omittedCount} earlier dialogue turns were condensed to fit context window.${summarySection}Retaining initial objective anchor above and recent context below.]`,
       timestamp: Date.now(),
     };
     return [...anchorMessages, shiftNoticeMessage, ...tailMessages];

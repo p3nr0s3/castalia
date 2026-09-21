@@ -188,7 +188,7 @@ describe("buildOptimizedKnowledgeContextAsync", () => {
     const manyResult = await buildOptimizedKnowledgeContextAsync(
       files,
       "keyword-target",
-      250,
+      200,
       { ollamaUrl: "http://x", enabled: false },
       { chunkSizeChars: 200, chunkOverlapChars: 20, topK: 10 }
     );

@@ -8,6 +8,7 @@ export interface CachedResponse {
   retrievedChunks?: RetrievedChunkInfo[];
   toolExecutions?: ToolCallExecution[];
   metrics?: GenerationMetrics;
+  servedFromCache?: boolean;
   timestamp: number;
 }
 
@@ -105,7 +106,8 @@ export function setCachedPromptResponse(
     sources: data.sources,
     retrievedChunks: data.retrievedChunks,
     toolExecutions: data.toolExecutions,
-    metrics: data.metrics ? { ...data.metrics, evalTps: 999, totalSeconds: 0.01 } : undefined,
+    metrics: data.metrics ? { ...data.metrics } : undefined,
+    servedFromCache: true,
     timestamp: Date.now(),
   });
 }

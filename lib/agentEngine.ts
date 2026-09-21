@@ -1,7 +1,7 @@
 import { AgentTask, AgentLog, Conversation, Message, Project, ApiKeysConfig, PendingApproval } from "./types";
 import { apiFetch } from "./apiClient";
 import { streamChatCompletion } from "./ollama";
-import { parseToolDirective, buildAgentToolDirectivePrompt, READ_ONLY_TOOLS, MUTATING_TOOLS } from "./tools";
+import { parseToolDirective, buildAgentToolDirectivePrompt, getNativeOllamaTools, READ_ONLY_TOOLS, MUTATING_TOOLS, ToolName } from "./tools";
 import { executeAgentToolCall, ToolExecutionError } from "./toolEngine";
 
 export const AGENT_PRESET_TEMPLATES = [
@@ -166,7 +166,8 @@ async function runAgentToolLoop(
   agent: AgentTask,
   history: Message[],
   initialOutput: string,
-  options: { ollamaUrl: string; apiKeys?: ApiKeysConfig; onProgress?: (t: string) => void; systemPrompt: string }
+  options: { ollamaUrl: string; apiKeys?: ApiKeysConfig; onProgress?: (t: string) => void; systemPrompt: string },
+  initialToolCalls?: { name: string; args: any }[]
 ): Promise<
   | { paused: true; pendingApproval: PendingApproval; historySoFar: Message[]; outputSoFar: string }
   | { paused: false; fullOutput: string; finalMetrics: any }
@@ -177,10 +178,22 @@ async function runAgentToolLoop(
   let finalMetrics: any = undefined;
 
   for (let iteration = 0; iteration < maxIterations; iteration++) {
-    const directive = parseToolDirective(loopText);
-    if (!directive) break;
+    let toolName: ToolName | null = null;
+    let args: Record<string, any> = {};
 
-    const { toolName, args } = directive;
+    if (iteration === 0 && initialToolCalls && initialToolCalls.length > 0) {
+      toolName = initialToolCalls[0].name as ToolName;
+      args = initialToolCalls[0].args;
+    } else {
+      const directive = parseToolDirective(loopText);
+      if (directive) {
+        toolName = directive.toolName;
+        args = directive.args;
+      }
+    }
+
+    if (!toolName) break;
+
     const isMutating = MUTATING_TOOLS.includes(toolName);
 
     if (isMutating) {
@@ -371,12 +384,14 @@ export async function executeAgent(
   try {
     let fullOutput = "";
     let finalMetrics: any = undefined;
+    let initialToolCalls: { name: string; args: any }[] | undefined = undefined;
 
     await streamChatCompletion({
       hostUrl: options.ollamaUrl,
       model: agent.model,
       messages: [userMsg],
       systemPrompt: effectiveSystemPrompt,
+      tools: agent.diskToolsActive ? getNativeOllamaTools() : undefined,
       temperature: agent.temperature ?? 0.7,
       topP: agent.topP ?? 0.9,
       apiKeys: options.apiKeys,
@@ -384,19 +399,21 @@ export async function executeAgent(
         fullOutput += token;
         if (options.onProgress) options.onProgress(token);
       },
-      onFinish: (full, metrics) => {
+      onFinish: (full, metrics, _reasoning, toolCalls) => {
         fullOutput = full || fullOutput;
         finalMetrics = metrics;
+        initialToolCalls = toolCalls;
       },
     });
 
-    // Tool-calling loop (only relevant if diskToolsActive and model actually emitted a directive)
+    // Tool-calling loop (only relevant if diskToolsActive and model emitted a tool call or directive)
     if (agent.diskToolsActive) {
       const loopResult = await runAgentToolLoop(
         agent,
         [userMsg],
         fullOutput,
-        { ollamaUrl: options.ollamaUrl, apiKeys: options.apiKeys, onProgress: options.onProgress, systemPrompt: effectiveSystemPrompt }
+        { ollamaUrl: options.ollamaUrl, apiKeys: options.apiKeys, onProgress: options.onProgress, systemPrompt: effectiveSystemPrompt },
+        initialToolCalls
       );
 
       if (loopResult.paused) {

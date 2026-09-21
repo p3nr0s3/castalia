@@ -202,6 +202,7 @@ export interface Message {
   metrics?: GenerationMetrics;
   reasoning?: string;
   isError?: boolean;
+  servedFromCache?: boolean;
   toolExecutions?: ToolCallExecution[];
   retrievedChunks?: RetrievedChunkInfo[];
 }
@@ -296,6 +297,7 @@ export interface Conversation {
   pinned?: boolean;
   unread?: boolean;
   activeSkillIds?: string[];
+  condensedSummary?: string;
   messages: Message[];
 }
 
