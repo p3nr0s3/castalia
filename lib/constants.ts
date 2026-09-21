@@ -64,6 +64,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   temperature: 0.7,
   topP: 0.9,
   topK: 40,
+  minP: 0.05,
   repeatPenalty: 1.1,
   numCtx: 16384,
   numPredict: 2048,

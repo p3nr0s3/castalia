@@ -3,6 +3,7 @@ import { apiFetch } from "./apiClient";
 import { CLOUD_MODEL_PRESETS } from "./constants";
 import { ReasoningStreamParser } from "./reasoningParser";
 import { buildToolDirectivePrompt } from "./tools";
+import { countTokens } from "./tokenizer";
 
 export interface ChatStreamOptions {
   hostUrl?: string;
@@ -13,8 +14,10 @@ export interface ChatStreamOptions {
   temperature?: number;
   topP?: number;
   topK?: number;
+  minP?: number;
   numCtx?: number;
   numPredict?: number;
+  numKeep?: number;
   repeatPenalty?: number;
   presencePenalty?: number;
   frequencyPenalty?: number;
@@ -49,6 +52,30 @@ export function detectModelProvider(modelName: string): ModelProvider {
   if (modelName.includes("groq") || modelName.startsWith("llama-3.3")) return "groq";
 
   return "ollama";
+}
+
+/**
+ * Family-aware turn boundary and control stop tokens for open-weight models.
+ * Truncates multi-turn role hallucination (e.g. model continuing to generate `\nUser:`)
+ * before wasting GPU predict tokens and corrupting dialogue context.
+ */
+export function getFamilyStopTokens(modelName: string): string[] {
+  const name = modelName.toLowerCase();
+  const stops: string[] = ["\nUser:", "\nHuman:"];
+
+  if (name.includes("llama-3") || name.includes("llama3")) {
+    stops.push("<|eot_id|>", "<|start_header_id|>", "<|end_header_id|>");
+  } else if (name.includes("qwen")) {
+    stops.push("<|im_end|>", "<|im_start|>", "<|endoftext|>");
+  } else if (name.includes("deepseek")) {
+    stops.push("<｜end of sentence｜>", "<｜User｜>", "<｜Assistant｜>");
+  } else if (name.includes("gemma")) {
+    stops.push("<end_of_turn>", "<start_of_turn>");
+  } else if (name.includes("mistral") || name.includes("mixtral")) {
+    stops.push("</s>", "[INST]");
+  }
+
+  return stops;
 }
 
 export function getApiKeyForProvider(provider: ModelProvider, apiKeys?: ApiKeysConfig): string | undefined {
@@ -186,8 +213,10 @@ export async function streamChatCompletion({
   temperature = 0.7,
   topP = 0.9,
   topK,
+  minP,
   numCtx,
   numPredict,
+  numKeep,
   repeatPenalty,
   presencePenalty,
   frequencyPenalty,
@@ -388,14 +417,26 @@ export async function streamChatCompletion({
       top_p: topP,
     };
     if (topK !== undefined) optionsPayload.top_k = topK;
+    if (minP !== undefined) optionsPayload.min_p = minP;
     if (numCtx !== undefined) optionsPayload.num_ctx = numCtx;
     if (numPredict !== undefined) optionsPayload.num_predict = numPredict;
     if (repeatPenalty !== undefined) optionsPayload.repeat_penalty = repeatPenalty;
     if (presencePenalty !== undefined) optionsPayload.presence_penalty = presencePenalty;
     if (frequencyPenalty !== undefined) optionsPayload.frequency_penalty = frequencyPenalty;
     if (seed !== undefined) optionsPayload.seed = seed;
-    const effectiveStop = stopSequences || stop;
-    if (effectiveStop && effectiveStop.length > 0) optionsPayload.stop = effectiveStop;
+
+    // Pin static system prompt in KV cache automatically if num_keep is not set
+    if (numKeep !== undefined) {
+      optionsPayload.num_keep = numKeep;
+    } else if (systemPrompt && systemPrompt.trim()) {
+      optionsPayload.num_keep = countTokens(systemPrompt);
+    }
+
+    // Merge family-aware turn boundaries with user stop sequences
+    const userStops = stopSequences || stop || [];
+    const familyStops = getFamilyStopTokens(model);
+    const mergedStops = Array.from(new Set([...userStops, ...familyStops]));
+    if (mergedStops.length > 0) optionsPayload.stop = mergedStops;
 
     const payload: Record<string, any> = {
       model,

@@ -1090,8 +1090,6 @@ export default function HomePage() {
     const currentMode = conv.thinkingMode || thinkingMode || settings.thinkingMode || "default";
     if (currentMode === "think") {
       basePrompt += "\n\n=== DEEP THINKING & REASONING MODE: ACTIVE ===\nYou MUST think through this step-by-step and write out your detailed analytical reasoning before providing your final answer. Wrap your internal thoughts in <think>...</think> tags.\n";
-    } else if (currentMode === "nothink") {
-      basePrompt += "\n\n=== FAST / DIRECT MODE: ACTIVE ===\nDo NOT output internal thoughts or verbose reasoning. Provide the direct, concise solution immediately.\n";
     }
 
     // 4. Inject Persistent User Memory & Personalization (Static & Prefix-Stable)
@@ -1771,6 +1769,7 @@ export default function HomePage() {
         temperature: targetConv.temperature ?? settings.temperature,
         topP: targetConv.topP ?? settings.topP,
         topK: targetConv.topK ?? proj?.topK ?? settings.topK,
+        minP: targetConv.minP ?? proj?.minP ?? settings.minP ?? 0.05,
         numCtx: targetConv.numCtx ?? proj?.numCtx ?? settings.numCtx,
         numPredict: targetConv.numPredict ?? proj?.numPredict ?? settings.numPredict,
         repeatPenalty: targetConv.repeatPenalty ?? proj?.repeatPenalty ?? settings.repeatPenalty,
@@ -2847,6 +2846,8 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
         setTemperature={(val) => handleUpdateSessionParameters({ temperature: val })}
         topP={activeConversation?.topP ?? settings.topP}
         setTopP={(val) => handleUpdateSessionParameters({ topP: val })}
+        minP={activeConversation?.minP ?? currentProject?.minP ?? settings.minP ?? 0.05}
+        setMinP={(val) => handleUpdateSessionParameters({ minP: val })}
         numCtx={activeConversation?.numCtx ?? currentProject?.numCtx ?? settings.numCtx}
         setNumCtx={(val) => handleUpdateSessionParameters({ numCtx: val })}
         personas={personas}

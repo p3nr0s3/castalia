@@ -239,6 +239,7 @@ export interface Project {
   temperature?: number;
   topP?: number;
   topK?: number;
+  minP?: number;
   numCtx?: number;
   numPredict?: number;
   repeatPenalty?: number;
@@ -284,6 +285,7 @@ export interface Conversation {
   temperature?: number;
   topP?: number;
   topK?: number;
+  minP?: number;
   numCtx?: number;
   numPredict?: number;
   repeatPenalty?: number;
@@ -587,6 +589,7 @@ export interface AppSettings {
   temperature: number;
   topP: number;
   topK: number;
+  minP?: number;
   repeatPenalty: number;
   numCtx: number;
   numPredict: number;

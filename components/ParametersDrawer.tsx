@@ -17,6 +17,8 @@ interface ParametersDrawerProps {
   numCtx?: number;
   setNumCtx?: (val: number) => void;
   personas: PersonaPreset[];
+  minP?: number;
+  setMinP?: (val: number) => void;
   onSelectPersona: (persona: PersonaPreset) => void;
   onReset: () => void;
   contextBreakdown?: ContextBreakdown;
@@ -31,6 +33,8 @@ export const ParametersDrawer: React.FC<ParametersDrawerProps> = ({
   setTemperature,
   topP,
   setTopP,
+  minP,
+  setMinP,
   numCtx,
   setNumCtx,
   personas,
@@ -159,6 +163,34 @@ export const ParametersDrawer: React.FC<ParametersDrawerProps> = ({
                 <span>1.0 (Diverse)</span>
               </div>
             </div>
+
+            {/* Min-P Slider */}
+            {minP !== undefined && setMinP && (
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-xs font-semibold uppercase tracking-wider text-[var(--muted)] flex items-center gap-1">
+                    Min-P (Dynamic Truncation)
+                  </label>
+                  <span className="text-xs font-mono font-bold text-emerald-400 bg-emerald-500/20 px-2 py-0.5 rounded">
+                    {minP.toFixed(2)}
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  value={minP}
+                  onChange={(e) => setMinP(parseFloat(e.target.value))}
+                  className="w-full h-2.5 bg-[var(--sidebar-active)] rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                />
+                <div className="flex justify-between text-[10px] text-[var(--muted)] mt-1">
+                  <span>0.00 (Off)</span>
+                  <span>0.05 (Recommended)</span>
+                  <span>0.20 (Strict)</span>
+                </div>
+              </div>
+            )}
 
             {/* Context Window Size (num_ctx) */}
             <div>
