@@ -347,8 +347,20 @@ export function chunkDocument(
     } else {
       if (currentBuffer) {
         chunks.push(currentBuffer);
-        // Overlap: preserve the last segment of the previous buffer
-        const overlapStart = Math.max(0, currentBuffer.length - overlapChars);
+        // Overlap: preserve the last segment of the previous buffer with word-boundary snapping
+        const rawOverlapStart = Math.max(0, currentBuffer.length - overlapChars);
+        let overlapStart = rawOverlapStart;
+        if (overlapStart > 0 && overlapStart < currentBuffer.length) {
+          const nextSpace = currentBuffer.indexOf(" ", overlapStart);
+          const nextNl = currentBuffer.indexOf("\n", overlapStart);
+          const candidate = Math.min(
+            nextSpace === -1 ? Infinity : nextSpace,
+            nextNl === -1 ? Infinity : nextNl
+          );
+          if (candidate !== Infinity && candidate - rawOverlapStart < 30) {
+            overlapStart = candidate + 1;
+          }
+        }
         const overlapText = currentBuffer.slice(overlapStart).trim();
         currentBuffer = overlapText ? `${overlapText}\n\n${trimmed}` : trimmed;
       } else {
@@ -356,7 +368,14 @@ export function chunkDocument(
         let remaining = trimmed;
         while (remaining.length > targetChunkChars) {
           chunks.push(remaining.slice(0, targetChunkChars));
-          remaining = remaining.slice(targetChunkChars - overlapChars);
+          let nextStart = targetChunkChars - overlapChars;
+          if (nextStart > 0 && nextStart < remaining.length) {
+            const nextSpace = remaining.indexOf(" ", nextStart);
+            if (nextSpace !== -1 && nextSpace - nextStart < 30) {
+              nextStart = nextSpace + 1;
+            }
+          }
+          remaining = remaining.slice(nextStart);
         }
         currentBuffer = remaining;
       }
@@ -565,14 +584,13 @@ function assembleContextFromRanked(
   selectedChunks.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
 
   let contextText = "\n\n=== RETRIEVED PROJECT KNOWLEDGE ===\n";
-  contextText += "The user has loaded the following project files:\n";
-  for (const file of files) {
-    const fileTok = estimateTokens(file.textContent || "");
-    contextText += `- ${file.name} (~${fileTok} tokens)\n`;
-  }
+  contextText += `Relevant source files (${matchedFileSet.size}): ${Array.from(matchedFileSet).join(", ")}\n`;
   contextText += "\nBelow are the most relevant document passages retrieved for the user's prompt:\n";
 
-  for (const chunk of selectedChunks) {
+  // Reorder chunks using U-shaped perimeter order ("Lost in the Middle") so highest-scoring
+  // passages sit at the top and bottom of the context window rather than in the degraded middle.
+  const contextOrderedChunks = reorderChunksLostInTheMiddle(selectedChunks);
+  for (const chunk of contextOrderedChunks) {
     contextText += `\n--- [Document: ${chunk.fileName} (Part ${chunk.chunkIndex + 1}/${chunk.totalChunks})] ---\n`;
     contextText += `${chunk.text}\n`;
   }
@@ -598,6 +616,29 @@ function assembleContextFromRanked(
 }
 
 /**
+ * Reorders an array of ranked chunks using a U-shaped perimeter order ("Lost in the Middle").
+ * The highest-scoring chunk is placed at the very top (index 0).
+ * The second highest-scoring chunk is placed at the very bottom (closest to user prompt).
+ * Lower-scoring chunks are placed in the middle.
+ */
+export function reorderChunksLostInTheMiddle<T>(items: T[]): T[] {
+  if (items.length <= 2) return [...items];
+
+  const front: T[] = [];
+  const back: T[] = [];
+
+  for (let i = 0; i < items.length; i++) {
+    if (i % 2 === 0) {
+      front.push(items[i]);
+    } else {
+      back.unshift(items[i]);
+    }
+  }
+
+  return [...front, ...back];
+}
+
+/**
  * Hybrid retrieval: blends the existing BM25 keyword score with cosine
  * similarity over embeddings from a local Ollama embedding model
  * (default: nomic-embed-text). Falls back to pure BM25 if embeddings are
@@ -615,8 +656,38 @@ export async function rankChunksHybrid(
   const bm25Ranked = rankChunksBM25(chunks, query, chunks.length);
   if (!query.trim() || chunks.length === 0) return bm25Ranked.slice(0, topK);
 
+  // Stage 1: Coarse Candidate Selection
+  // For small collections (<= 35 chunks), evaluate all directly.
+  // For large collections, select top candidate pool (BM25 matches prioritized, supplemented by initial chunks).
+  const candidatePoolSize = Math.min(chunks.length, Math.max(topK * 5, 35));
+  let candidateChunks: DocumentChunk[] = chunks;
+
+  if (chunks.length > candidatePoolSize) {
+    const candidateIds = new Set<string>();
+    const candidates: DocumentChunk[] = [];
+
+    for (const bm of bm25Ranked) {
+      if (candidates.length >= candidatePoolSize) break;
+      if (!candidateIds.has(bm.id)) {
+        candidateIds.add(bm.id);
+        candidates.push(bm);
+      }
+    }
+
+    for (const c of chunks) {
+      if (candidates.length >= candidatePoolSize) break;
+      if (!candidateIds.has(c.id)) {
+        candidateIds.add(c.id);
+        candidates.push(c);
+      }
+    }
+
+    candidateChunks = candidates;
+  }
+
+  // Stage 2: Fine Semantic Embedding & Hybrid Blending
   const [queryEmbedding, ...chunkEmbeddings] = await embedTexts(
-    [query, ...chunks.map((c) => c.text)],
+    [query, ...candidateChunks.map((c) => c.text)],
     { ollamaUrl: embeddingOptions.ollamaUrl, model: embeddingOptions.embeddingModel }
   );
 
@@ -624,7 +695,7 @@ export async function rankChunksHybrid(
 
   const maxBm25 = Math.max(...bm25Ranked.map((c) => c.score), 1e-9);
   const bm25ScoreById = new Map(bm25Ranked.map((c) => [c.id, c.score / maxBm25]));
-  const chunkEmbeddingById = new Map(chunks.map((c, i) => [c.id, chunkEmbeddings[i]]));
+  const chunkEmbeddingById = new Map(candidateChunks.map((c, i) => [c.id, chunkEmbeddings[i]]));
 
   // Default blend keeps the semantic signal leading (catches
   // paraphrases/synonyms BM25 misses) while keyword score still counts so
@@ -634,7 +705,7 @@ export async function rankChunksHybrid(
   const semanticWeight = Math.min(1, Math.max(0, embeddingOptions.semanticWeight ?? 0.55));
   const keywordWeight = 1 - semanticWeight;
 
-  const hybridScored: RankedChunk[] = chunks.map((chunk) => {
+  const hybridScored: RankedChunk[] = candidateChunks.map((chunk) => {
     const emb = chunkEmbeddingById.get(chunk.id);
     const semanticScore = emb ? cosineSimilarity(queryEmbedding, emb) : 0;
     const keywordScore = bm25ScoreById.get(chunk.id) || 0;
