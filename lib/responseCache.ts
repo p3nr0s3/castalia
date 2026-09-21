@@ -10,6 +10,9 @@ export interface CachedResponse {
   metrics?: GenerationMetrics;
   servedFromCache?: boolean;
   timestamp: number;
+  model?: string;
+  queryEmbedding?: number[];
+  embedding?: number[];
 }
 
 export interface PromptCacheKeyParams {
@@ -80,6 +83,55 @@ export function getCachedPromptResponse(key: string): CachedResponse | null {
 }
 
 /**
+ * Calculates cosine similarity between two numeric embedding vectors.
+ */
+export function cosineSimilarity(a: number[], b: number[]): number {
+  if (!a || !b || a.length !== b.length || a.length === 0) return 0;
+  let dot = 0;
+  let normA = 0;
+  let normB = 0;
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i] * b[i];
+    normA += a[i] * a[i];
+    normB += b[i] * b[i];
+  }
+  if (normA === 0 || normB === 0) return 0;
+  return dot / (Math.sqrt(normA) * Math.sqrt(normB));
+}
+
+/**
+ * Searches for a semantically similar cached response for the same model.
+ * Returns the best cached response if cosine similarity >= threshold (default 0.96).
+ */
+export function findSemanticCachedResponse(params: {
+  model: string;
+  queryEmbedding: number[];
+  similarityThreshold?: number;
+}): CachedResponse | null {
+  if (!params.queryEmbedding || params.queryEmbedding.length === 0) return null;
+  const threshold = params.similarityThreshold ?? 0.96;
+  let bestMatch: CachedResponse | null = null;
+  let bestScore = -1;
+
+  for (const entry of memoryCache.values()) {
+    if (entry.model && entry.model !== params.model) continue;
+    const emb = entry.embedding || entry.queryEmbedding;
+    if (!emb || emb.length === 0) continue;
+
+    // Check TTL
+    if (Date.now() - entry.timestamp > CACHE_TTL_MS) continue;
+
+    const score = cosineSimilarity(params.queryEmbedding, emb);
+    if (score >= threshold && score > bestScore) {
+      bestScore = score;
+      bestMatch = entry;
+    }
+  }
+
+  return bestMatch;
+}
+
+/**
  * Saves a completed generation response to prompt cache.
  */
 export function setCachedPromptResponse(
@@ -91,6 +143,8 @@ export function setCachedPromptResponse(
     retrievedChunks?: RetrievedChunkInfo[];
     toolExecutions?: ToolCallExecution[];
     metrics?: GenerationMetrics;
+    model?: string;
+    embedding?: number[];
   }
 ): void {
   // Evict oldest if full
@@ -107,6 +161,9 @@ export function setCachedPromptResponse(
     retrievedChunks: data.retrievedChunks,
     toolExecutions: data.toolExecutions,
     metrics: data.metrics ? { ...data.metrics } : undefined,
+    model: data.model,
+    queryEmbedding: data.embedding,
+    embedding: data.embedding,
     servedFromCache: true,
     timestamp: Date.now(),
   });
@@ -118,3 +175,4 @@ export function setCachedPromptResponse(
 export function clearPromptCache(): void {
   memoryCache.clear();
 }
+

@@ -418,7 +418,8 @@ export async function streamChatCompletion({
     };
     if (topK !== undefined) optionsPayload.top_k = topK;
     if (minP !== undefined) optionsPayload.min_p = minP;
-    if (numCtx !== undefined) optionsPayload.num_ctx = numCtx;
+    const resolvedCtx = numCtx ?? (await resolveEffectiveNumCtx(model, undefined, hostUrl));
+    optionsPayload.num_ctx = resolvedCtx;
     if (numPredict !== undefined) optionsPayload.num_predict = numPredict;
     if (repeatPenalty !== undefined) optionsPayload.repeat_penalty = repeatPenalty;
     if (presencePenalty !== undefined) optionsPayload.presence_penalty = presencePenalty;
@@ -803,4 +804,77 @@ export async function fetchModelContextLimit(
     return null;
   }
 }
+
+/**
+ * Known architecture context window capabilities used as fallback when /api/show
+ * is unreachable or does not specify context_length.
+ */
+export function getFamilyContextLimit(modelName: string): number {
+  const lower = modelName.toLowerCase();
+  if (lower.includes("llama-3") || lower.includes("llama3")) {
+    return 131072;
+  }
+  if (lower.includes("qwen2.5") || lower.includes("qwen-2.5") || lower.includes("qwq")) {
+    return 131072;
+  }
+  if (lower.includes("qwen2") || lower.includes("qwen-2")) {
+    return 32768;
+  }
+  if (lower.includes("deepseek-r1") || lower.includes("deepseek-v3") || lower.includes("deepseek")) {
+    return 65536;
+  }
+  if (lower.includes("phi-3") || lower.includes("phi-4") || lower.includes("phi3") || lower.includes("phi4")) {
+    return 131072;
+  }
+  if (lower.includes("mistral") || lower.includes("mixtral") || lower.includes("codestral")) {
+    return 32768;
+  }
+  if (lower.includes("gemma-2") || lower.includes("gemma2") || lower.includes("gemma")) {
+    return 8192;
+  }
+  if (lower.includes("command-r")) {
+    return 131072;
+  }
+  return 16384; // Safe baseline for modern local models
+}
+
+/**
+ * Synchronously resolves effective context window from cache or family capability,
+ * bounded by safe VRAM limit.
+ */
+export function resolveEffectiveNumCtxSync(
+  model: string,
+  explicitNumCtx?: number,
+  hostUrl = "http://localhost:11434",
+  maxSafeVramCtx = 32768
+): number {
+  if (explicitNumCtx && explicitNumCtx > 0) {
+    return explicitNumCtx;
+  }
+  const cacheKey = `${hostUrl}:${model}`;
+  const cached = MODEL_CONTEXT_CACHE.get(cacheKey);
+  const detected = cached ?? getFamilyContextLimit(model);
+  return Math.min(detected, maxSafeVramCtx);
+}
+
+/**
+ * Asynchronously resolves effective context window by querying /api/show or fallback,
+ * bounded by safe VRAM limit.
+ */
+export async function resolveEffectiveNumCtx(
+  model: string,
+  explicitNumCtx?: number,
+  hostUrl = "http://localhost:11434",
+  maxSafeVramCtx = 32768
+): Promise<number> {
+  if (explicitNumCtx && explicitNumCtx > 0) {
+    return explicitNumCtx;
+  }
+  let detected = await fetchModelContextLimit(model, hostUrl);
+  if (!detected) {
+    detected = getFamilyContextLimit(model);
+  }
+  return Math.min(detected, maxSafeVramCtx);
+}
+
 

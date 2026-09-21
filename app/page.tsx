@@ -22,7 +22,7 @@ import {
 } from "@/lib/types";
 import { storage } from "@/lib/storage";
 import { DEFAULT_SETTINGS, PRESET_PERSONAS, DEFAULT_CUSTOM_THEME } from "@/lib/constants";
-import { checkOllamaHealth, fetchOllamaModels, streamChatCompletion, detectModelProvider, checkVramPressure, prewarmModel } from "@/lib/ollama";
+import { checkOllamaHealth, fetchOllamaModels, streamChatCompletion, detectModelProvider, checkVramPressure, prewarmModel, resolveEffectiveNumCtxSync } from "@/lib/ollama";
 import { getBatterySignal, isBatteryConstrained } from "@/lib/hardwareSignals";
 import { buildToolDirectivePrompt, parseToolDirective, getNativeOllamaTools, MUTATING_TOOLS, ToolName } from "@/lib/tools";
 import { executeToolCall, revertApproval } from "@/lib/toolEngine";
@@ -73,7 +73,11 @@ import {
   computePromptCacheKey,
   getCachedPromptResponse,
   setCachedPromptResponse,
+  findSemanticCachedResponse,
 } from "@/lib/responseCache";
+import { countTokens } from "@/lib/tokenizer";
+import { createStreamThrottler } from "@/lib/streamThrottler";
+import { embedOne } from "@/lib/embeddings";
 import { reformulateSearchQuery } from "@/lib/webSearchEngine";
 
 export default function HomePage() {
@@ -1694,7 +1698,7 @@ export default function HomePage() {
       }
 
       // Enforce Context Window Budget dynamically
-      const targetCtx = targetConv.numCtx ?? proj?.numCtx ?? settings.numCtx ?? 16384;
+      const targetCtx = targetConv.numCtx ?? proj?.numCtx ?? settings.numCtx ?? resolveEffectiveNumCtxSync(selectedModel);
       const dynamicBudgets = calculateDynamicTokenBudgets(targetCtx);
       const historyBudget = dynamicBudgets.historyBudget;
       const rawMessagesToSend = newMessages.slice(0, -1);
@@ -1729,9 +1733,30 @@ export default function HomePage() {
         diskToolsActive: effectiveDiskToolsActive,
       });
 
-      // Skip re-generation if exact identical response is cached
+      // Skip re-generation if exact or semantically identical response is cached
+      let queryEmbedding: number[] | undefined = undefined;
       if (!searchContextText) {
-        const cached = getCachedPromptResponse(cacheKey);
+        let cached = getCachedPromptResponse(cacheKey);
+
+        // Try semantic response cache if exact hash missed and embeddings are enabled
+        if (!cached && settings.semanticRagEnabled && settings.ollamaUrl) {
+          try {
+            const emb = await embedOne(trimmedInput, {
+              ollamaUrl: settings.ollamaUrl,
+              model: settings.embeddingModel,
+              timeoutMs: 1200,
+            });
+            if (emb) {
+              queryEmbedding = emb;
+              cached = findSemanticCachedResponse({
+                model: selectedModel,
+                queryEmbedding: emb,
+                similarityThreshold: 0.96,
+              });
+            }
+          } catch {}
+        }
+
         if (cached) {
           setConversations((prev) => {
             const finished = prev.map((c) => {
@@ -1760,6 +1785,30 @@ export default function HomePage() {
         }
       }
 
+      const tokenThrottler = createStreamThrottler((latestText) => {
+        setConversations((prev) =>
+          prev.map((c) => {
+            if (c.id !== targetId) return c;
+            const msgs = c.messages.map((m) =>
+              m.id === assistantMessageId ? { ...m, content: latestText } : m
+            );
+            return { ...c, messages: msgs };
+          })
+        );
+      });
+
+      const reasoningThrottler = createStreamThrottler((latestReasoning) => {
+        setConversations((prev) =>
+          prev.map((c) => {
+            if (c.id !== targetId) return c;
+            const msgs = c.messages.map((m) =>
+              m.id === assistantMessageId ? { ...m, reasoning: latestReasoning } : m
+            );
+            return { ...c, messages: msgs };
+          })
+        );
+      });
+
       let accumulatedReasoning = "";
       await streamChatCompletion({
         hostUrl: settings.ollamaUrl,
@@ -1770,7 +1819,8 @@ export default function HomePage() {
         topP: targetConv.topP ?? settings.topP,
         topK: targetConv.topK ?? proj?.topK ?? settings.topK,
         minP: targetConv.minP ?? proj?.minP ?? settings.minP ?? 0.05,
-        numCtx: targetConv.numCtx ?? proj?.numCtx ?? settings.numCtx,
+        numCtx: targetCtx,
+        numKeep: countTokens(effectiveSystemPrompt),
         numPredict: targetConv.numPredict ?? proj?.numPredict ?? settings.numPredict,
         repeatPenalty: targetConv.repeatPenalty ?? proj?.repeatPenalty ?? settings.repeatPenalty,
         presencePenalty: targetConv.presencePenalty ?? proj?.presencePenalty,
@@ -1783,30 +1833,16 @@ export default function HomePage() {
         signal: abortController.signal,
         onReasoning: (rChunk) => {
           accumulatedReasoning += rChunk;
-          setConversations((prev) =>
-            prev.map((c) => {
-              if (c.id !== targetId) return c;
-              const msgs = c.messages.map((m) =>
-                m.id === assistantMessageId ? { ...m, reasoning: accumulatedReasoning } : m
-              );
-              return { ...c, messages: msgs };
-            })
-          );
+          reasoningThrottler.push(accumulatedReasoning);
         },
         onToken: (chunk, stats) => {
           accumulatedText += chunk;
           if (stats) setLiveStats(stats);
-          setConversations((prev) =>
-            prev.map((c) => {
-              if (c.id !== targetId) return c;
-              const msgs = c.messages.map((m) =>
-                m.id === assistantMessageId ? { ...m, content: accumulatedText } : m
-              );
-              return { ...c, messages: msgs };
-            })
-          );
+          tokenThrottler.push(accumulatedText);
         },
         onFinish: async (full, metrics, fullReasoning, nativeToolCalls) => {
+          tokenThrottler.flush();
+          reasoningThrottler.flush();
           let finalFullText = full || accumulatedText;
           const finalReasoning = fullReasoning || accumulatedReasoning || undefined;
 
@@ -2025,6 +2061,8 @@ export default function HomePage() {
               toolExecutions: toolExecutions.length > 0 ? toolExecutions : undefined,
               retrievedChunks: retrievedChunks && retrievedChunks.length > 0 ? retrievedChunks : undefined,
               metrics,
+              model: selectedModel,
+              embedding: queryEmbedding,
             });
           }
 
@@ -2262,8 +2300,8 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
       const isSmartContext = settings.smartContextEnabled ?? true;
       const effectiveSystemPrompt = isSmartContext ? staticPrompt : baseEffectivePrompt;
 
-      // Enforce 16K Context Window Budget on regenerated chat
-      const targetCtx = activeConversation.numCtx ?? currentProject?.numCtx ?? settings.numCtx ?? 16384;
+      // Enforce Dynamic Context Window Budget on regenerated chat
+      const targetCtx = activeConversation.numCtx ?? currentProject?.numCtx ?? settings.numCtx ?? resolveEffectiveNumCtxSync(selectedModel);
       const historyBudget = Math.max(2000, Math.floor(targetCtx * 0.45));
       const budgetedMessages = trimChatHistoryForBudget(trimmedHistory, historyBudget, { smartShift: isSmartContext });
 
@@ -2280,6 +2318,30 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
         });
       }
 
+      const tokenThrottler = createStreamThrottler((latestText) => {
+        setConversations((prev) =>
+          prev.map((c) => {
+            if (c.id !== activeId) return c;
+            const msgs = c.messages.map((m) =>
+              m.id === assistantMessageId ? { ...m, content: latestText } : m
+            );
+            return { ...c, messages: msgs };
+          })
+        );
+      });
+
+      const reasoningThrottler = createStreamThrottler((latestReasoning) => {
+        setConversations((prev) =>
+          prev.map((c) => {
+            if (c.id !== activeId) return c;
+            const msgs = c.messages.map((m) =>
+              m.id === assistantMessageId ? { ...m, reasoning: latestReasoning } : m
+            );
+            return { ...c, messages: msgs };
+          })
+        );
+      });
+
       let accumulatedReasoning = "";
       await streamChatCompletion({
         hostUrl: settings.ollamaUrl,
@@ -2289,7 +2351,8 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
         temperature: activeConversation.temperature ?? settings.temperature,
         topP: activeConversation.topP ?? settings.topP,
         topK: activeConversation.topK ?? currentProject?.topK ?? settings.topK,
-        numCtx: activeConversation.numCtx ?? currentProject?.numCtx ?? settings.numCtx,
+        numCtx: targetCtx,
+        numKeep: countTokens(effectiveSystemPrompt),
         numPredict: activeConversation.numPredict ?? currentProject?.numPredict ?? settings.numPredict,
         repeatPenalty: activeConversation.repeatPenalty ?? currentProject?.repeatPenalty ?? settings.repeatPenalty,
         presencePenalty: activeConversation.presencePenalty ?? currentProject?.presencePenalty,
@@ -2301,30 +2364,16 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
         signal: abortController.signal,
         onReasoning: (rChunk) => {
           accumulatedReasoning += rChunk;
-          setConversations((prev) =>
-            prev.map((c) => {
-              if (c.id !== activeId) return c;
-              const msgs = c.messages.map((m) =>
-                m.id === assistantMessageId ? { ...m, reasoning: accumulatedReasoning } : m
-              );
-              return { ...c, messages: msgs };
-            })
-          );
+          reasoningThrottler.push(accumulatedReasoning);
         },
         onToken: (chunk, stats) => {
           accumulatedText += chunk;
           if (stats) setLiveStats(stats);
-          setConversations((prev) =>
-            prev.map((c) => {
-              if (c.id !== activeId) return c;
-              const msgs = c.messages.map((m) =>
-                m.id === assistantMessageId ? { ...m, content: accumulatedText } : m
-              );
-              return { ...c, messages: msgs };
-            })
-          );
+          tokenThrottler.push(accumulatedText);
         },
         onFinish: async (full, metrics, fullReasoning) => {
+          tokenThrottler.flush();
+          reasoningThrottler.flush();
           let finalFullText = full || accumulatedText;
           const finalReasoning = fullReasoning || accumulatedReasoning || undefined;
 
@@ -2422,8 +2471,8 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
     const isSmartContext = settings.smartContextEnabled ?? true;
     const effectiveSystemPrompt = isSmartContext ? staticPrompt : baseEffectivePrompt;
 
-    // Enforce 16K Context Window Budget on edited chat
-    const targetCtx = activeConversation.numCtx ?? currentProject?.numCtx ?? settings.numCtx ?? 16384;
+    // Enforce Dynamic Context Window Budget on edited chat
+    const targetCtx = activeConversation.numCtx ?? currentProject?.numCtx ?? settings.numCtx ?? resolveEffectiveNumCtxSync(selectedModel);
     const historyBudget = Math.max(2000, Math.floor(targetCtx * 0.45));
     const budgetedMessages = trimChatHistoryForBudget(updatedMessages, historyBudget, { smartShift: isSmartContext });
 
@@ -2440,6 +2489,18 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
       });
     }
 
+    const tokenThrottler = createStreamThrottler((latestText) => {
+      setConversations((prev) =>
+        prev.map((c) => {
+          if (c.id !== activeId) return c;
+          const msgs = c.messages.map((m) =>
+            m.id === assistantMessageId ? { ...m, content: latestText } : m
+          );
+          return { ...c, messages: msgs };
+        })
+      );
+    });
+
     streamChatCompletion({
       hostUrl: settings.ollamaUrl,
       model: selectedModel,
@@ -2448,7 +2509,8 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
       temperature: activeConversation.temperature ?? settings.temperature,
       topP: activeConversation.topP ?? settings.topP,
       topK: activeConversation.topK ?? currentProject?.topK ?? settings.topK,
-      numCtx: activeConversation.numCtx ?? currentProject?.numCtx ?? settings.numCtx,
+      numCtx: targetCtx,
+      numKeep: countTokens(effectiveSystemPrompt),
       numPredict: activeConversation.numPredict ?? currentProject?.numPredict ?? settings.numPredict,
       repeatPenalty: activeConversation.repeatPenalty ?? currentProject?.repeatPenalty ?? settings.repeatPenalty,
       presencePenalty: activeConversation.presencePenalty ?? currentProject?.presencePenalty,
@@ -2461,17 +2523,10 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
       onToken: (chunk, stats) => {
         accumulatedText += chunk;
         if (stats) setLiveStats(stats);
-        setConversations((prev) =>
-          prev.map((c) => {
-            if (c.id !== activeId) return c;
-            const msgs = c.messages.map((m) =>
-              m.id === assistantMessageId ? { ...m, content: accumulatedText } : m
-            );
-            return { ...c, messages: msgs };
-          })
-        );
+        tokenThrottler.push(accumulatedText);
       },
       onFinish: (full, metrics) => {
+        tokenThrottler.flush();
         setConversations((prev) => {
           const finished = prev.map((c) => {
             if (c.id !== activeId) return c;
