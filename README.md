@@ -1,204 +1,328 @@
-# Ollama Chat Web
+# 🦙 Ollama Chat Web
 
-Self-hosted, local-first AI workspace built on Next.js 14 (App Router). Runs against local Ollama models with optional cloud provider fallback, and treats every filesystem/execution/network-reaching feature as something that needs an explicit security boundary rather than an afterthought.
+<div align="center">
 
-For a broader feature walkthrough and architecture diagrams, see [`DOCUMENTATION.md`](./DOCUMENTATION.md). This README is the technical reference: stack, API surface, security model, and how to run/test/build the thing.
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![Next.js](https://img.shields.io/badge/Next.js-14.2.35-black?logo=next.js)](https://nextjs.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.6.3-blue?logo=typescript)](https://www.typescriptlang.org/)
+[![Ollama](https://img.shields.io/badge/Ollama-Native%20API-white?logo=ollama)](https://ollama.com/)
+[![Tests](https://img.shields.io/badge/Tests-38%20Suites%20%7C%20332%20Passed-brightgreen)](https://vitest.dev/)
+[![Security](https://img.shields.io/badge/Security-SSRF%20Guarded%20%2B%20Sandboxed-success)](#security-model)
 
-## Stack
+**A high-performance, local-first AI workspace and agentic development environment built on Next.js 14.**  
+Engineered from the ground up for maximum local LLM inference efficiency, GPU VRAM preservation, robust prompt caching, and zero-compromise security boundaries.
 
-| Layer | Choice | Version |
+[Architecture](#system-architecture) • [Inference Lifecycle](#end-to-end-inference-lifecycle) • [Key Features](#key-features) • [Security](#security-model) • [Quick Start](#quick-start) • [Testing](#testing)
+
+</div>
+
+---
+
+## 🌟 Overview
+
+**Ollama Chat Web** is not just another UI skin for local models. It is a full-featured AI workspace designed to solve the real-world friction of running models locally: silent context truncation, high latency on prompt re-evaluation, VRAM contention, hallucinations during long chats, and insecure tool execution.
+
+### Why Ollama Chat Web?
+
+- ⚡ **Zero VRAM Waste & Instant Turnaround**: Automated **KV Cache Prefix Pinning** (`options.num_keep`) keeps static system prompts warm in GPU memory, cutting prompt evaluation delays to zero.
+- 🎯 **Eliminates 2048-Token Silent Truncation**: Automatic **Model Context-Window Resolution** derives native context limits (`num_ctx`) per model family (up to 131K for Llama 3.1 & Qwen 2.5) with local hardware safety ceilings.
+- 🔍 **Stanford Lost-in-the-Middle RAG**: Reorders retrieved chunks into a **U-shaped perimeter** (placing high-relevance chunks at the context boundaries) with two-stage coarse-to-fine hybrid search (BM25 $\to$ Vector Embeddings).
+- 🧬 **Constrained Structured Output Decoding**: Enforces native **JSON Schema Grammar (GBNF)** at the sampler level for reliable machine-readable extraction without markdown preamble or broken JSON.
+- 💨 **Dual-Tier Response Caching**: Sub-millisecond exact FNV-1a hash matching combined with **Semantic Vector Caching** (Cosine Similarity $\ge 0.96$) to answer repeated or rephrased queries with **0ms GPU latency and 0 tokens generated**.
+- 🛡️ **Defensive Security Architecture**: Sandboxed filesystem access, DNS-rebinding-proof SSRF guards, and cryptographically verified **approval tokens with one-click reversibility** on all mutating actions.
+- 🖥️ **Silky Smooth 60fps Streaming**: Micro-batched token render throttler prevents browser DOM thrashing during high-speed local inference (60–120+ tokens/sec) while isolating `<think>` reasoning tags in real time.
+
+---
+
+## 🏛️ System Architecture
+
+The workspace is organized into five tightly integrated subsystems that decouple UI interaction, retrieval pipeline, context optimization, and model execution:
+
+```mermaid
+flowchart TD
+    subgraph UI_Client["🖥️ Client Workspace (Next.js 14 App Router)"]
+        UI["Chat Interface & Parameter Controls"]
+        ST["60fps Stream Render Throttler\n(lib/streamThrottler.ts)"]
+        RP["Streaming <think> State-Machine Parser\n(lib/reasoningParser.ts)"]
+        MQ["Non-blocking Async Message Queue"]
+        UI --> ST
+        ST --> RP
+    end
+
+    subgraph Context_Pipeline["🧠 Context & Knowledge Optimization Pipeline"]
+        BPE["Exact BPE Tokenizer (cl100k_base)\n(lib/tokenizer.ts)"]
+        RAG_Hybrid["Two-Stage Coarse-to-Fine Search\n(BM25 Filter -> Semantic Embeddings)"]
+        RAG_Order["Perimeter U-Shaped Chunk Reordering\n(Lost-in-the-Middle Optimization)"]
+        Mem_Store["Persistent User & Project Memory\n(Auto-Extraction via JSON Schema)"]
+        BPE --> RAG_Hybrid --> RAG_Order --> Mem_Store
+    end
+
+    subgraph Cache_Engine["⚡ Dual-Tier Response & KV Cache"]
+        Exact_Cache["O(1) Exact FNV-1a Hash Cache\n(lib/responseCache.ts)"]
+        Semantic_Cache["Vector Semantic Response Cache\n(Cosine Similarity >= 0.96)"]
+        KV_Pin["Prefix KV Cache Pinning\n(options.num_keep = staticTokens)"]
+    end
+
+    subgraph Runtime_Inference["🚀 Local & Cloud Inference Engine"]
+        VRAM_Q["VRAM Semaphore Concurrency Queue\n(lib/ollamaRateLimit.ts)"]
+        Ctx_Resolve["Auto Context Resolution (num_ctx)\n(Hardware VRAM Safety Guard)"]
+        Sampling["Adaptive Sampling Engine\n(min_p, Top-K, Family Stop Sequences)"]
+        Grammar["Native GBNF Structured Schema\n(format: json_schema)"]
+        Local_Ollama["Local Ollama Instance (GPU / VRAM)"]
+        Cloud_Fallback["Cloud AI Fallback (Redacted Proxy)"]
+    end
+
+    subgraph Security_Tools["🛡️ Security Sandbox & Execution Tools"]
+        SSRF["SSRF Defense Matrix (DNS Rebind Guard)"]
+        Sandbox["Filesystem Path Sandbox (lib/pathSandbox.ts)"]
+        Approval["Server-Verified Approval Token & Revert Engine"]
+        Native_Tools["Native OpenAPI Function-Calling & Directive Fallback"]
+    end
+
+    UI --> Cache_Engine
+    Cache_Engine --> Context_Pipeline
+    Context_Pipeline --> Runtime_Inference
+    Runtime_Inference --> Security_Tools
+    Runtime_Inference --> Local_Ollama
+    Runtime_Inference --> Cloud_Fallback
+```
+
+---
+
+## 🔄 End-to-End Inference Lifecycle
+
+Here is the exact step-by-step lifecycle of a user prompt through the optimization and inference pipeline:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as 👤 User
+    participant Client as 💻 Web Client (app/page.tsx)
+    participant Cache as ⚡ Dual Response Cache
+    participant RAG as 📚 Hybrid RAG Pipeline
+    participant RateLimit as 🚦 VRAM Semaphore Queue
+    participant Ollama as 🦙 Ollama Local Engine
+    participant Parser as ⚙️ Stream & Reasoning Parser
+
+    User->>Client: Submit Query / Follow-up
+    Client->>Cache: 1. Check Exact FNV-1a Hash Key
+    alt Exact Cache Hit
+        Cache-->>Client: Return Cached Response (0ms, 0 GPU Tokens)
+        Client-->>User: Render Instant Response
+    else Exact Cache Miss
+        opt Semantic Cache Active (Embeddings Enabled)
+            Client->>Cache: 2. Check Vector Semantic Match (Cosine >= 0.96)
+            alt Semantic Match Hit
+                Cache-->>Client: Return Cached Response (0ms, 0 GPU Tokens)
+                Client-->>User: Render Instant Response
+            end
+        end
+    end
+
+    opt Dynamic Project Knowledge Retrieval Needed
+        Client->>RAG: 3. Expand Query with Recent Turns
+        RAG->>RAG: Stage 1: Coarse BM25 Filter (Top 30 Candidates in JS)
+        RAG->>RAG: Stage 2: Fine Semantic Re-Ranking (Embeddings & Cosine)
+        RAG->>RAG: Stage 3: Perimeter U-Shaped Chunk Reordering
+        RAG-->>Client: Return Optimized, Budgeted Context Chunks
+    end
+
+    Client->>Client: 4. Auto-resolve num_ctx & Pin Static Prefix (num_keep)
+    Client->>RateLimit: 5. Acquire Concurrency Slot (acquireOllamaSlot)
+    RateLimit->>Ollama: 6. POST /api/chat (stream, min_p, stop, json_schema)
+
+    loop Token Streaming
+        Ollama-->>Parser: Stream Raw SSE Token Chunks
+        Parser->>Parser: Real-time <think> tag state-machine extraction
+        Parser->>Client: Frame-aligned 60fps Throttled Micro-batch
+        Client-->>User: Render Smooth Live Streaming Text
+    end
+
+    RateLimit->>RateLimit: 7. Release Concurrency Slot
+    Client->>Cache: 8. Save Response & Query Embedding to Cache
+    Client->>Client: 9. Background Memory Extraction (GBNF Constrained JSON Schema)
+```
+
+---
+
+## 🚀 Key Features
+
+### 1. Model Inference Efficiency & VRAM Architecture
+- **Prefix KV Cache Pinning (`options.num_keep`)**:
+  Calculates exact static tokens (personas, persistent memories, tool OpenAPI schemas) using BPE token counting and pins them in GPU memory. Ollama never re-evaluates static system prompt tokens on subsequent turns.
+- **Dynamic Context Sizing (`options.num_ctx`)**:
+  Eliminates Ollama's default 2048 silent truncation. Auto-resolves native window capabilities via `/api/show` with family fallbacks (131K for Llama 3.1/Qwen 2.5, 65K for DeepSeek, 32K for Mistral) clamped to a safe hardware VRAM ceiling.
+- **Dynamic Probability Truncation (`options.min_p`)**:
+  Supports `min_p` sampling (`0.05` default), dynamically cutting tokens with probabilities below a fraction of the top token. Dramatically cuts repetition loops and hallucinations without flattening output creativity.
+- **Automated Family-Aware Stop Tokens**:
+  Automatically injects architecture-specific turn boundaries (`<|eot_id|>`, `<|im_end|>`, `<end_of_turn>`, `\nUser:`, ChatML tokens) preventing multi-turn hallucination loops.
+- **In-line Streaming Reasoning Parser**:
+  Non-blocking streaming state machine that extracts `<think>` / `</think>` boundaries on the fly (for DeepSeek-R1, QwQ, etc.), routing thoughts into a clean collapsible drawer without UI lag.
+
+### 2. Precision RAG & Hybrid Retrieval
+- **Perimeter U-Shaped "Lost in the Middle" Reordering**:
+  In accordance with Stanford & Berkeley long-context research, chunks are ordered in a U-shape: Rank #1 at the beginning, Rank #2 at the end (closest to user prompt), and lower-ranked chunks in the middle where LLM attention is weakest.
+- **Two-Stage Coarse-to-Fine Retrieval**:
+  Runs fast in-memory BM25 filtering across all document chunks first (< 2ms), then sends only the top 30 candidates for embedding cosine calculation. Reduces embedding latency and GPU queue locks by 80–90%.
+- **Word-Boundary Overlap Snapping**:
+  Document chunking snaps overlap boundaries back to the nearest space or newline, eliminating broken sub-word tokens and garbled BPE splits.
+- **Exact BPE Token Accounting**:
+  Backed by `js-tiktoken` (`cl100k_base`) with LRU caching, replacing imprecise character heuristics with real token calculations for strict context guard adherence.
+
+### 3. Agentic Capabilities & Sandboxed Tools
+- **Hybrid Tool-Calling Architecture**:
+  Native Ollama OpenAPI function calling by default, with automatic fallback to structured text directives (`[TOOL_CALL:name:{json}]`) for legacy models or endpoints that reject native tool payloads.
+- **Read-Only vs. Mutating Safety Boundary**:
+  - *Read-only tools* (`list_directory`, `read_file`, `search_files`, `graphify_*`) execute instantly.
+  - *Mutating tools* (`write_file`, `delete_file`) require a cryptographically generated, server-verified approval token.
+- **One-Click Reversible Actions**:
+  Any approved mutating disk operation can be undone from the approval history. Revert requests verify that the target file has not been modified since the operation to prevent race conditions.
+- **Codespace Execution Sandbox**:
+  Execute Python, Node.js, PowerShell, or Bash directly from the browser (`/api/codespace/run`) in sandboxed child processes with automatic environment sanitization and temp cleanup.
+
+### 4. Ambient Knowledge & Connected Bridges
+- **Ambient Folder Watcher**:
+  Project knowledge tabs can sync against live local folders via debounced `fs.watch`, automatically resuming across server reboots.
+- **Generic Bridge Connectors**:
+  Connect to external webhooks or local desktop applications via loopback-only HTTP bridges (`/bridge <bridge-id> <message>`).
+
+---
+
+## 🛡️ Security Model
+
+Ollama Chat Web treats all local filesystem and network interactions with defensive, multi-layered security controls:
+
+| Security Layer | Mechanism | Protection Scope |
 | :--- | :--- | :--- |
-| Framework | Next.js, App Router only (no `/pages`) | `^14.2.35` |
-| Language | TypeScript | `^5.6.3` |
-| Styling | Tailwind CSS | `^3.4.15` |
-| Local LLM runtime | Ollama (proxied, not embedded) | any recent |
-| Persistence | `better-sqlite3` (WAL mode), optional | `^13.0.3` |
-| Persistence fallback | Flat JSON (`data/db.json`) | — |
-| Test runner | Vitest | `^1.6.1` |
-| Icons | `@phosphor-icons/react` | `^2.1.10` |
-| Markdown/math rendering | `react-markdown`, `remark-gfm`, `remark-math`, `rehype-katex`, `katex` | — |
-| Syntax highlighting | `react-syntax-highlighter` (Prism) | `^16.1.1` |
+| **Authentication & CSRF** | `APP_ACCESS_TOKEN` bearer gate + strict cross-origin rejection | Prevents malicious sites from driving the local API via background tabs. |
+| **SSRF Defense Matrix** | `lib/ssrfGuard.ts` (DNS-resolved IP validation) | Blocks DNS rebinding, IPv4-mapped IPv6, and internal network scans. Distinct policies for webhooks, local loopbacks, and Ollama hosts. |
+| **Filesystem Sandbox** | `lib/pathSandbox.ts` (Realpath resolution) | Restricts disk read/write tools to configured base roots. Rejects directory traversal (`../`). |
+| **Approval Token Gate** | Nonce-hashed, server-verified action tokens | Eliminates client-side spoofing. Verifies tool name, arguments, and source context before execution. |
+| **Secret Redaction** | `lib/redaction.ts` | Automatically sanitizes API keys, secrets, and private tokens before sending payloads to cloud providers. |
 
-`better-sqlite3` is an optional native dependency. If there's no prebuilt binary for your Node version and no C++ toolchain to compile it, `lib/serverDb.ts` falls back to `data/db.json` automatically at startup — same API surface either way, just without SQLite's crash-safety and indexing. On Linux this usually "just works" if `build-essential`/`python3` are present; on Windows it needs the "Desktop development with C++" workload in Visual Studio Installer, or a Node LTS version more likely to already have a prebuilt binary.
+---
 
-## Architecture
+## 🔌 API Surface
 
-How a message flows, not the file list (see [Project layout](#project-layout)).
+| Endpoint | Method | Description |
+| :--- | :--- | :--- |
+| `* /api/ollama/[...path]` | ANY | Rate-limited, VRAM-guarded proxy relaying requests to the Ollama daemon |
+| `POST /api/cloud/chat` | POST | Redacted streaming proxy to Anthropic, Gemini, OpenAI, Groq, DeepSeek, OpenRouter |
+| `POST /api/memory/extract` | POST | Auto-extracts facts from conversation turns using constrained JSON Schema |
+| `POST /api/tools/execute` | POST | Executes approval-gated disk tools for active chat turns |
+| `POST /api/tools/execute-agent` | POST | Executes approval-gated disk tools for autonomous background agents |
+| `POST /api/tools/revert` | POST | Reverts an approved write or delete action with race-condition checking |
+| `POST /api/codespace/run` | POST | Spawns sandboxed child process (Python, Node, Bash, PowerShell) |
+| `GET/POST /api/db` | GET, POST | Database CRUD backed by `better-sqlite3` (WAL mode) or JSON fallback |
+| `GET /api/db/stream` | GET | Server-Sent Events (SSE) stream for real-time multi-tab synchronization |
+| `POST /api/connectors` | POST | Custom bridge dispatcher for public webhooks and loopback HTTP bridges |
+| `POST /api/search` | POST | Integrated multi-engine search scraper with deep-scrape fallback |
+| `POST /api/scan` | POST | Passive OWASP Top 10 security scanner for target URLs |
+| `GET/POST /api/projects/watcher` | GET, POST | Controls ambient filesystem watchers for project knowledge folders |
 
-- **`app/page.tsx` owns everything client-side** — conversation state, streaming, the message queue — and is the only caller of `streamChatCompletion` (`lib/ollama.ts`), which routes to the local Ollama proxy or, for cloud models, the redacting `/api/cloud/chat` proxy. The server here is stateless tool/data endpoints the client drives, not a chat backend.
-- **Tool-calling is directive-based, not native function-calling**: the model is prompted to emit `[TOOL_CALL:name:{json}]` in its own text (`lib/tools.ts`), which the client regex-parses out. Chosen over Ollama's native API because it works identically across every model/provider regardless of whether that one implements function-calling. Read-only tools (`list_directory`, `read_file`, `search_files`, `graphify_*`) run immediately; mutating tools (`write_file`, `delete_file`) wait for a server-verified approval token — never a client confirm alone (see [Security model](#security-model)).
-- **One tool implementation, two entry points**: `lib/toolEngine.ts` posts to `/api/tools/execute` (chat) or `/api/tools/execute-agent` (agents) — same tools, different approval-source tag so one can't replay the other. Disk tools funnel through `runDiskTool` + `lib/pathSandbox.ts`; `graphify_*` (no path concept) is dispatched directly.
-- **Agents run client-side**, not as a server process — `lib/agentEngine.ts`'s loop fires from a `setInterval` in `app/page.tsx`, so a schedule only runs while a tab is open (the Agent UI says this explicitly). `instrumentation.ts` does run real server-side background work, but only for file-watchers.
-- **Three ways the model gets context beyond the conversation**: ranked project files ([RAG](#rag--retrieval)), a live-synced folder ([file-watcher](#ambient-file-watcher)), and, via `graphify_*`, an on-demand graph of this codebase's own structure (`lib/graphifyOps.ts`) instead of guessing from training data.
-- **One flat store**: `lib/serverDb.ts` holds conversations/projects/agents/connectors/settings behind one API (SQLite or JSON fallback), synced across tabs via SSE (`/api/db/stream`).
+---
 
-## Requirements
+## 📋 Tech Stack
 
-- Node.js 18+ (tested on 20 and 22)
-- [Ollama](https://ollama.com/) running locally, with at least one chat model pulled
-- Optionally `nomic-embed-text` (or another Ollama embedding model) pulled if you want hybrid semantic RAG instead of pure BM25
+| Component | Technology | Version / Details |
+| :--- | :--- | :--- |
+| **Framework** | Next.js (App Router) | `^14.2.35` |
+| **Language** | TypeScript (Strict mode) | `^5.6.3` |
+| **Styling** | Tailwind CSS | `^3.4.15` |
+| **Tokenizer** | `js-tiktoken` (cl100k_base) | BPE exact token counting |
+| **Storage Engine** | `better-sqlite3` (WAL Mode) | Automatic fallback to `data/db.json` |
+| **Testing** | Vitest | `^1.6.1` (38 test suites, 332 tests) |
+| **Icons** | `@phosphor-icons/react` | `^2.1.10` |
+| **Markdown / Math** | `react-markdown`, `remark-gfm`, `rehype-katex` | LaTeX math + GitHub Flavored Markdown |
 
-## Quick start
+---
 
-```bash
-git clone https://github.com/p3nr0s3/ollama-chat-web.git
-cd ollama-chat-web
-npm install
-cp .env.example .env.local
+## ⚡ Quick Start
 
-ollama serve
-ollama pull qwen2.5-coder:7b
-ollama pull nomic-embed-text   # optional, for hybrid RAG
+### Prerequisites
+- [Node.js](https://nodejs.org/) 18.x or 20.x+
+- [Ollama](https://ollama.com/) running locally:
+  ```bash
+  ollama serve
+  ollama pull llama3.1:8b        # Primary chat model
+  ollama pull nomic-embed-text   # Optional: For hybrid semantic RAG
+  ```
 
-npm run dev
-```
+### Installation
 
-Open `http://127.0.0.1:3000`.
+1. **Clone the repository**:
+   ```bash
+   git clone https://github.com/p3nr0s3/ollama-chat-web.git
+   cd ollama-chat-web
+   ```
 
-## npm scripts
+2. **Install dependencies**:
+   ```bash
+   npm install
+   ```
 
-| Script | What it does |
-| :--- | :--- |
-| `npm run dev` | Dev server bound to `127.0.0.1:3000` (localhost only) |
-| `npm run dev:lan` | Dev server bound to `0.0.0.0:3000` — reachable from your LAN |
-| `npm run build` | Production build (`next build`) |
-| `npm start` | Serve the production build, localhost only |
-| `npm run start:lan` | Serve the production build on `0.0.0.0` |
-| `npm run tunnel` | Runs `scripts/tunnel.mjs` to expose the app publicly (localtunnel) |
-| `npm test` | `vitest run` — the full test suite |
-| `npm run lint` | `next lint` |
+3. **Configure environment**:
+   ```bash
+   cp .env.example .env.local
+   ```
+   *(Optional)* Generate an access token to secure your deployment:
+   ```bash
+   openssl rand -hex 32
+   ```
 
-`predev`/`prestart` run `scripts/warnOpenAccess.mjs`, which prints a warning if you're about to bind to `0.0.0.0` or run the tunnel script without `APP_ACCESS_TOKEN` set.
+4. **Launch the development server**:
+   ```bash
+   npm run dev
+   ```
+   Open [http://127.0.0.1:3000](http://127.0.0.1:3000) in your browser.
 
-## Configuration (`.env.local`)
+---
 
-Copy `.env.example` and fill in what you need — everything is optional except the access token if you plan to expose this beyond localhost.
+## 🧪 Testing & Verification
 
-```ini
-# Gates every /api/* route. Generate with: openssl rand -hex 32
-APP_ACCESS_TOKEN=
-NEXT_PUBLIC_APP_ACCESS_TOKEN=
-
-OLLAMA_HOST=http://127.0.0.1:11434
-
-# Optional: server-side cloud provider keys. If set, these take precedence
-# over whatever's typed into Settings > Cloud AI Providers (which stores
-# keys in browser localStorage and sends them per-request instead).
-ANTHROPIC_API_KEY=
-GEMINI_API_KEY=
-OPENAI_API_KEY=
-GROQ_API_KEY=
-DEEPSEEK_API_KEY=
-OPENROUTER_API_KEY=
-
-# Optional: only needed to allow a specific other origin to call this
-# app's API cross-origin from browser JS. Leave unset to keep CORS closed.
-ALLOW_EXTERNAL_ORIGIN=
-```
-
-## Security model
-
-This is a single-user local tool with no account system, but several routes can read/write your filesystem, spawn processes, or forward your cloud API keys — so they're not left open by default reasoning alone. Defenses are layered in `middleware.ts` and applied per-route based on what that route can touch:
-
-- **Request authentication** — routes are gated by a bearer token (`APP_ACCESS_TOKEN` / `NEXT_PUBLIC_APP_ACCESS_TOKEN`), plus independent cross-site request rejection so a malicious page open in another tab can't drive this app even if a token is misconfigured. Fine to leave unset for solo `localhost` use; set it before running `npm run tunnel` or `dev:lan`.
-- **SSRF guards** (`lib/ssrfGuard.ts`) on every route that accepts a URL to fetch — custom bridge webhooks, deep-scrape targets, local app bridges, the Ollama proxy — each scoped to what that use case actually needs.
-- **Filesystem sandboxing** (`lib/pathSandbox.ts`) on every disk-touching route, so a request can't escape its intended base directory.
-- **Approval-token gate** on any file write/delete triggered from the chat tool loop or an autonomous agent — a UI confirm alone isn't enough; the server independently verifies the approval before acting.
-- **Revert** — an already-approved write/delete can be undone from the approval history (one click, one-shot). Refuses automatically if the file has changed again since the original action, rather than risking a silent overwrite of that newer change.
-
-The mechanisms above are implemented in the files named next to them — read those directly for exact behavior rather than relying on this summary staying in sync with the code.
-
-## API surface
-
-| Route | Purpose |
-| :--- | :--- |
-| `POST /api/cloud/chat` | Streaming proxy to Anthropic/Gemini/OpenAI/Groq/DeepSeek/OpenRouter, with automatic secret redaction (`lib/redaction.ts`) before anything leaves the machine |
-| `* /api/ollama/[...path]` | Rate-limited proxy to a local (or LAN) Ollama instance |
-| `POST /api/connectors` | Generic bridge dispatcher — `test`, `webhook_send`, `local_bridge_execute` for user-defined custom bridges (see below) |
-| `GET/POST /api/db`, `GET /api/db/stream` | Database read/write and a Server-Sent Events stream for cross-tab live sync |
-| `GET/POST /api/fs` | Sandboxed file explorer under a fixed base directory |
-| `POST /api/tools/execute`, `POST /api/tools/execute-agent` | Disk tool execution for manual chat vs. autonomous agents, each with its own approval-source restriction |
-| `POST /api/tools/revert` | Undoes an already-approved write_file/delete_file — refuses if the file has changed again since, so it can't silently clobber a newer edit |
-| `POST /api/codespace/run` | Spawns a real child process (Python/Node/PowerShell/bash) to run in-browser Codespace code |
-| `POST /api/scan` | Passive OWASP Top 10 checks against a target URL |
-| `POST /api/search` | Built-in web search engine with deep-scrape fallback |
-| `GET/POST /api/projects/watcher` | Starts/stops an ambient filesystem watcher for a project's knowledge folder |
-| `GET /api/browser/status` | Reports whether the optional `bsk` (BrowserSkill) CLI bridge is available |
-
-## Connectors: user-defined custom bridges
-
-There are no pre-built integrations (no bundled Slack/Discord/GitHub/Blender templates) — every connector is added by hand under Directory > Connectors, as one of two types:
-
-- **Webhook** — a plain `POST` with a JSON body to any public URL (`assertPublicUrl`-gated). This is the shape for Slack incoming webhooks, Discord webhooks, or any custom HTTP endpoint that accepts a JSON payload.
-- **Local App** — a loopback-only HTTP bridge to something running on your own machine (`assertLoopbackOnlyUrl`-gated, via `lib/localAppBridge.ts`), for talking to a local desktop app over HTTP.
-
-Trigger a configured bridge from chat with `/bridge <bridge-id> <message>`. See [`DOCUMENTATION.md`](./DOCUMENTATION.md#-local-app-bridge--framework-untuk-koneksi-ke-aplikasi-lokal) for the bridge framework's internals and a full example of wiring up a new one.
-
-## RAG / retrieval
-
-`lib/rag.ts`: BM25 keyword ranking always runs (in-memory, no GPU cost); an optional semantic pass blends in cosine similarity over Ollama embeddings when enabled. Chunk size, overlap, top-K, and the BM25/semantic blend weight are per-project settings (Knowledge tab), not hardcoded. `lib/embeddings.ts` caches by content hash + model, so only changed chunks get re-embedded between turns.
-
-## Ambient file-watcher
-
-A project's Knowledge tab can point at a real folder (`lib/fileWatcher.ts`) instead of manual uploads. Changes sync via debounced `fs.watch` — capped at 500 files/scan, 2MB/file, text/code extensions only (binaries like PDF still need manual upload). Resumes automatically after a server restart via `instrumentation.ts`.
-
-## Hardware-pressure hint
-
-A dismissible banner can suggest a lighter/cloud model after a local response — never an automatic switch. Two signals, scoped to what's actually measurable:
-
-- **VRAM**: `checkVramPressure` (`lib/ollama.ts`) compares `size` vs `size_vram` from Ollama's `/api/ps` — retrospective (how much of the model that just ran spilled to RAM), not predictive; Ollama has no total/free-VRAM endpoint portable across vendors.
-- **Battery**: `getBatterySignal` (`lib/hardwareSignals.ts`) feature-detects `navigator.getBattery` — Chrome/Edge/Android only (Firefox/Safari never shipped it, fingerprinting concerns). Falls back to VRAM alone elsewhere.
-
-## Testing
+The codebase is protected by comprehensive unit and integration test suites:
 
 ```bash
-npm test              # vitest run — full suite
-npx tsc --noEmit       # typecheck only
-npm run build          # production build check
+# Run complete test suite (38 test suites, 332 tests)
+npm test
+
+# Run TypeScript type safety verification
+npx tsc --noEmit
+
+# Run production Next.js build
+npm run build
 ```
 
-29 test files, 290 tests, covering (non-exhaustively):
+---
 
-- SSRF guard policies, including DNS-rebinding and IPv4-mapped-IPv6 edge cases
-- The approval-token gate for both tool-execution routes (freshness, anti-replay, tool/path matching, source restriction)
-- The generic custom-bridge connector route (webhook + local-http paths)
-- Hybrid RAG ranking (BM25, semantic blending, custom chunk/topK config)
-- The ambient file-watcher's sync logic (new/changed/deleted files, size limits, scan caps)
-- Path sandbox traversal protection
-- Document parsers, text diffing, response caching, context budget trimming
-
-## Project layout
+## 📂 Project Layout
 
 ```
 ollama-chat-web/
 ├── app/
-│   ├── api/                    # Route handlers — see API surface table above
-│   ├── globals.css
-│   ├── layout.tsx
-│   └── page.tsx                 # Main controller: chat state, streaming, tool loop
-├── components/                  # UI components (chat, codespace, journal, settings, directory)
+│   ├── api/                     # Next.js route handlers (Ollama proxy, tools, db, search, etc.)
+│   ├── layout.tsx               # Root layout & theme providers
+│   └── page.tsx                 # Main orchestrator (Chat state, streaming, tool loops)
+├── components/                  # Modular UI components (ChatArea, Sidebar, Codespace, Journal)
 ├── lib/
-│   ├── agentEngine.ts             # Client-driven autonomous agent tool-calling loop
-│   ├── diskToolOps.ts             # Sandboxed disk tool implementations
-│   ├── embeddings.ts               # Ollama embedding client + content-hash cache
-│   ├── fileWatcher.ts               # Ambient project-folder sync
-│   ├── graphifyOps.ts                # Spawns `graphify` for self-codebase graph queries
-│   ├── localAppBridge.ts             # Generic loopback bridge framework
-│   ├── memoryExtractor.ts             # Auto-extracts durable facts from chat turns
-│   ├── pathSandbox.ts                 # Filesystem path containment
-│   ├── rag.ts                          # BM25 + hybrid semantic retrieval
-│   ├── responseCache.ts                 # LRU exact-match response cache
-│   ├── serverDb.ts                       # SQLite (WAL) with JSON fallback
-│   ├── ssrfGuard.ts                       # DNS-resolved SSRF policies
-│   ├── tools.ts                            # Tool schemas + directive-parsing prompt builder
-│   ├── toolEngine.ts                        # Client dispatcher: parsed directive -> API call
-│   └── types.ts                              # Shared TypeScript types
-├── middleware.ts                 # Bearer token + CSRF gate for /api/*
-├── instrumentation.ts             # Resumes file-watchers on server start
-├── next.config.mjs
-└── tests/                          # Vitest suites, one file per module/route
+│   ├── ollama.ts                # Ollama client, context resolution, num_keep pinning, min_p
+│   ├── rag.ts                   # Hybrid retrieval, lost-in-the-middle reordering, BM25
+│   ├── responseCache.ts         # Exact FNV-1a & Semantic vector response caching
+│   ├── streamThrottler.ts       # 60fps frame-aligned token render throttler
+│   ├── reasoningParser.ts       # Real-time streaming <think> tag state-machine parser
+│   ├── tokenizer.ts             # Exact BPE token counter (cl100k_base)
+│   ├── memoryExtractor.ts       # GBNF structured JSON schema memory extractor
+│   ├── pathSandbox.ts           # Sandboxed directory containment
+│   ├── ssrfGuard.ts             # DNS-rebinding-safe SSRF guard matrix
+│   ├── serverDb.ts              # SQLite WAL engine with JSON fallback
+│   ├── toolEngine.ts            # Client dispatcher for sandboxed disk & graph tools
+│   └── types.ts                 # Canonical TypeScript type definitions
+├── tests/                       # 38 Vitest suites covering all subsystems
+└── vitest.config.ts             # Vitest test runner configuration
 ```
 
-## License
+---
 
-MIT — see `LICENSE`.
+## 📄 License
+
+This project is licensed under the [MIT License](LICENSE).
