@@ -497,7 +497,7 @@ export const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
                       : "text-neutral-300 hover:bg-white/5 border border-transparent"
                   }`}
                 >
-                  <span className="text-xl mt-0.5">{tone.icon}</span>
+                  {tone.icon && <span className="text-xl mt-0.5">{tone.icon}</span>}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between">
                       <span className="font-semibold text-white">{tone.label}</span>
@@ -584,7 +584,7 @@ export const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
                       }`}
                     >
                       <div className="flex items-center gap-3 min-w-0">
-                        <span className="text-2xl">{preset.icon}</span>
+                        {preset.icon && <span className="text-2xl">{preset.icon}</span>}
                         <div className="min-w-0">
                           <div className="font-semibold text-xs sm:text-sm text-white flex items-center gap-2">
                             <span>{preset.label}</span>
@@ -607,7 +607,7 @@ export const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
               <div className="overflow-y-auto space-y-1.5 pr-1 touch-scroll flex-1 max-h-56">
                 {/* Indonesian Voices Section */}
                 <div className="text-[11px] font-semibold text-neutral-400 px-2 py-1 uppercase tracking-wider">
-                  🇮🇩 Bahasa Indonesia
+                  Bahasa Indonesia
                 </div>
                 {allVoices.filter((v) => v.lang.toLowerCase().startsWith("id")).length > 0 ? (
                   allVoices
@@ -643,7 +643,7 @@ export const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
 
                 {/* Other Global Voices Section */}
                 <div className="text-[11px] font-semibold text-neutral-400 px-2 py-1 mt-2 uppercase tracking-wider">
-                  🌐 Suara Sistem & Global Lainnya
+                  Suara Sistem & Global Lainnya
                 </div>
                 {allVoices
                   .filter((v) => !v.lang.toLowerCase().startsWith("id"))

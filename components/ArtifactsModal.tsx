@@ -96,7 +96,7 @@ export const ArtifactsModal: React.FC<ArtifactsModalProps> = ({
           <div style="font-size: 12px; font-weight: bold; color: ${
             isUser ? "#60a5fa" : "#a855f7"
           }; margin-bottom: 8px;">
-            ${isUser ? "👤 You" : "🤖 AI Assistant (" + (msg.model || "Ollama") + ")"}
+            ${isUser ? "You" : "AI Assistant (" + (msg.model || "Ollama") + ")"}
           </div>
           <div style="font-size: 14px; line-height: 1.6; color: #f8fafc; white-space: pre-wrap; font-family: sans-serif;">
             ${msg.content.replace(/</g, "&lt;").replace(/>/g, "&gt;")}
@@ -142,7 +142,7 @@ export const ArtifactsModal: React.FC<ArtifactsModalProps> = ({
     let md = `# ${conversation.title}\n\n`;
     md += `*Exported on ${new Date().toLocaleString()} | Model: ${conversation.model}*\n\n---\n\n`;
     for (const msg of conversation.messages) {
-      md += `### ${msg.role === "user" ? "👤 You" : "🤖 Assistant"}\n\n${msg.content}\n\n---\n\n`;
+      md += `### ${msg.role === "user" ? "You" : "Assistant"}\n\n${msg.content}\n\n---\n\n`;
     }
     handleDownloadFile(
       `${conversation.title.toLowerCase().replace(/[^a-z0-9]/g, "-")}.md`,

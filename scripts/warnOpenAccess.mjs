@@ -19,7 +19,7 @@ const token = process.env.APP_ACCESS_TOKEN || envFile.APP_ACCESS_TOKEN;
 
 if (!token) {
   console.log("\n============================================================");
-  console.log("⚠️  APP_ACCESS_TOKEN is not set — /api/* routes are OPEN.");
+  console.log("WARNING: APP_ACCESS_TOKEN is not set — /api/* routes are OPEN.");
   console.log("============================================================");
   console.log("This is fine for solo local dev. It stops being fine the moment");
   console.log("this machine is reachable by anyone else — shared Wi-Fi, a");

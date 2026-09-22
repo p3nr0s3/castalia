@@ -707,7 +707,7 @@ export default function HomePage() {
           now >= agent.nextRun &&
           !runningAgentIds.includes(agent.id)
         ) {
-          console.log(`⏰ Triggering scheduled Agent: ${agent.name}`);
+          console.log(`Triggering scheduled Agent: ${agent.name}`);
           handleRunAgentNow(agent.id);
         }
       });
@@ -1078,7 +1078,7 @@ export default function HomePage() {
         dynamicContext = knowledgeResult.contextText;
         retrievedChunks = knowledgeResult.retrievedChunks;
         if (knowledgeResult.isChunked) {
-          knowledgeNotice = `⚡ *Retrieved ${knowledgeResult.matchedChunksCount} most relevant passages from ${knowledgeResult.matchedFiles.join(", ")} (~${knowledgeResult.totalEstimatedTokens} tokens)*\n\n`;
+          knowledgeNotice = `*Retrieved ${knowledgeResult.matchedChunksCount} most relevant passages from ${knowledgeResult.matchedFiles.join(", ")} (~${knowledgeResult.totalEstimatedTokens} tokens)*\n\n`;
         }
       }
     }
@@ -1380,7 +1380,7 @@ export default function HomePage() {
       const bridge = (settings.connectors || []).find((c) => c.id === bridgeId);
 
       if (!bridge) {
-        connectorNotice = `⚠️ *No bridge found with id \`${bridgeId || "(none given)"}\`. Usage: \`/bridge <bridge-id> <message>\`. Add one in Directory > Connectors.*\n\n`;
+        connectorNotice = `*No bridge found with id \`${bridgeId || "(none given)"}\`. Usage: \`/bridge <bridge-id> <message>\`. Add one in Directory > Connectors.*\n\n`;
       } else if (bridge.customBridgeType === "webhook") {
         try {
           let payload: any = { text: message || "Notification from Ollama AI Workspace" };
@@ -1403,10 +1403,10 @@ export default function HomePage() {
           });
           const data = await res.json().catch(() => ({}));
           connectorNotice = data.success
-            ? `📡 *Dispatched to bridge \`${bridge.name}\`.*\n\n`
-            : `⚠️ *Bridge \`${bridge.name}\` error: ${data.error || "unknown"}*\n\n`;
+            ? `*Dispatched to bridge \`${bridge.name}\`.*\n\n`
+            : `*Bridge \`${bridge.name}\` error: ${data.error || "unknown"}*\n\n`;
         } catch (err: any) {
-          connectorNotice = `⚠️ *Failed to reach bridge \`${bridge.name}\`: ${err.message}*\n\n`;
+          connectorNotice = `*Failed to reach bridge \`${bridge.name}\`: ${err.message}*\n\n`;
         }
       } else if (bridge.customBridgeType === "local-http") {
         try {
@@ -1422,17 +1422,17 @@ export default function HomePage() {
           });
           const data = await res.json().catch(() => ({}));
           if (data.success) {
-            connectorNotice = `🔌 *Bridge \`${bridge.name}\` executed: ${data.message || "OK"}*\n\n`;
+            connectorNotice = `*Bridge \`${bridge.name}\` executed: ${data.message || "OK"}*\n\n`;
           } else if (data.isBridgeOffline) {
-            connectorNotice = `⚠️ *Bridge \`${bridge.name}\` is offline. Make sure the app is running at \`${bridge.endpoint}\`.*\n\n`;
+            connectorNotice = `*Bridge \`${bridge.name}\` is offline. Make sure the app is running at \`${bridge.endpoint}\`.*\n\n`;
           } else {
-            connectorNotice = `⚠️ *Bridge \`${bridge.name}\` error: ${data.error || data.message || "unknown"}*\n\n`;
+            connectorNotice = `*Bridge \`${bridge.name}\` error: ${data.error || data.message || "unknown"}*\n\n`;
           }
         } catch (err: any) {
-          connectorNotice = `⚠️ *Failed to reach bridge \`${bridge.name}\`: ${err.message}*\n\n`;
+          connectorNotice = `*Failed to reach bridge \`${bridge.name}\`: ${err.message}*\n\n`;
         }
       } else {
-        connectorNotice = `⚠️ *Bridge \`${bridge.name}\` has no configured type. Re-save it in Directory > Connectors.*\n\n`;
+        connectorNotice = `*Bridge \`${bridge.name}\` has no configured type. Re-save it in Directory > Connectors.*\n\n`;
       }
     }
 
@@ -2131,7 +2131,7 @@ export default function HomePage() {
         targetId = `conv_${Date.now()}`;
         targetConv = {
           id: targetId,
-          title: `🎙️ Voice: ${trimmedInput.slice(0, 24)}`,
+          title: `Voice: ${trimmedInput.slice(0, 24)}`,
           projectId: activeProjectId || undefined,
           createdAt: Date.now(),
           updatedAt: Date.now(),

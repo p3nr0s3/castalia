@@ -14,7 +14,7 @@ describe("Workspace Journal data model & business logic", () => {
       id: "entry-1",
       title: "Workspace Modernization Plan",
       content: "# Roadmap\nUpgrading local AI studio experience.",
-      icon: "📓",
+      icon: "",
       coverGradient: "linear-gradient(135deg, #10b981 0%, #3b82f6 100%)",
       category: "project",
       status: "in_progress",
@@ -166,7 +166,7 @@ describe("Workspace Journal data model & business logic", () => {
       id: legacyTask.id,
       title: legacyTask.title,
       content: legacyTask.description,
-      icon: "🎯",
+      icon: "",
       category: "task",
       status: legacyTask.status === "todo" ? "draft" : "in_progress",
       priority: legacyTask.priority as any,
@@ -178,7 +178,7 @@ describe("Workspace Journal data model & business logic", () => {
     };
 
     expect(migrated.category).toBe("task");
-    expect(migrated.icon).toBe("🎯");
+    expect(migrated.icon).toBe("");
     expect(migrated.status).toBe("draft");
     expect(migrated.checklists?.length).toBe(1);
     expect(migrated.content).toContain("Ensure mobile devices");
@@ -240,8 +240,8 @@ describe("Workspace Journal data model & business logic", () => {
     // Markdown link preprocessor transforms [[Title]] into clickable link tokens
     const processed = noteA.content.replace(/\[\[(.*?)\]\]/g, (_m, title) => {
       const cleanTitle = title.trim();
-      return `[🔗 ${cleanTitle}](#journal-note-${encodeURIComponent(cleanTitle)})`;
+      return `[${cleanTitle}](#journal-note-${encodeURIComponent(cleanTitle)})`;
     });
-    expect(processed).toContain("[🔗 Desain Frontend](#journal-note-Desain%20Frontend)");
+    expect(processed).toContain("[Desain Frontend](#journal-note-Desain%20Frontend)");
   });
 });

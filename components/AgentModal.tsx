@@ -330,7 +330,7 @@ export const AgentModal: React.FC<AgentModalProps> = ({
                 <option value="">General Chats (No Project)</option>
                 {projects.map((p) => (
                   <option key={p.id} value={p.id}>
-                    📁 {p.name}
+                    {p.name}
                   </option>
                 ))}
               </select>

@@ -634,9 +634,9 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           onPaste={handlePaste}
           placeholder={
             !modelHealth.isHealthy
-              ? `⚠️ ${modelHealth.warning}`
+              ? modelHealth.warning
               : isListening
-              ? "🎙️ Listening to your voice..."
+              ? "Listening to your voice..."
               : webSearchActive
               ? "Ask with live Web Search & Scraper..."
               : disabled

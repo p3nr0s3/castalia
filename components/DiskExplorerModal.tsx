@@ -258,7 +258,7 @@ export const DiskExplorerModal: React.FC<DiskExplorerModalProps> = ({
 
             {activeProject && (
               <div className="px-2.5 py-1 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-400 text-[11px] font-medium truncate max-w-[200px]">
-                📁 Sync Target: {activeProject.name}
+                Sync Target: {activeProject.name}
               </div>
             )}
           </div>
@@ -385,7 +385,7 @@ export const DiskExplorerModal: React.FC<DiskExplorerModalProps> = ({
                 disabled={readingFile}
                 className="px-3 py-1.5 text-xs font-semibold rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 text-white shadow-xs transition-colors cursor-pointer"
               >
-                ⚡ Ask AI
+                Ask AI
               </button>
             </div>
           </div>

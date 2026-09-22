@@ -378,7 +378,7 @@ export const ProjectDetailView: React.FC<ProjectDetailViewProps> = ({
                   )}
                   {project.thinkingMode && project.thinkingMode !== "default" && (
                     <span className="px-2 py-0.5 rounded-lg bg-[var(--sidebar-bg)] text-[10px] font-mono border border-[var(--card-border)] text-purple-400">
-                      {project.thinkingMode === "think" ? "🧠 Think" : "⚡ Fast"}
+                      {project.thinkingMode === "think" ? "Think" : "Fast"}
                     </span>
                   )}
                 </div>

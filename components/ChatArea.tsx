@@ -281,7 +281,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
               </div>
             ) : (
               <span className="flex items-center gap-1.5 px-1.5 py-1 text-xs font-medium text-[var(--muted)] flex-shrink-0">
-                <span>💬 General</span>
+                <span>General</span>
               </span>
             )}
 
@@ -374,7 +374,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                           !conversation.projectId ? "text-emerald-400 font-semibold bg-emerald-500/10" : "text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--sidebar-hover)]"
                         }`}
                       >
-                        <span>💬 General (No Project)</span>
+                        <span>General (No Project)</span>
                         {!conversation.projectId && <Check className="w-3 h-3" />}
                       </button>
                       {projects.map((proj) => {
@@ -390,7 +390,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                               isThisProj ? "text-blue-400 font-semibold bg-blue-500/10" : "text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--sidebar-hover)]"
                             }`}
                           >
-                            <span className="truncate">📁 {proj.name}</span>
+                            <span className="truncate">{proj.name}</span>
                             {isThisProj && <Check className="w-3 h-3" />}
                           </button>
                         );

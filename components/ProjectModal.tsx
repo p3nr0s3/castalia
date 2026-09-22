@@ -440,11 +440,11 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
                 </div>
                 <div className="flex flex-wrap gap-1.5">
                   {[
-                    { id: "architect", label: "💻 Code Architect", color: "text-blue-400" },
-                    { id: "reasoner", label: "🧠 Deep Reasoner", color: "text-purple-400" },
-                    { id: "creative", label: "🎨 Creative Writer", color: "text-pink-400" },
-                    { id: "balanced", label: "⚖️ Balanced Assistant", color: "text-emerald-400" },
-                    { id: "analyst", label: "📊 Precise Analyst", color: "text-amber-400" },
+                    { id: "architect", label: "Code Architect", color: "text-blue-400" },
+                    { id: "reasoner", label: "Deep Reasoner", color: "text-purple-400" },
+                    { id: "creative", label: "Creative Writer", color: "text-pink-400" },
+                    { id: "balanced", label: "Balanced Assistant", color: "text-emerald-400" },
+                    { id: "analyst", label: "Precise Analyst", color: "text-amber-400" },
                   ].map((p) => (
                     <button
                       key={p.id}

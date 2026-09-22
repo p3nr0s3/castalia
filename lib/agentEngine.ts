@@ -6,7 +6,7 @@ import { executeAgentToolCall, ToolExecutionError } from "./toolEngine";
 
 export const AGENT_PRESET_TEMPLATES = [
   {
-    name: "📰 Morning AI & Tech News Digest",
+    name: "Morning AI & Tech News Digest",
     description: "Searches the web daily for top AI and tech breakthroughs and compiles a summary report.",
     prompt: "Search the web for the latest artificial intelligence breakthroughs, open-source models, and top tech news from today. Compile a structured summary report highlighting the top 5 stories, their importance, and key takeaways.",
     webSearch: true,
@@ -16,7 +16,7 @@ export const AGENT_PRESET_TEMPLATES = [
     temperature: 0.5,
   },
   {
-    name: "📈 Crypto & Market Pulse",
+    name: "Crypto & Market Pulse",
     description: "Monitors market movements, financial news, and crypto trends with live web research.",
     prompt: "Search the latest market and cryptocurrency movements from today. Provide a concise market overview, key gainers/losers, major macro news, and practical analysis.",
     webSearch: true,
@@ -26,7 +26,7 @@ export const AGENT_PRESET_TEMPLATES = [
     temperature: 0.4,
   },
   {
-    name: "💡 Daily Startup & SaaS Idea Generator",
+    name: "Daily Startup & SaaS Idea Generator",
     description: "Brainstorms 3 novel software/AI product concepts with monetization strategies.",
     prompt: "Brainstorm 3 novel and practical AI/SaaS startup ideas solving real problems. For each idea include: Problem statement, Target audience, Proposed solution/architecture, and Monetization strategy.",
     webSearch: false,
@@ -36,7 +36,7 @@ export const AGENT_PRESET_TEMPLATES = [
     temperature: 0.85,
   },
   {
-    name: "🎯 Daily Productivity & High-Impact Planner",
+    name: "Daily Productivity & High-Impact Planner",
     description: "Formulates a structured productivity blueprint, prioritization, and deep-work strategy.",
     prompt: "Create a powerful daily action blueprint for a developer/builder. Include: Morning routine, Top 3 high-leverage tasks framework, Deep-work timeblocks, and an evening review checklist.",
     webSearch: false,
@@ -102,7 +102,7 @@ function finalizeAgentSuccess(
 
   const newConversation: Conversation = {
     id: convId,
-    title: `🤖 ${agent.name} (${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })})`,
+    title: `${agent.name} (${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })})`,
     projectId: agent.targetProjectId,
     agentId: agent.id,
     isAgentGenerated: true,
@@ -137,7 +137,7 @@ function finalizeAgentSuccess(
   };
 
   if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") {
-    new Notification(`🤖 AI Agent: ${agent.name}`, {
+    new Notification(`AI Agent: ${agent.name}`, {
       body: `Execution completed in ${durationSec}s! Click to view report.`,
       icon: "/favicon.svg",
     });
@@ -148,7 +148,7 @@ function finalizeAgentSuccess(
 
 function notifyApprovalNeeded(agent: AgentTask, toolName: string, args: Record<string, any>) {
   if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") {
-    new Notification(`⏸️ Agent perlu persetujuan: ${agent.name}`, {
+    new Notification(`Agent perlu persetujuan: ${agent.name}`, {
       body: `Ingin menjalankan ${toolName}(${JSON.stringify(args).slice(0, 80)}). Buka app untuk approve/reject.`,
       icon: "/favicon.svg",
       tag: `agent-approval-${agent.id}`,

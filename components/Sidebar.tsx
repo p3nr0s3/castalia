@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { Plus, PushPin as Pin, Trash as Trash2, PencilSimple as Edit2, Check, X, MagnifyingGlass as Search, Gear as Settings, Folder, FolderOpen, CaretRight as ChevronRight, CaretDown as ChevronDown, SquaresFour as LayoutDashboard, FadersHorizontal as SlidersHorizontal, Play, Pulse as Activity, CodeSimple as Code2, Sparkle as Sparkles, Stack as Layers, Palette, ArrowsDownUp as ArrowUpDown, DotsThreeVertical as MoreVertical, Download, CaretLineLeft as PanelLeftClose, Scroll as ScrollText, Stack as Blocks, Plug, ArrowCounterClockwise as RotateCcw, ShieldWarning as ShieldAlert, BookmarkSimple as BookMarked, ShareNetwork as Share2 } from "@phosphor-icons/react";
+import { Plus, PushPin as Pin, Trash as Trash2, PencilSimple as Edit2, Check, X, MagnifyingGlass as Search, Gear as Settings, Folder, FolderOpen, CaretRight as ChevronRight, CaretDown as ChevronDown, SquaresFour as LayoutDashboard, FadersHorizontal as SlidersHorizontal, Play, Pulse as Activity, CodeSimple as Code2, Sparkle as Sparkles, Stack as Layers, Palette, ArrowsDownUp as ArrowUpDown, DotsThreeVertical as MoreVertical, Download, CaretLineLeft as PanelLeftClose, ShieldWarning as ShieldAlert, BookmarkSimple as BookMarked, ShareNetwork as Share2 } from "@phosphor-icons/react";
 import { Conversation, Project, AgentTask } from "@/lib/types";
 import { storage } from "@/lib/storage";
 
@@ -374,93 +374,32 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </button>
           )}
 
-          {/* SECTION: CUSTOMIZE matching Image 4 */}
-          <div className="pt-2">
-            <div className="px-3 py-1 text-[11px] font-semibold text-[var(--muted)] select-none">
-              Customize
-            </div>
-            <div className="space-y-0.5 mt-0.5">
-              {/* Skills */}
-              <button
-                onClick={() => {
-                  if (onOpenDirectory) onOpenDirectory("skills");
-                  else if (onOpenSkills) onOpenSkills();
-                  else onOpenSettings("skills");
-                  if (typeof window !== "undefined" && window.innerWidth < 768) setIsOpen(false);
-                }}
-                className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--sidebar-hover)] transition-colors cursor-pointer group"
-              >
-                <ScrollText className="w-4 h-4 text-[var(--muted)] group-hover:text-[var(--foreground)] transition-colors" />
-                <span>Skills</span>
-              </button>
-
-              {/* Connectors */}
-              <button
-                onClick={() => {
-                  if (onOpenDirectory) onOpenDirectory("connectors");
-                  else onOpenSettings("cloud");
-                  if (typeof window !== "undefined" && window.innerWidth < 768) setIsOpen(false);
-                }}
-                className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--sidebar-hover)] transition-colors cursor-pointer group"
-              >
-                <Blocks className="w-4 h-4 text-[var(--muted)] group-hover:text-[var(--foreground)] transition-colors" />
-                <span>Connectors</span>
-              </button>
-
-              {/* Plugins */}
-              <button
-                onClick={() => {
-                  if (onOpenDirectory) onOpenDirectory("plugins");
-                  else onOpenSettings("skills");
-                  if (typeof window !== "undefined" && window.innerWidth < 768) setIsOpen(false);
-                }}
-                className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--sidebar-hover)] transition-colors cursor-pointer group"
-              >
-                <Plug className="w-4 h-4 text-[var(--muted)] group-hover:text-[var(--foreground)] transition-colors" />
-                <span>Plugins</span>
-              </button>
-
-              {/* Memory */}
-              <button
-                onClick={() => {
-                  if (onOpenMemory) onOpenMemory();
-                  else onOpenSettings("personalization");
-                  if (typeof window !== "undefined" && window.innerWidth < 768) setIsOpen(false);
-                }}
-                className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--sidebar-hover)] transition-colors cursor-pointer group"
-              >
-                <RotateCcw className="w-4 h-4 text-[var(--muted)] group-hover:text-[var(--foreground)] transition-colors" />
-                <span>Memory</span>
-              </button>
-
-              {/* Agent Approval Queue — badge stays visible until each item is decided */}
-              {onOpenApprovals && (
-                <button
-                  onClick={() => {
-                    onOpenApprovals();
-                    if (typeof window !== "undefined" && window.innerWidth < 768) setIsOpen(false);
-                  }}
-                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs transition-colors cursor-pointer group ${
-                    pendingApprovalCount > 0
-                      ? "text-amber-300 hover:bg-amber-500/10"
-                      : "text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--sidebar-hover)]"
-                  }`}
-                >
-                  <ShieldAlert
-                    className={`w-4 h-4 transition-colors ${
-                      pendingApprovalCount > 0 ? "text-amber-400" : "text-[var(--muted)] group-hover:text-[var(--foreground)]"
-                    }`}
-                  />
-                  <span className="flex-1 text-left">Persetujuan Agent</span>
-                  {pendingApprovalCount > 0 && (
-                    <span className="px-1.5 py-0.5 rounded-full bg-amber-500 text-neutral-950 text-[10px] font-bold leading-none">
-                      {pendingApprovalCount}
-                    </span>
-                  )}
-                </button>
+          {/* Agent Approval Queue — badge stays visible until each item is decided */}
+          {onOpenApprovals && (
+            <button
+              onClick={() => {
+                onOpenApprovals();
+                if (typeof window !== "undefined" && window.innerWidth < 768) setIsOpen(false);
+              }}
+              className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs transition-colors cursor-pointer group ${
+                pendingApprovalCount > 0
+                  ? "text-amber-300 hover:bg-amber-500/10"
+                  : "text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--sidebar-hover)]"
+              }`}
+            >
+              <ShieldAlert
+                className={`w-4 h-4 transition-colors ${
+                  pendingApprovalCount > 0 ? "text-amber-400" : "text-[var(--muted)] group-hover:text-[var(--foreground)]"
+                }`}
+              />
+              <span className="flex-1 text-left">Persetujuan Agent</span>
+              {pendingApprovalCount > 0 && (
+                <span className="px-1.5 py-0.5 rounded-full bg-amber-500 text-neutral-950 text-[10px] font-bold leading-none">
+                  {pendingApprovalCount}
+                </span>
               )}
-            </div>
-          </div>
+            </button>
+          )}
         </div>
 
         {/* Scrollable Section Lists: Projects & Chats */}

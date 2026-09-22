@@ -1,25 +1,25 @@
-# 📖 Panduan Lengkap & Dokumentasi Arsitektur: Ollama Local AI Chat Web
+# Panduan Lengkap & Dokumentasi Arsitektur: Ollama Local AI Chat Web
 
 Dokumentasi komprehensif mengenai seluruh fitur, arsitektur, instalasi, mesin pencari web presisi bawaan (Google News & Organic), dan cara akses aplikasi chat lokal Ollama dari mana saja.
 
 ---
 
-## 📑 Daftar Isi
-1. [Ringkasan Proyek](#-ringkasan-proyek)
-2. [Fitur-Fitur Utama](#-fitur-fitur-utama)
-3. [Arsitektur Sistem & Alur Kerja](#-arsitektur-sistem--alur-kerja)
-4. [Panduan Instalasi & Menjalankan Aplikasi](#-panduan-instalasi--menjalankan-aplikasi)
-5. [Mesin Pencari Web Built-in (Google News & Organic)](#-mesin-pencari-web-built-in-google-news--organic)
-6. [Panduan Akses Jaringan (Lokal Wi-Fi & Luar Rumah)](#-panduan-akses-jaringan-lokal-wi-fi--luar-rumah)
-7. [Struktur Folder Proyek](#-struktur-folder-proyek)
+## Daftar Isi
+1. [Ringkasan Proyek](#ringkasan-proyek)
+2. [Fitur-Fitur Utama](#fitur-fitur-utama)
+3. [Arsitektur Sistem & Alur Kerja](#arsitektur-sistem--alur-kerja)
+4. [Panduan Instalasi & Menjalankan Aplikasi](#panduan-instalasi--menjalankan-aplikasi)
+5. [Mesin Pencari Web Built-in (Google News & Organic)](#mesin-pencari-web-built-in-google-news--organic)
+6. [Panduan Akses Jaringan (Lokal Wi-Fi & Luar Rumah)](#panduan-akses-jaringan-lokal-wi-fi--luar-rumah)
+7. [Struktur Folder Proyek](#struktur-folder-proyek)
 
 ---
 
-## 🚀 Ringkasan Proyek
+## Ringkasan Proyek
 
 Aplikasi ini adalah antarmuka web modern, cepat, privat, dan *local-first* untuk menjalankan berbagai model LLM lokal via **Ollama** (seperti *Qwythos*, *Llama 3*, *DeepSeek R1*, *Qwen 2.5 Coder*, *LLaVA Vision*, dll.) yang diperkaya dengan fitur-fitur setara platform AI terkemuka seperti **Claude Projects** dan **Perplexity Web Search**.
 
-### 🛠️ Teknologi yang Digunakan:
+### Teknologi yang Digunakan:
 - **Frontend / Fullstack**: [Next.js 14](https://nextjs.org/) (App Router), React 18, TypeScript.
 - **Styling & UI**: Tailwind CSS, Lucide Icons, KaTeX (LaTeX Math), React Markdown.
 - **AI Engine**: [Ollama](https://ollama.ai/) REST API (Streaming NDJSON).
@@ -29,9 +29,9 @@ Aplikasi ini adalah antarmuka web modern, cepat, privat, dan *local-first* untuk
 
 ---
 
-## ✨ Fitur-Fitur Utama
+## Fitur-Fitur Utama
 
-### 1. ☁️ Multi-Model Cloud AI API Support (Gemini, Claude, GPT, DeepSeek, Groq)
+### 1. Multi-Model Cloud AI API Support (Gemini, Claude, GPT, DeepSeek, Groq)
 - **Dukungan Model Cloud Terlengkap**: Beralih bebas antara model lokal Ollama dan model cloud teratas:
   - **Google Gemini**: Gemini 2.5 Flash, Gemini 2.5 Pro, Gemini 2.0 Flash.
   - **OpenAI**: GPT-4o, GPT-4o Mini, o3-mini (Reasoning).
@@ -43,15 +43,15 @@ Aplikasi ini adalah antarmuka web modern, cepat, privat, dan *local-first* untuk
 
 ---
 
-### 2. 💬 Gelembung Chat Imersif & Blok Penalaran (Reasoning `<think>`)
+### 2. Gelembung Chat Imersif & Blok Penalaran (Reasoning `<think>`)
 - **Desain Chat Bubble Modern & Imersif**: Sudut membulat modern, aksen border halus, bayangan kedalaman, dan tipografi rapi.
-- **🧠 Accordion "Thought Process / Reasoning"**: Secara otomatis mendeteksi tag `<think>...</think>` (pada model seperti DeepSeek-R1, Claude 3.7 Sonnet, Qwen 2.5, Mythos) dan menampilkannya dalam kotak accordion yang bisa dilipat/dibuka.
-- **Badge Penyedia Model**: Menampilkan logo dan warna khas untuk Gemini 🔷, OpenAI 🟢, Claude 🟣, DeepSeek 🐋, Groq ⚡, dan Local Ollama 🦙.
+- **Accordion "Thought Process / Reasoning"**: Secara otomatis mendeteksi tag `<think>...</think>` (pada model seperti DeepSeek-R1, Claude 3.7 Sonnet, Qwen 2.5, Mythos) dan menampilkannya dalam kotak accordion yang bisa dilipat/dibuka.
+- **Badge Penyedia Model**: Menampilkan logo dan warna khas untuk Gemini, OpenAI, Claude, DeepSeek, Groq, dan Local Ollama.
 - **Tombol Selector Mengikuti Tema Aktif**: Tombol pemilihan model dan dropdown 100% bereaksi terhadap tema warna yang dipilih (*Midnight*, *OLED*, *Light*, *Cyberpunk*, *Forest*, *Sunset*, *Nord*).
 
 ---
 
-### 3. 🔄 Sinkronisasi Real-Time Multi-Device & Server Database
+### 3. Sinkronisasi Real-Time Multi-Device & Server Database
 - **Penyimpanan Terpusat di Server Disk (`data/db.json`)**: Riwayat percakapan, Project, AI Agent, dan Pengaturan kini tersimpan di database server lokal.
 - **Sinkron Otomatis Antar Perangkat**: Chat yang Anda lakukan di PC akan otomatis muncul saat Anda membuka web di HP, tablet, atau browser lain tanpa perlu export/import manual!
 - **Auto-Sync saat Fokus & Background (8 detik)**: Ketika Anda membuka browser HP, aplikasi langsung menyinkronkan pesan-pesan terbaru dari PC secara mulus.
@@ -59,43 +59,43 @@ Aplikasi ini adalah antarmuka web modern, cepat, privat, dan *local-first* untuk
 
 ---
 
-### 2. ⚡ Metrik Kecepatan Generasi (Tokens/s & TPS)
-- **Live Streaming TPS**: Menampilkan kecepatan generasi token secara real-time (`⚡ 38.2 t/s`) yang berkedip saat model sedang mengetik.
+### 4. Metrik Kecepatan Generasi (Tokens/s & TPS)
+- **Live Streaming TPS**: Menampilkan kecepatan generasi token secara real-time (`38.2 t/s`) yang berkedip saat model sedang mengetik.
 - **Statistik Presisi Mesin Ollama**: Dihitung langsung dari *nanosecond timer* mesin internal Ollama setelah generasi selesai:
   $$\text{Kecepatan (TPS)} = \frac{\text{eval\_count}}{\text{eval\_duration} \times 10^{-9}}$$
 - **Kartu Inspeksi Performa Detail**: Klik badge kecepatan pada pesan asisten untuk melihat:
-  - 🚀 *Generation Speed* (tokens/s)
-  - 🔢 *Total Generated Tokens*
-  - ⏱️ *Total Latency / Execution Time* (detik)
-  - 📥 *Prompt Processing Speed* (prompt tokens/s)
-  - 📝 *Prompt Token Count*
+  - *Generation Speed* (tokens/s)
+  - *Total Generated Tokens*
+  - *Total Latency / Execution Time* (detik)
+  - *Prompt Processing Speed* (prompt tokens/s)
+  - *Prompt Token Count*
 
 ---
 
-### 2. 🤖 AI Agentic & Otomasi Terjadwal (Scheduled AI Agents)
-- **Tab Khusus di Sidebar**: Navigasi 3 tab modern di sidebar (**Chats**, **Projects**, dan **Agents 🤖**).
+### 5. AI Agentic & Otomasi Terjadwal (Scheduled AI Agents)
+- **Tab Khusus di Sidebar**: Navigasi 3 tab modern di sidebar (**Chats**, **Projects**, dan **Agents**).
 - **Penjadwalan Fleksibel**:
   - *Harian pada Jam Tertentu*: Misal otomatis jalan setiap pagi jam `08:00`.
   - *Interval Berulang*: Misal jalan otomatis setiap `30 menit`, `1 jam`, `6 jam`, atau `24 jam`.
-  - *Manual (On-Demand)*: Eksekusi seketika kapan pun dengan tombol **"⚡ Run Now"**.
+  - *Manual (On-Demand)*: Eksekusi seketika kapan pun dengan tombol **"Run Now"**.
 - **Pencarian Web Otonom (Built-in Precision)**: Agen AI dapat browsing internet secara mandiri untuk mengumpulkan data fakta sebelum menulis laporan.
-- **Routing Output ke Project**: Hasil eksekusi agen dapat otomatis disimpan ke Project tertentu atau ke chat baru dengan badge khusus `🤖 Agent`.
+- **Routing Output ke Project**: Hasil eksekusi agen dapat otomatis disimpan ke Project tertentu atau ke chat baru dengan badge khusus `Agent`.
 - **Log Riwayat & Notifikasi**: Menyimpan riwayat eksekusi (durasi, jumlah token, status) dan memicu notifikasi desktop ketika tugas selesai.
 - **Template Siap Pakai**: *Morning AI News Digest*, *Crypto & Market Pulse*, *Daily Startup Ideas*, *Productivity Planner*.
 
 ---
 
-### 3. 💾 Akses File & Disk Lokal (Local Disk Explorer)
+### 6. Akses File & Disk Lokal (Local Disk Explorer)
 - **Penjelajah Disk Langsung (`/api/fs`)**: Jelajahi folder dan drive komputer Anda (`C:\`, `D:\`, folder Documents, Downloads, repository kode, dll.) langsung dari antarmuka web tanpa perlu upload ke cloud.
 - **Deteksi Otomatis File Teks & Source Code**: Mendukung `.py`, `.js`, `.ts`, `.json`, `.md`, `.txt`, `.sql`, `.java`, `.cpp`, `.rs`, `.go`, `.html`, `.css`, `.env`, `.yaml`, dll.
 - **Aksi 1-Klik**:
-  - 📥 *+ Attach to Chat*: Lampirkan file disk ke percakapan saat ini.
-  - 📚 *+ Add to Project*: Masukkan file disk ke dalam Knowledge Base Project Claude secara permanen.
-  - ⚡ *Ask AI*: Langsung tanyakan ringkasan, analisis bug, atau penjelasan isi file ke model Ollama.
+  - *+ Attach to Chat*: Lampirkan file disk ke percakapan saat ini.
+  - *+ Add to Project*: Masukkan file disk ke dalam Knowledge Base Project Claude secara permanen.
+  - *Ask AI*: Langsung tanyakan ringkasan, analisis bug, atau penjelasan isi file ke model Ollama.
 
 ---
 
-### 4. 📁 Claude-Style Projects & Persistent Knowledge Base
+### 7. Claude-Style Projects & Persistent Knowledge Base
 - **Workspace Terisolasi**: Buat project khusus (misal: *Fullstack Next.js*, *Python Data Science*, *Penerjemah Bahasa*, *Analisis Dokumen Hukum*).
 - **Instruksi Kustom per Project**: System prompt khusus yang otomatis diterapkan ke seluruh chat di dalam project tersebut.
 - **Knowledge Base Permanen**: Unggah dokumen referensi (`.pdf`, `.txt`, `.md`, `.json`, `.py`, `.ts`, `.csv`, dll.) ke dalam project. Semua chat di project tersebut otomatis memiliki ingatan dan akses terhadap isi file-file tersebut.
@@ -103,26 +103,26 @@ Aplikasi ini adalah antarmuka web modern, cepat, privat, dan *local-first* untuk
 
 ---
 
-### 3. 🌐 Live Web Search Built-in Presisi Tinggi (RAG)
-- **Toggle "Search ON / OFF"**: Tombol bola dunia 🌐 di samping kolom input chat.
+### 8. Live Web Search Built-in Presisi Tinggi (RAG)
+- **Toggle "Search ON / OFF"**: Tombol bola dunia di samping kolom input chat.
 - **Pencarian Multi-Engine Real-Time**: Mengambil berita aktual dari Google News RSS (lengkap dengan tanggal dan nama penerbit) serta informasi spesifik melalui mesin organik & Wikipedia tanpa perlu Docker atau konfigurasi eksternal.
 - **Grounding Context**: Hasil pencarian disuntikkan ke prompt Ollama untuk menjawab pertanyaan berbasis fakta terkini.
 - **Sitasi Sumber yang Dapat Diklik**: Menampilkan daftar sumber referensi artikel lengkap dengan judul, domain, dan link aktif.
 
 ---
 
-### 4. 📎 Input Multimodal (Gambar, Dokumen & Source Code)
+### 9. Input Multimodal (Gambar, Dokumen & Source Code)
 - **Model Vision**: Dukungan format `.png`, `.jpg`, `.jpeg`, `.webp`, `.gif` yang otomatis diubah ke Base64 untuk model vision Ollama (misal: LLaVA, Llama 3.2 Vision).
 - **Dokumen & Kode**: Dukungan file teks (`.pdf`, `.txt`, `.md`, `.json`, `.csv`, `.py`, `.js`, `.ts`, `.html`, `.css`, `.sql`, `.env`, dll.).
 - **3 Metode Input File**:
-  1. Tombol Paperclip (📎) file picker.
+  1. Tombol Paperclip file picker.
   2. Paste langsung dari clipboard (`Ctrl + V`).
   3. Drag & Drop file ke jendela chat.
 - **Galeri Pratinjau**: Thumbnail gambar dengan fitur *fullscreen preview* modal.
 
 ---
 
-### 5. 📱 Tampilan Responsif & Native Mobile Viewport
+### 10. Tampilan Responsif & Native Mobile Viewport
 - **Fit Layar HP Otomatis**: Menggunakan konfigurasi `interactiveWidget: "resizes-content"` dan `100dvh` sehingga tampilan otomatis pas 100% tanpa perlu menyalakan *"Situs Desktop"* di browser ponsel.
 - **Keyboard-Adaptive**: Kolom input dan tombol kirim tidak akan tertutup saat keyboard virtual HP muncul.
 - **Anti-Zoom Safari/Chrome**: Ukuran font input disesuaikan agar tidak memicu zoom otomatis saat disentuh.
@@ -130,13 +130,13 @@ Aplikasi ini adalah antarmuka web modern, cepat, privat, dan *local-first* untuk
 
 ---
 
-### 6. 🎨 8 Pilihan Tema & Ikon Aplikasi
+### 11. 8 Pilihan Tema & Ikon Aplikasi
 - **Pilihan Tema**: *Midnight Dark*, *OLED Black (Pitch Black)*, *Clean Light*, *Cyberpunk Neon*, *Forest Emerald*, *Sunset Amber*, *Nord Arctic*, dan *System Auto*.
 - **Favicon & App Icon Vektor (SVG)**: Logo robot AI modern pada tab browser dan layar utama HP (*Add to Home Screen*).
 
 ---
 
-## 🏛️ Arsitektur Sistem & Alur Kerja
+## Arsitektur Sistem & Alur Kerja
 
 ```mermaid
 graph TD
@@ -167,7 +167,7 @@ graph TD
 
 ---
 
-## 💻 Panduan Instalasi & Menjalankan Aplikasi
+## Panduan Instalasi & Menjalankan Aplikasi
 
 ### 1. Prasyarat:
 - [Node.js](https://nodejs.org/) v18+ atau v20+
@@ -184,7 +184,7 @@ Aplikasi akan aktif di:
 
 ---
 
-## 🌐 Mesin Pencari Web Built-in (Google News & Organic)
+## Mesin Pencari Web Built-in (Google News & Organic)
 
 Sistem menggunakan **Built-in Precision Web Engine** mandiri yang terintegrasi langsung di aplikasi tanpa memerlukan Docker atau konfigurasi tambahan (*zero-config*):
 
@@ -202,7 +202,7 @@ Sistem menggunakan **Built-in Precision Web Engine** mandiri yang terintegrasi l
 
 ---
 
-## 🌐 Panduan Akses Jaringan (Lokal Wi-Fi & Luar Rumah)
+## Panduan Akses Jaringan (Lokal Wi-Fi & Luar Rumah)
 
 ### 1. Buka Blokir Windows Firewall (Untuk Wi-Fi Lokal `192.168.1.101:3000`)
 Jalankan **sekali saja** di **PowerShell (Run as Administrator)**:
@@ -223,7 +223,7 @@ npm run tunnel
 
 ---
 
-## 🔌 Local App Bridge — Framework untuk Koneksi ke Aplikasi Lokal
+## Local App Bridge — Framework untuk Koneksi ke Aplikasi Lokal
 
 Beberapa use-case butuh menghubungkan aplikasi web ini ke aplikasi desktop lain yang berjalan di komputer yang sama, lewat HTTP bridge lokal (misalnya: daemon Python custom yang mengontrol Blender lewat `bpy`, atau app desktop lain apapun yang punya HTTP server sendiri). **Catatan: tidak ada bridge bawaan/pre-built untuk aplikasi manapun** — `DEFAULT_CONNECTORS` di `lib/directoryData.ts` sengaja dikosongkan; semua per-service hardcoded logic (GitHub API, Slack/Discord webhook shaping, Blender bpy bridge) sudah dihapus dari `app/api/connectors/route.ts`. `lib/localAppBridge.ts` adalah lapisan generic yang user pakai untuk mendefinisikan bridge-nya sendiri lewat Directory > Connectors > Add Custom Bridge:
 
@@ -272,7 +272,7 @@ if (result.isBridgeOffline) {
 
 Test suite framework ini ada di `tests/localAppBridge.test.ts` (18 test — lifecycle token, fallback endpoint, deteksi 401 vs offline, SSRF guard).
 
-## 📂 Struktur Folder Proyek
+## Struktur Folder Proyek
 
 ```text
 ollama-chat-web/

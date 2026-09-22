@@ -86,7 +86,7 @@ class FastCache<T> {
 const cache = new FastCache<{ status: string; timestamp: number }>();
 cache.set("health", { status: "operational", timestamp: Date.now() });
 
-console.log("🚀 Server initialized with High-Speed LRU Cache!");
+console.log("Server initialized with High-Speed LRU Cache!");
 console.log("Cache lookup ('health'):", cache.get("health"));
 `,
   },
@@ -102,15 +102,15 @@ console.log("Cache lookup ('health'):", cache.get("health"));
 </head>
 <body class="bg-slate-950 text-white min-h-screen flex items-center justify-center p-6 font-sans">
   <div class="max-w-sm p-6 rounded-3xl bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 border border-indigo-500/30 shadow-2xl space-y-4 text-center">
-    <div class="w-14 h-14 rounded-2xl bg-indigo-600/30 border border-indigo-500/50 flex items-center justify-center text-3xl shadow-lg shadow-indigo-500/30 mx-auto">
-      ⚡
+    <div class="w-14 h-14 rounded-2xl bg-indigo-600/30 border border-indigo-500/50 flex items-center justify-center text-xl font-mono text-indigo-300 shadow-lg shadow-indigo-500/30 mx-auto">
+      &lt;/&gt;
     </div>
     <h2 class="text-xl font-bold tracking-tight text-indigo-200">Interactive Codespace Studio</h2>
     <p class="text-xs text-slate-400 leading-relaxed">
       Full Web IDE with live Python interpreter, Node.js runner, resizable sidebars, and Staff AI Copilot.
     </p>
     <div class="pt-2">
-      <button onclick="alert('⚡ Codespace runtime is active!')" class="w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-xs font-semibold text-white shadow-md transition-all active:scale-95 cursor-pointer">
+      <button onclick="alert('Codespace runtime is active!')" class="w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-xs font-semibold text-white shadow-md transition-all active:scale-95 cursor-pointer">
         Click for Test Event
       </button>
     </div>
@@ -451,7 +451,7 @@ export const CodespaceView: React.FC<CodespaceViewProps> = ({
           ...prev,
           {
             id: `done_${Date.now()}_${Math.random()}`,
-            text: "✓ Execution completed successfully.",
+            text: "Execution completed successfully.",
             type: "success",
             timestamp,
           },
@@ -523,7 +523,7 @@ export const CodespaceView: React.FC<CodespaceViewProps> = ({
         stdout: function(text) { send("log", [text]); },
         stderr: function(text) { send("error", [text]); }
       });
-      send("log", ["✓ Pyodide Python 3.12 WebAssembly ready."]);
+      send("log", ["Pyodide Python 3.12 WebAssembly ready."]);
     }
 
     var code = ${escaped};
@@ -598,7 +598,7 @@ export const CodespaceView: React.FC<CodespaceViewProps> = ({
   const handleRunCode = async () => {
     setOutputTab("console");
     const timestamp = new Date().toLocaleTimeString();
-    const runHeader = `▶ Running ${activeSnippet.name} (${activeSnippet.language.toUpperCase()})...`;
+    const runHeader = `> Running ${activeSnippet.name} (${activeSnippet.language.toUpperCase()})...`;
 
     setConsoleLogs((prev) => [
       ...prev,
@@ -662,8 +662,8 @@ export const CodespaceView: React.FC<CodespaceViewProps> = ({
             {
               id: `done_${Date.now()}`,
               text: data.success
-                ? `✓ Process finished successfully (exit: ${data.exitCode}, time: ${data.executionTimeMs}ms)`
-                : `❌ Process exited with error code ${data.exitCode}`,
+                ? `Process finished successfully (exit: ${data.exitCode}, time: ${data.executionTimeMs}ms)`
+                : `Process exited with error code ${data.exitCode}`,
               type: data.success ? "success" : "stderr",
               timestamp: new Date().toLocaleTimeString(),
             },
@@ -676,7 +676,7 @@ export const CodespaceView: React.FC<CodespaceViewProps> = ({
           ...prev,
           {
             id: `wasm_info_${Date.now()}`,
-            text: "ℹ️ Native Python not detected on host. Executing via In-Browser WebAssembly (Pyodide Python 3.12)...",
+            text: "Native Python not detected on host. Executing via In-Browser WebAssembly (Pyodide Python 3.12)...",
             type: "warn",
             timestamp: new Date().toLocaleTimeString(),
           },
@@ -733,8 +733,8 @@ export const CodespaceView: React.FC<CodespaceViewProps> = ({
             {
               id: `done_${Date.now()}`,
               text: data.success
-                ? `✓ Execution completed in ${data.executionTimeMs}ms`
-                : `❌ Process exited with error code ${data.exitCode}`,
+                ? `Execution completed in ${data.executionTimeMs}ms`
+                : `Process exited with error code ${data.exitCode}`,
               type: data.success ? "success" : "stderr",
               timestamp: new Date().toLocaleTimeString(),
             },
@@ -756,7 +756,7 @@ export const CodespaceView: React.FC<CodespaceViewProps> = ({
       ...prev,
       {
         id: `other_${Date.now()}`,
-        text: `ℹ️ Direct execution for ${activeSnippet.language.toUpperCase()} is not available locally. Use AI Review for simulation.`,
+        text: `Direct execution for ${activeSnippet.language.toUpperCase()} is not available locally. Use AI Review for simulation.`,
         type: "warn",
         timestamp,
       },
@@ -768,7 +768,7 @@ export const CodespaceView: React.FC<CodespaceViewProps> = ({
   const handleAiAction = async (actionType: "review" | "fix" | "optimize" | "docs" | "tests" | "explain") => {
     setIsAiLoading(true);
     setOutputTab("ai");
-    setAiReviewOutput(`⏳ Asking AI (${selectedModel || "Local AI"}) to analyze ${activeSnippet.name}...`);
+    setAiReviewOutput(`Asking AI (${selectedModel || "Local AI"}) to analyze ${activeSnippet.name}...`);
 
     let prompt = "";
     if (actionType === "review") {
@@ -850,7 +850,7 @@ export const CodespaceView: React.FC<CodespaceViewProps> = ({
         setAiReviewOutput(fullResponse);
       }
     } catch (err: any) {
-      setAiReviewOutput(`❌ AI Error: ${err.message}. Check model availability or API key settings.`);
+      setAiReviewOutput(`AI Error: ${err.message}. Check model availability or API key settings.`);
     } finally {
       setIsAiLoading(false);
     }
@@ -865,7 +865,7 @@ export const CodespaceView: React.FC<CodespaceViewProps> = ({
         ...prev,
         {
           id: `applied_${Date.now()}`,
-          text: `✓ Applied AI generated code to ${activeSnippet.name}`,
+          text: `Applied AI generated code to ${activeSnippet.name}`,
           type: "success",
           timestamp: new Date().toLocaleTimeString(),
         },
@@ -1734,16 +1734,16 @@ export const CodespaceView: React.FC<CodespaceViewProps> = ({
                       let prefix = "";
                       if (log.type === "stderr") {
                         colorClass = "text-rose-400 font-medium";
-                        prefix = "✕ ";
+                        prefix = "x ";
                       } else if (log.type === "warn") {
                         colorClass = "text-amber-300";
-                        prefix = "⚠ ";
+                        prefix = "! ";
                       } else if (log.type === "info") {
                         colorClass = "text-blue-300";
-                        prefix = "ℹ ";
+                        prefix = "i ";
                       } else if (log.type === "success") {
                         colorClass = "text-emerald-400 font-semibold";
-                        prefix = "✓ ";
+                        prefix = "+ ";
                       }
 
                       return (

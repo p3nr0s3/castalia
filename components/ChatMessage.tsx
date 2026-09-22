@@ -843,7 +843,7 @@ const ChatMessageComponent: React.FC<ChatMessageProps> = ({
                       <Zap className="w-2.5 h-2.5 text-blue-400" />
                       <span>
                         {message.servedFromCache ? (
-                          <span className="text-amber-400 font-semibold">⚡ Instant Cached</span>
+                          <span className="text-amber-400 font-semibold">Instant Cached</span>
                         ) : metrics?.evalTps ? (
                           `${metrics.evalTps.toFixed(1)} t/s`
                         ) : (

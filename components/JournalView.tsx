@@ -97,7 +97,7 @@ const COVER_PRESETS = [
   { id: "minimal", name: "Minimal Dark", gradient: "from-zinc-950 via-zinc-900 to-black border-zinc-800" },
 ];
 
-const EMOJI_PRESETS = ["📓", "🎯", "💡", "🚀", "📝", "⚡", "☕", "🧠", "📅", "🛠️", "🎨", "📊", "🔍", "💻", "🌱", "🔥"];
+const EMOJI_PRESETS: string[] = [];
 
 export const JournalView: React.FC<JournalViewProps> = ({
   projects,
@@ -159,7 +159,6 @@ export const JournalView: React.FC<JournalViewProps> = ({
 
   // Document Editor State
   const [previewMode, setPreviewMode] = useState(false);
-  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showCoverPicker, setShowCoverPicker] = useState(false);
   const [newChecklistText, setNewChecklistText] = useState("");
   const [newTagText, setNewTagText] = useState("");
@@ -184,26 +183,26 @@ export const JournalView: React.FC<JournalViewProps> = ({
       const initialEntry: JournalEntry = {
         id: `journal_${Date.now()}`,
         title: "Selamat Datang di Jurnal & Workspace Anda",
-        content: `### 📓 Ruang Kerja & Catatan Pribadi Anda
+        content: `### Ruang Kerja & Catatan Pribadi Anda
 
 Ini adalah jurnal kerja bergaya Notion terintegrasi 100% lokal. Anda dapat menulis ide, catatan harian, rencana proyek, hingga to-do checklist interaktif.
 
-#### ✨ Fitur Utama:
-- **Dokumen Kaya**: Ubah cover banner, ganti ikon emoji sesuka hati, dan tulis dengan format Markdown.
+#### Fitur Utama:
+- **Dokumen Kaya**: Ubah cover banner dan tulis dengan format Markdown.
 - **To-Do Checklist**: Tambahkan subtask yang dapat dicentang langsung dengan kalkulasi progres visual.
 - **Tampilan Multi-View**: Ganti tampilan antara *Halaman Dokumen*, *Tabel Ringkas*, dan *Papan Kanban*.
 - **AI Copilot Lokal**: Minta AI merangkum catatan, memecah ide menjadi to-do list, atau membuat draft artikel secara instan.
 
 > [!NOTE]
 > Catatan Anda tersimpan aman di mesin lokal (SQLite / localStorage) dan dapat diekspor kapan saja.`,
-        icon: "📓",
+        icon: "",
         coverGradient: COVER_PRESETS[0].gradient,
         category: "daily",
         status: "in_progress",
         priority: "medium",
         tags: ["welcome", "panduan"],
         checklists: [
-          { id: "c1", title: "Coba ganti emoji atau cover banner di atas", completed: false },
+          { id: "c1", title: "Coba ganti cover banner di atas", completed: false },
           { id: "c2", title: "Buat catatan atau ide baru menggunakan tombol +", completed: false },
           { id: "c3", title: "Gunakan AI Copilot untuk menyusun to-do list", completed: false },
         ],
@@ -255,7 +254,7 @@ Ini adalah jurnal kerja bergaya Notion terintegrasi 100% lokal. Anda dapat menul
     if (!activeEntry?.content) return "*Catatan ini masih kosong.*";
     return activeEntry.content.replace(/\[\[(.*?)\]\]/g, (_m, title) => {
       const cleanTitle = title.trim();
-      return `[🔗 ${cleanTitle}](#journal-note-${encodeURIComponent(cleanTitle)})`;
+      return `[${cleanTitle}](#journal-note-${encodeURIComponent(cleanTitle)})`;
     });
   }, [activeEntry?.content]);
 
@@ -297,7 +296,7 @@ Ini adalah jurnal kerja bergaya Notion terintegrasi 100% lokal. Anda dapat menul
       id: `journ_${Date.now()}`,
       title: title.trim(),
       content: `*Catatan baru dibuat via bilateral link dari [[${activeEntry?.title || "Journal"}]]*\n\n`,
-      icon: "📝",
+      icon: "",
       category: "daily",
       status: "draft",
       priority: "medium",
@@ -317,7 +316,7 @@ Ini adalah jurnal kerja bergaya Notion terintegrasi 100% lokal. Anda dapat menul
       id: `journ_${Date.now()}`,
       title: title.trim(),
       content: `*Catatan dibuat otomatis melalui bilateral link dari [[${activeEntry?.title || "Journal"}]]*\n\n`,
-      icon: "📓",
+      icon: "",
       category: "daily",
       status: "draft",
       priority: "medium",
@@ -338,7 +337,7 @@ Ini adalah jurnal kerja bergaya Notion terintegrasi 100% lokal. Anda dapat menul
       .map((c) => `- [${c.completed ? "x" : " "}] ${c.title}`)
       .join("\n");
 
-    const fileContent = `# ${activeEntry.icon || "📓"} ${activeEntry.title}
+    const fileContent = `# ${activeEntry.icon ? activeEntry.icon + " " : ""}${activeEntry.title}
 
 - **Kategori:** ${activeEntry.category}
 - **Prioritas:** ${activeEntry.priority || "medium"}
@@ -388,7 +387,7 @@ ${activeEntry.content}
       id: `journal_${Date.now()}`,
       title: "Catatan Baru Tanpa Judul",
       content: "",
-      icon: category === "task" ? "🎯" : category === "idea" ? "💡" : category === "project" ? "🚀" : "📓",
+      icon: "",
       coverGradient: COVER_PRESETS[Math.floor(Math.random() * COVER_PRESETS.length)].gradient,
       category,
       status: "draft",
@@ -964,6 +963,7 @@ Dst. Berikan hanya daftar tugas actionable.`;
                 filteredEntries.map((entry) => {
                   const isActive = entry.id === activeEntryId;
                   const catCfg = CATEGORY_CONFIG[entry.category] || CATEGORY_CONFIG.daily;
+                  const CatIcon = catCfg.icon;
                   const doneCount = (entry.checklists || []).filter((c) => c.completed).length;
                   const totalCount = (entry.checklists || []).length;
                   return (
@@ -980,7 +980,11 @@ Dst. Berikan hanya daftar tugas actionable.`;
                       }`}
                     >
                       <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                        <span className="text-sm flex-shrink-0">{entry.icon || "📓"}</span>
+                        {entry.icon ? (
+                          <span className="text-sm flex-shrink-0">{entry.icon}</span>
+                        ) : (
+                          <CatIcon className={`w-3.5 h-3.5 flex-shrink-0 ${catCfg.color}`} />
+                        )}
                         <div className="min-w-0 flex-1">
                           <div className="text-xs truncate font-medium text-[var(--foreground)]">
                             {entry.title || "Catatan Tanpa Judul"}
@@ -1089,37 +1093,19 @@ Dst. Berikan hanya daftar tugas actionable.`;
                     : "max-w-5xl xl:max-w-6xl w-full mx-auto px-6 md:px-10"
                 } py-8 space-y-6 transition-all duration-150`}
               >
-                {/* Emoji Icon & Title */}
+                {/* Document Icon & Title */}
                 <div className="space-y-3">
                   <div className="relative inline-block">
-                    <button
-                      onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-                      className="text-4xl md:text-5xl p-2 rounded-2xl hover:bg-[var(--sidebar-hover)] transition-colors cursor-pointer"
-                      title="Klik untuk ganti emoji"
-                    >
-                      {activeEntry.icon || "📓"}
-                    </button>
-
-                    {/* Emoji Picker Popover */}
-                    {showEmojiPicker && (
-                      <div className="absolute top-full left-0 mt-2 p-3 rounded-2xl bg-[var(--card-bg)] border border-[var(--card-border)] shadow-2xl z-30 w-64 space-y-2">
-                        <div className="text-xs font-bold text-[var(--foreground)]">Pilih Ikon Emoji</div>
-                        <div className="grid grid-cols-6 gap-2">
-                          {EMOJI_PRESETS.map((emoji) => (
-                            <button
-                              key={emoji}
-                              onClick={() => {
-                                updateActiveEntry({ icon: emoji });
-                                setShowEmojiPicker(false);
-                              }}
-                              className="text-xl p-1.5 rounded-lg hover:bg-[var(--sidebar-hover)] transition-colors cursor-pointer"
-                            >
-                              {emoji}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
+                    <div className="w-12 h-12 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center">
+                      {activeEntry.icon ? (
+                        <span className="text-2xl">{activeEntry.icon}</span>
+                      ) : (
+                        (() => {
+                          const ActiveCatIcon = (CATEGORY_CONFIG[activeEntry.category] || CATEGORY_CONFIG.daily).icon;
+                          return <ActiveCatIcon className="w-6 h-6 text-indigo-400" />;
+                        })()
+                      )}
+                    </div>
                   </div>
 
                   {/* Title Input */}
@@ -1511,7 +1497,14 @@ Dst. Berikan hanya daftar tugas actionable.`;
                                 className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-xl text-xs hover:bg-indigo-500/15 text-[var(--foreground)] transition-colors text-left cursor-pointer"
                               >
                                 <span className="flex items-center gap-2 truncate">
-                                  <span>{sug.icon || "📓"}</span>
+                                  {sug.icon ? (
+                                    <span>{sug.icon}</span>
+                                  ) : (
+                                    (() => {
+                                      const SugIcon = (CATEGORY_CONFIG[sug.category] || CATEGORY_CONFIG.daily).icon;
+                                      return <SugIcon className="w-3.5 h-3.5 text-indigo-400 flex-shrink-0" />;
+                                    })()
+                                  )}
                                   <span className="font-medium truncate">{sug.title}</span>
                                 </span>
                                 <span className="text-[10px] text-[var(--muted)] font-mono ml-1">
@@ -1553,7 +1546,14 @@ Dst. Berikan hanya daftar tugas actionable.`;
                             onClick={() => setActiveEntryId(b.id)}
                             className="flex items-start gap-2.5 p-3 rounded-xl bg-[var(--card-bg)] hover:bg-[var(--sidebar-hover)] border border-[var(--card-border)] hover:border-indigo-500/40 text-left transition-all cursor-pointer group shadow-2xs"
                           >
-                            <span className="text-lg flex-shrink-0">{b.icon || "📓"}</span>
+                            {b.icon ? (
+                              <span className="text-lg flex-shrink-0">{b.icon}</span>
+                            ) : (
+                              (() => {
+                                const BIcon = (CATEGORY_CONFIG[b.category] || CATEGORY_CONFIG.daily).icon;
+                                return <BIcon className="w-5 h-5 text-indigo-400 flex-shrink-0 mt-0.5" />;
+                              })()
+                            )}
                             <div className="min-w-0 flex-1">
                               <div className="text-xs font-semibold text-[var(--foreground)] group-hover:text-indigo-400 transition-colors truncate">
                                 {b.title}
@@ -1575,8 +1575,8 @@ Dst. Berikan hanya daftar tugas actionable.`;
           {/* Document Page View Empty State */}
           {viewMode === "document" && !activeEntry && (
             <div className="flex-1 flex flex-col items-center justify-center p-8 text-center space-y-4">
-              <div className="w-16 h-16 rounded-3xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-3xl">
-                📓
+              <div className="w-16 h-16 rounded-3xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center">
+                <BookOpenText className="w-8 h-8 text-indigo-400" />
               </div>
               <div className="space-y-1">
                 <h3 className="text-base font-bold text-[var(--foreground)]">Tidak Ada Catatan Terpilih</h3>
@@ -1635,7 +1635,14 @@ Dst. Berikan hanya daftar tugas actionable.`;
                           className="hover:bg-[var(--sidebar-hover)] transition-colors cursor-pointer"
                         >
                           <td className="py-3 px-4 flex items-center gap-2 font-semibold text-[var(--foreground)]">
-                            <span>{entry.icon || "📓"}</span>
+                            {entry.icon ? (
+                              <span>{entry.icon}</span>
+                            ) : (
+                              (() => {
+                                const CatIcon = catCfg.icon;
+                                return <CatIcon className={`w-3.5 h-3.5 flex-shrink-0 ${catCfg.color}`} />;
+                              })()
+                            )}
                             <span className="truncate max-w-xs">{entry.title || "Tanpa Judul"}</span>
                           </td>
                           <td className="py-3 px-4">
@@ -1705,7 +1712,7 @@ Dst. Berikan hanya daftar tugas actionable.`;
                               id: `journal_${Date.now()}`,
                               title: "Catatan Baru",
                               content: "",
-                              icon: "🎯",
+                              icon: "",
                               category: "task",
                               status: statusKey,
                               priority: "medium",
@@ -1745,7 +1752,14 @@ Dst. Berikan hanya daftar tugas actionable.`;
                             >
                               <div className="flex items-start justify-between gap-2">
                                 <div className="flex items-center gap-2">
-                                  <span className="text-base">{item.icon || "📓"}</span>
+                                  {item.icon ? (
+                                    <span className="text-base">{item.icon}</span>
+                                  ) : (
+                                    (() => {
+                                      const CatIcon = catCfg.icon;
+                                      return <CatIcon className={`w-4 h-4 flex-shrink-0 ${catCfg.color}`} />;
+                                    })()
+                                  )}
                                   <h3 className="text-xs font-bold text-[var(--foreground)] line-clamp-1">
                                     {item.title || "Tanpa Judul"}
                                   </h3>

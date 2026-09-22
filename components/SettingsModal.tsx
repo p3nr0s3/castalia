@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import { apiFetch } from "../lib/apiClient";
-import { X, Palette, Cloud, HardDrives as Server, Faders as Sliders, Database, Info, CaretRight as ChevronRight, CaretLeft as ChevronLeft, Sun, Moon, Sparkle as Sparkles, Laptop, CheckCircle as CheckCircle2, XCircle, ArrowsClockwise as RefreshCw, Eye, EyeSlash as EyeOff, Download, Upload, Trash as Trash2, Key, Globe, Lightning as Zap, Check, Brain, MagicWand as Wand2, Plus, MagnifyingGlass as Search, Folder, HardDrive, Headphones, SpeakerHigh as Volume2, Microphone as Mic, Play, Square } from "@phosphor-icons/react";
+import { X, Palette, Cloud, HardDrives as Server, Faders as Sliders, Database, Info, CaretRight as ChevronRight, CaretLeft as ChevronLeft, Sun, Moon, Sparkle as Sparkles, Laptop, CheckCircle as CheckCircle2, XCircle, ArrowsClockwise as RefreshCw, Eye, EyeSlash as EyeOff, Download, Upload, Trash as Trash2, Key, Globe, Lightning as Zap, Check, Brain, MagicWand as Wand2, Plus, MagnifyingGlass as Search, Folder, HardDrive, Headphones, SpeakerHigh as Volume2, Microphone as Mic, Play, Square, Stack as Blocks, Plug, ArrowCounterClockwise as RotateCcw, Terminal, PencilSimple as Edit2, SpinnerGap as Loader2 } from "@phosphor-icons/react";
 import {
   AppSettings,
   OllamaModel,
@@ -11,10 +11,15 @@ import {
   ThinkingMode,
   Skill,
   VoiceSettingsConfig,
+  ConnectorItem,
+  PluginItem,
+  MemoryConfig,
+  MemoryItem,
 } from "@/lib/types";
 import { checkOllamaHealth } from "@/lib/ollama";
 import { storage } from "@/lib/storage";
 import { DEFAULT_SKILLS } from "@/lib/skills";
+import { DEFAULT_CONNECTORS, DEFAULT_PLUGINS, DEFAULT_MEMORY_CONFIG } from "@/lib/directoryData";
 import { CONTEXT_SIZE_PRESETS, KEEP_ALIVE_PRESETS, DEFAULT_CUSTOM_THEME } from "@/lib/constants";
 import {
   VOICE_PRESETS,
@@ -43,6 +48,9 @@ export type SettingsSection =
   | "chat"
   | "voice"
   | "skills"
+  | "connectors"
+  | "plugins"
+  | "memory"
   | "cloud"
   | "server"
   | "data"
@@ -214,6 +222,34 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [newSkillName, setNewSkillName] = useState("");
   const [newSkillDesc, setNewSkillDesc] = useState("");
   const [newSkillPrompt, setNewSkillPrompt] = useState("");
+
+  // Connectors state in settings
+  const [connectorSearch, setConnectorSearch] = useState("");
+  const [configuringConnector, setConfiguringConnector] = useState<ConnectorItem | null>(null);
+  const [connName, setConnName] = useState("");
+  const [connDescription, setConnDescription] = useState("");
+  const [connBridgeType, setConnBridgeType] = useState<"webhook" | "local-http">("webhook");
+  const [connApiKey, setConnApiKey] = useState("");
+  const [connWebhookUrl, setConnWebhookUrl] = useState("");
+  const [connEndpoint, setConnEndpoint] = useState("");
+  const [isTestingConn, setIsTestingConn] = useState(false);
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  // Plugins state in settings
+  const [pluginSearch, setPluginSearch] = useState("");
+  const [pluginCategory, setPluginCategory] = useState<"All" | "Anthropic" | "Partners">("All");
+
+  // Memory state in settings
+  const [memoryInput, setMemoryInput] = useState("");
+  const [editingMemoryItem, setEditingMemoryItem] = useState<MemoryItem | null>(null);
+  const [editMemTitle, setEditMemTitle] = useState("");
+  const [editMemContent, setEditMemContent] = useState("");
+  const [isImportMemOpen, setIsImportMemOpen] = useState(false);
+  const [importMemText, setImportMemText] = useState("");
+  const [isAddingCustomMem, setIsAddingCustomMem] = useState(false);
+  const [newMemCategory, setNewMemCategory] = useState<"preference" | "profile" | "topic">("topic");
+  const [newMemTitle, setNewMemTitle] = useState("");
+  const [newMemContent, setNewMemContent] = useState("");
 
   // Voice Preview State in Settings
   const [previewVoicePlaying, setPreviewVoicePlaying] = useState(false);
@@ -390,14 +426,352 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     setFormData({ ...formData, skills: updated });
   };
 
-  const NAV_ITEMS: {
+  // Connectors logic & handlers
+  const currentConnectors: ConnectorItem[] = formData.connectors || DEFAULT_CONNECTORS;
+
+  const handleToggleConnector = (connId: string) => {
+    const updated = currentConnectors.map((c) =>
+      c.id === connId ? { ...c, installed: !c.installed } : c
+    );
+    const newSettings = { ...formData, connectors: updated };
+    setFormData(newSettings);
+    onSaveSettings(newSettings);
+  };
+
+  const handleTestConnectorConnection = async () => {
+    if (!configuringConnector) return;
+    setIsTestingConn(true);
+    setTestResult(null);
+    try {
+      const res = await apiFetch("/api/connectors", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "test",
+          customBridgeType: connBridgeType,
+          apiKey: connApiKey,
+          webhookUrl: connWebhookUrl,
+          endpoint: connEndpoint,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setTestResult({
+          success: true,
+          message: data.message || "Connection test succeeded!",
+        });
+      } else {
+        setTestResult({
+          success: false,
+          message: data.error || "Connection test failed.",
+        });
+      }
+    } catch (err: any) {
+      setTestResult({
+        success: false,
+        message: err.message || "Network error while testing connection.",
+      });
+    } finally {
+      setIsTestingConn(false);
+    }
+  };
+
+  const openAddBridgeModal = () => {
+    setConfiguringConnector({
+      id: "",
+      name: "",
+      description: "",
+      category: "custom",
+      installed: false,
+      customBridgeType: "webhook",
+    });
+    setConnName("");
+    setConnDescription("");
+    setConnApiKey("");
+    setConnWebhookUrl("");
+    setConnEndpoint("");
+    setConnBridgeType("webhook");
+    setTestResult(null);
+  };
+
+  const openEditBridgeModal = (conn: ConnectorItem) => {
+    setConfiguringConnector(conn);
+    setConnName(conn.name);
+    setConnDescription(conn.description);
+    setConnApiKey(conn.apiKey || "");
+    setConnWebhookUrl(conn.webhookUrl || "");
+    setConnEndpoint(conn.endpoint || "");
+    setConnBridgeType(conn.customBridgeType || "webhook");
+    setTestResult(null);
+  };
+
+  const handleSaveConnectorConfig = () => {
+    if (!configuringConnector) return;
+    const isLive = testResult ? testResult.success : !!(connApiKey || connWebhookUrl || connEndpoint);
+    const isNew = !configuringConnector.id || !currentConnectors.some((c) => c.id === configuringConnector.id);
+
+    const savedConnector: ConnectorItem = {
+      id: isNew ? `bridge_${Date.now()}` : configuringConnector.id,
+      name: connName.trim() || "Untitled Bridge",
+      description: connDescription.trim() || "Custom bridge",
+      category: "custom",
+      installed: true,
+      customBridgeType: connBridgeType,
+      apiKey: connApiKey.trim() || undefined,
+      webhookUrl: connWebhookUrl.trim() || undefined,
+      endpoint: connEndpoint.trim() || undefined,
+      isLiveConnected: isLive,
+      statusMessage: testResult?.message || (isLive ? "Connection configured & active" : undefined),
+    };
+
+    const updated = isNew
+      ? [...currentConnectors, savedConnector]
+      : currentConnectors.map((c) => (c.id === savedConnector.id ? savedConnector : c));
+
+    const newSettings = { ...formData, connectors: updated };
+    setFormData(newSettings);
+    onSaveSettings(newSettings);
+    setConfiguringConnector(null);
+  };
+
+  const handleDeleteConnector = (id: string) => {
+    const updated = currentConnectors.filter((c) => c.id !== id);
+    const newSettings = { ...formData, connectors: updated };
+    setFormData(newSettings);
+    onSaveSettings(newSettings);
+    if (configuringConnector?.id === id) {
+      setConfiguringConnector(null);
+    }
+  };
+
+  // Plugins logic & handlers
+  const currentPlugins: PluginItem[] = formData.plugins || DEFAULT_PLUGINS;
+
+  const handleTogglePlugin = (pluginId: string) => {
+    const target = currentPlugins.find((p) => p.id === pluginId);
+    const newInstalled = !target?.installed;
+    const updated = currentPlugins.map((p) =>
+      p.id === pluginId ? { ...p, installed: newInstalled } : p
+    );
+    const newSettings = { ...formData, plugins: updated };
+    setFormData(newSettings);
+    onSaveSettings(newSettings);
+  };
+
+  // Memory logic & handlers
+  const currentMemory: MemoryConfig = formData.memory || DEFAULT_MEMORY_CONFIG;
+  const memoryItems: MemoryItem[] = currentMemory.items || [];
+
+  const saveMemoryConfig = (
+    newItems: MemoryItem[],
+    gen = currentMemory.generateFromChats ?? true,
+    sens = currentMemory.includeSensitive ?? false
+  ) => {
+    const newConfig: MemoryConfig = {
+      generateFromChats: gen,
+      includeSensitive: sens,
+      items: newItems,
+    };
+    const newSettings = { ...formData, memory: newConfig };
+    setFormData(newSettings);
+    onSaveSettings(newSettings);
+  };
+
+  const handleToggleGenerateMemory = () => {
+    const next = !(currentMemory.generateFromChats ?? true);
+    saveMemoryConfig(memoryItems, next, currentMemory.includeSensitive ?? false);
+  };
+
+  const handleToggleSensitiveMemory = () => {
+    const next = !(currentMemory.includeSensitive ?? false);
+    saveMemoryConfig(memoryItems, currentMemory.generateFromChats ?? true, next);
+  };
+
+  const handleDeleteMemoryItem = (id: string) => {
+    const updated = memoryItems.filter((i) => i.id !== id);
+    saveMemoryConfig(updated);
+  };
+
+  const handleToggleMemoryItem = (id: string) => {
+    const updated = memoryItems.map((i) => (i.id === id ? { ...i, enabled: !i.enabled } : i));
+    saveMemoryConfig(updated);
+  };
+
+  const handleProcessNaturalLanguageMemory = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const prompt = memoryInput.trim();
+    if (!prompt) return;
+
+    const lower = prompt.toLowerCase();
+
+    // Check if delete command
+    if (lower.startsWith("hapus") || lower.startsWith("delete") || lower.startsWith("remove")) {
+      const target = lower.replace(/^(hapus|delete|remove)\s+/i, "").trim();
+      const updated = memoryItems.filter(
+        (i) => !i.title.toLowerCase().includes(target) && !i.content.toLowerCase().includes(target)
+      );
+      saveMemoryConfig(updated);
+      setMemoryInput("");
+      return;
+    }
+
+    // Check if updating preferences
+    if (lower.includes("prefer") || lower.includes("respond") || lower.includes("gaya") || lower.includes("bahasa")) {
+      const existing = memoryItems.find((i) => i.category === "preference");
+      if (existing) {
+        const updated = memoryItems.map((i) =>
+          i.id === existing.id
+            ? { ...i, content: `${i.content}; ${prompt}`, updatedAt: Date.now() }
+            : i
+        );
+        saveMemoryConfig(updated);
+      } else {
+        const newItem: MemoryItem = {
+          id: `mem_${Date.now()}`,
+          category: "preference",
+          title: "Preferences",
+          content: prompt,
+          updatedAt: Date.now(),
+          enabled: true,
+        };
+        saveMemoryConfig([...memoryItems, newItem]);
+      }
+      setMemoryInput("");
+      return;
+    }
+
+    // Check if updating profile
+    if (lower.includes("saya") || lower.includes("pekerjaan") || lower.includes("role") || lower.includes("kerja di")) {
+      const existing = memoryItems.find((i) => i.category === "profile");
+      if (existing) {
+        const updated = memoryItems.map((i) =>
+          i.id === existing.id ? { ...i, content: prompt, updatedAt: Date.now() } : i
+        );
+        saveMemoryConfig(updated);
+      } else {
+        const newItem: MemoryItem = {
+          id: `mem_${Date.now()}`,
+          category: "profile",
+          title: "Profile",
+          content: prompt,
+          updatedAt: Date.now(),
+          enabled: true,
+        };
+        saveMemoryConfig([...memoryItems, newItem]);
+      }
+      setMemoryInput("");
+      return;
+    }
+
+    // Default: Add as new contextual Topic memory
+    const newItem: MemoryItem = {
+      id: `mem_topic_${Date.now()}`,
+      category: "topic",
+      title: prompt.slice(0, 24).replace(/[^a-zA-Z0-9 ]/g, "").trim() || "Topic Memory",
+      content: prompt,
+      updatedAt: Date.now(),
+      enabled: true,
+    };
+    saveMemoryConfig([...memoryItems, newItem]);
+    setMemoryInput("");
+  };
+
+  const handleStartEditMemory = (item: MemoryItem) => {
+    setEditingMemoryItem(item);
+    setEditMemTitle(item.title);
+    setEditMemContent(item.content);
+  };
+
+  const handleSaveEditMemory = () => {
+    if (!editingMemoryItem) return;
+    const updated = memoryItems.map((i) =>
+      i.id === editingMemoryItem.id
+        ? {
+            ...i,
+            title: editMemTitle.trim() || i.title,
+            content: editMemContent.trim() || i.content,
+            updatedAt: Date.now(),
+          }
+        : i
+    );
+    setEditingMemoryItem(null);
+    saveMemoryConfig(updated);
+  };
+
+  const handleCreateCustomMemory = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newMemTitle.trim() || !newMemContent.trim()) return;
+    const newItem: MemoryItem = {
+      id: `mem_${Date.now()}`,
+      category: newMemCategory,
+      title: newMemTitle.trim(),
+      content: newMemContent.trim(),
+      updatedAt: Date.now(),
+      enabled: true,
+    };
+    saveMemoryConfig([...memoryItems, newItem]);
+    setNewMemTitle("");
+    setNewMemContent("");
+    setIsAddingCustomMem(false);
+  };
+
+  const handleExportMemory = () => {
+    const dataStr = JSON.stringify(memoryItems, null, 2);
+    const blob = new Blob([dataStr], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `ollama-memory-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleImportMemoryJson = () => {
+    try {
+      const parsed = JSON.parse(importMemText);
+      const toAdd = Array.isArray(parsed) ? parsed : (parsed.items && Array.isArray(parsed.items) ? parsed.items : null);
+      if (toAdd) {
+        saveMemoryConfig([...toAdd, ...memoryItems]);
+        setIsImportMemOpen(false);
+        setImportMemText("");
+      } else {
+        alert("Invalid JSON format. Please paste valid memory JSON.");
+      }
+    } catch {
+      alert("Invalid JSON format. Please paste valid memory JSON.");
+    }
+  };
+
+  const filteredConnectors = currentConnectors.filter(
+    (c) =>
+      c.name.toLowerCase().includes(connectorSearch.toLowerCase()) ||
+      c.description.toLowerCase().includes(connectorSearch.toLowerCase()) ||
+      (c.endpoint && c.endpoint.toLowerCase().includes(connectorSearch.toLowerCase())) ||
+      (c.webhookUrl && c.webhookUrl.toLowerCase().includes(connectorSearch.toLowerCase()))
+  );
+
+  const filteredPlugins = currentPlugins.filter((p) => {
+    const matchesSearch =
+      p.name.toLowerCase().includes(pluginSearch.toLowerCase()) ||
+      p.description.toLowerCase().includes(pluginSearch.toLowerCase()) ||
+      p.author.toLowerCase().includes(pluginSearch.toLowerCase());
+    const matchesCategory =
+      pluginCategory === "All" ||
+      (p.category || "Anthropic").toLowerCase() === pluginCategory.toLowerCase();
+    return matchesSearch && matchesCategory;
+  });
+
+  interface NavItemDef {
     id: SettingsSection;
     label: string;
     sublabel: string;
     icon: any;
     color: string;
     badgeBg: string;
-  }[] = [
+    group: "preferences" | "customize" | "system";
+  }
+
+  const PREFERENCES_NAV: NavItemDef[] = [
     {
       id: "personalization",
       label: "Personalization",
@@ -407,6 +781,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       icon: Palette,
       color: "text-purple-400",
       badgeBg: "bg-purple-500/15 text-purple-400",
+      group: "preferences",
     },
     {
       id: "chat",
@@ -415,6 +790,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       icon: Sliders,
       color: "text-amber-400",
       badgeBg: "bg-amber-500/15 text-amber-400",
+      group: "preferences",
     },
     {
       id: "voice",
@@ -423,7 +799,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       icon: Headphones,
       color: "text-purple-400",
       badgeBg: "bg-purple-500/15 text-purple-400",
+      group: "preferences",
     },
+  ];
+
+  const CUSTOMIZE_NAV: NavItemDef[] = [
     {
       id: "skills",
       label: "Agentic Skills Hub",
@@ -431,7 +811,38 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       icon: Zap,
       color: "text-amber-400",
       badgeBg: "bg-amber-500/15 text-amber-400",
+      group: "customize",
     },
+    {
+      id: "connectors",
+      label: "Custom Connectors",
+      sublabel: `${currentConnectors.filter((c) => c.installed).length} of ${currentConnectors.length} connected`,
+      icon: Blocks,
+      color: "text-blue-400",
+      badgeBg: "bg-blue-500/15 text-blue-400",
+      group: "customize",
+    },
+    {
+      id: "plugins",
+      label: "Plugins & Extensions",
+      sublabel: `${currentPlugins.filter((p) => p.installed).length} installed`,
+      icon: Plug,
+      color: "text-emerald-400",
+      badgeBg: "bg-emerald-500/15 text-emerald-400",
+      group: "customize",
+    },
+    {
+      id: "memory",
+      label: "Memory & Context",
+      sublabel: `${memoryItems.length} memories stored`,
+      icon: RotateCcw,
+      color: "text-purple-400",
+      badgeBg: "bg-purple-500/15 text-purple-400",
+      group: "customize",
+    },
+  ];
+
+  const SYSTEM_NAV: NavItemDef[] = [
     {
       id: "cloud",
       label: "Cloud AI Models",
@@ -439,6 +850,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       icon: Cloud,
       color: "text-sky-400",
       badgeBg: "bg-sky-500/15 text-sky-400",
+      group: "system",
     },
     {
       id: "server",
@@ -447,6 +859,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       icon: Server,
       color: "text-emerald-400",
       badgeBg: "bg-emerald-500/15 text-emerald-400",
+      group: "system",
     },
     {
       id: "data",
@@ -455,6 +868,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       icon: Database,
       color: "text-rose-400",
       badgeBg: "bg-rose-500/15 text-rose-400",
+      group: "system",
     },
     {
       id: "about",
@@ -463,8 +877,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       icon: Info,
       color: "text-slate-400",
       badgeBg: "bg-slate-500/15 text-slate-400",
+      group: "system",
     },
   ];
+
+  const NAV_ITEMS: NavItemDef[] = [...PREFERENCES_NAV, ...CUSTOMIZE_NAV, ...SYSTEM_NAV];
 
   const applyParamPreset = (type: "code" | "balanced" | "creative") => {
     if (type === "code") {
@@ -551,12 +968,99 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               mobileShowDetail ? "hidden md:block" : "block"
             }`}
           >
+            {/* Preferences Group */}
             <div className="text-[10px] font-bold uppercase tracking-wider text-[var(--muted)] px-3 py-1.5">
               Preferences
             </div>
-
             <div className="space-y-0.5">
-              {NAV_ITEMS.map((item) => {
+              {PREFERENCES_NAV.map((item) => {
+                const isSelected = activeSection === item.id;
+                const IconComp = item.icon;
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => {
+                      setActiveSection(item.id);
+                      setMobileShowDetail(true);
+                    }}
+                    className={`w-full text-left p-2.5 rounded-2xl flex items-center justify-between transition-all cursor-pointer ${
+                      isSelected
+                        ? "bg-[var(--card-bg)] text-[var(--foreground)] font-semibold shadow-xs border border-[var(--card-border)]"
+                        : "text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--sidebar-hover)] border border-transparent"
+                    }`}
+                  >
+                    <div className="flex items-center gap-3 min-w-0 pr-2">
+                      <div
+                        className={`w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 ${item.badgeBg}`}
+                      >
+                        <IconComp className="w-4 h-4" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-xs truncate text-[var(--foreground)] font-medium">
+                          {item.label}
+                        </div>
+                        <div className="text-[10px] text-[var(--muted)] truncate">
+                          {item.sublabel}
+                        </div>
+                      </div>
+                    </div>
+                    <ChevronRight className="w-3.5 h-3.5 text-[var(--muted)] opacity-50 flex-shrink-0" />
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Customize Group (Moved from Side Menu to Settings) */}
+            <div className="text-[10px] font-bold uppercase tracking-wider text-[var(--muted)] px-3 pt-3.5 pb-1.5 flex items-center justify-between">
+              <span>Customize</span>
+              <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-500/10 text-amber-400 font-semibold border border-amber-500/20">
+                Extensions
+              </span>
+            </div>
+            <div className="space-y-0.5">
+              {CUSTOMIZE_NAV.map((item) => {
+                const isSelected = activeSection === item.id;
+                const IconComp = item.icon;
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => {
+                      setActiveSection(item.id);
+                      setMobileShowDetail(true);
+                    }}
+                    className={`w-full text-left p-2.5 rounded-2xl flex items-center justify-between transition-all cursor-pointer ${
+                      isSelected
+                        ? "bg-[var(--card-bg)] text-[var(--foreground)] font-semibold shadow-xs border border-[var(--card-border)]"
+                        : "text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--sidebar-hover)] border border-transparent"
+                    }`}
+                  >
+                    <div className="flex items-center gap-3 min-w-0 pr-2">
+                      <div
+                        className={`w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 ${item.badgeBg}`}
+                      >
+                        <IconComp className="w-4 h-4" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-xs truncate text-[var(--foreground)] font-medium">
+                          {item.label}
+                        </div>
+                        <div className="text-[10px] text-[var(--muted)] truncate">
+                          {item.sublabel}
+                        </div>
+                      </div>
+                    </div>
+                    <ChevronRight className="w-3.5 h-3.5 text-[var(--muted)] opacity-50 flex-shrink-0" />
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* System Group */}
+            <div className="text-[10px] font-bold uppercase tracking-wider text-[var(--muted)] px-3 pt-3.5 pb-1.5">
+              System & Platform
+            </div>
+            <div className="space-y-0.5">
+              {SYSTEM_NAV.map((item) => {
                 const isSelected = activeSection === item.id;
                 const IconComp = item.icon;
                 return (
@@ -943,9 +1447,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </div>
                   <div className="grid grid-cols-3 gap-2">
                     {[
-                      { id: "think", label: "🧠 Think Mode", desc: "Step-by-step reasoning" },
-                      { id: "nothink", label: "⚡ No-Think (Fast)", desc: "Direct concise response" },
-                      { id: "default", label: "✨ Natural Default", desc: "Standard model behavior" },
+                      { id: "think", label: "Think Mode", desc: "Step-by-step reasoning" },
+                      { id: "nothink", label: "No-Think (Fast)", desc: "Direct concise response" },
+                      { id: "default", label: "Natural Default", desc: "Standard model behavior" },
                     ].map((mode) => (
                       <button
                         key={mode.id}
@@ -1523,13 +2027,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         const isId = v.lang.toLowerCase().startsWith("id");
                         return (
                           <option key={v.name} value={v.name}>
-                            {isNatural ? "⭐ " : ""}{v.name} ({v.lang}) {isId ? "• Bahasa Indonesia" : ""}
+                            {isNatural ? "[Natural] " : ""}{v.name} ({v.lang}) {isId ? "• Bahasa Indonesia" : ""}
                           </option>
                         );
                       })}
                     </select>
                     <p className="text-[10px] text-[var(--muted)] mt-1">
-                      Tip: Suara bertanda ⭐ memiliki artikulasi neural berkualitas tinggi yang tidak terdengar kaku.
+                      Tip: Suara [Natural] memiliki artikulasi neural berkualitas tinggi yang tidak terdengar kaku.
                     </p>
                   </div>
                 </div>
@@ -1811,7 +2315,813 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </div>
             )}
 
-            {/* 5. CLOUD AI MODELS SECTION */}
+            {/* 4. CUSTOM CONNECTORS SECTION (MOVED FROM SIDEBAR TO SETTINGS) */}
+            {activeSection === "connectors" && (
+              <div className="space-y-4 animate-in fade-in duration-150">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div>
+                    <h3 className="text-sm font-bold text-[var(--foreground)] flex items-center gap-2">
+                      <Blocks className="w-4 h-4 text-blue-400" />
+                      <span>Custom Connectors & Bridges</span>
+                    </h3>
+                    <p className="text-xs text-[var(--muted)] mt-0.5">
+                      Connect Ollama Chat to external webhooks (Discord, Slack, custom APIs) or local desktop applications via bridges.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={openAddBridgeModal}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-blue-500/15 hover:bg-blue-500/25 text-blue-400 border border-blue-500/30 transition-all cursor-pointer self-start sm:self-auto shadow-xs"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Add Custom Bridge</span>
+                  </button>
+                </div>
+
+                {/* Search Bar */}
+                <div className="relative flex items-center w-full">
+                  <Search className="absolute left-3 w-4 h-4 text-[var(--muted)] pointer-events-none" />
+                  <input
+                    type="text"
+                    value={connectorSearch}
+                    onChange={(e) => setConnectorSearch(e.target.value)}
+                    placeholder="Search bridges by name, description, endpoint, or type..."
+                    className="w-full pl-9 pr-8 py-2 text-xs rounded-xl border border-[var(--card-border)] bg-[var(--sidebar-bg)] text-[var(--foreground)] placeholder-[var(--muted)] focus:outline-none focus:ring-1 focus:ring-blue-500 transition-all shadow-2xs"
+                  />
+                  {connectorSearch && (
+                    <button
+                      type="button"
+                      onClick={() => setConnectorSearch("")}
+                      className="absolute right-2.5 p-1 rounded-md text-[var(--muted)] hover:text-[var(--foreground)]"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+
+                {/* Bridges Grid */}
+                {filteredConnectors.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-12 px-4 text-center rounded-2xl border border-dashed border-[var(--card-border)] bg-[var(--sidebar-bg)]/40">
+                    <div className="w-12 h-12 rounded-2xl bg-[var(--card-bg)] border border-[var(--card-border)] flex items-center justify-center mb-3">
+                      <Blocks className="w-6 h-6 text-blue-400/60" />
+                    </div>
+                    <p className="text-sm font-semibold text-[var(--foreground)] mb-1">No custom bridges found</p>
+                    <p className="text-xs text-[var(--muted)] max-w-sm leading-relaxed mb-4">
+                      Connect Ollama to any webhook (Discord, Slack, automation webhook) or local desktop app (like Blender or OBS) by adding your own bridge.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={openAddBridgeModal}
+                      className="px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-blue-500 hover:bg-blue-600 text-white transition-all flex items-center gap-1.5 cursor-pointer shadow-xs"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Add First Bridge</span>
+                    </button>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {filteredConnectors.map((conn) => (
+                      <div
+                        key={conn.id}
+                        className="p-3.5 rounded-2xl bg-[var(--sidebar-bg)] border border-[var(--card-border)] flex flex-col justify-between hover:border-[var(--muted)]/40 transition-all shadow-2xs"
+                      >
+                        <div className="space-y-2">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <div className="w-8 h-8 rounded-xl bg-[var(--card-bg)] border border-[var(--card-border)] flex items-center justify-center flex-shrink-0">
+                                {conn.customBridgeType === "local-http" ? (
+                                  <Terminal className="w-4 h-4 text-purple-400" />
+                                ) : (
+                                  <Globe className="w-4 h-4 text-blue-400" />
+                                )}
+                              </div>
+                              <div className="min-w-0">
+                                <div className="font-semibold text-xs text-[var(--foreground)] flex items-center gap-1.5 truncate">
+                                  <span className="truncate">{conn.name}</span>
+                                  {conn.isLiveConnected && (
+                                    <span className="px-1.5 py-0.2 rounded text-[9px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center gap-1 flex-shrink-0">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                                      Live
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="text-[10px] text-[var(--muted)] uppercase tracking-wide">
+                                  {conn.customBridgeType === "local-http" ? "Local App Bridge" : "Webhook Bridge"}
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-1 flex-shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => openEditBridgeModal(conn)}
+                                className="p-1.5 rounded-lg hover:bg-[var(--sidebar-hover)] text-[var(--muted)] hover:text-blue-400 transition-colors cursor-pointer"
+                                title="Configure Bridge"
+                              >
+                                <Sliders className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteConnector(conn.id)}
+                                className="p-1.5 rounded-lg hover:bg-[var(--sidebar-hover)] text-[var(--muted)] hover:text-rose-400 transition-colors cursor-pointer"
+                                title="Delete Bridge"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                              <label className="relative inline-flex items-center cursor-pointer ml-1">
+                                <input
+                                  type="checkbox"
+                                  checked={conn.installed}
+                                  onChange={() => handleToggleConnector(conn.id)}
+                                  className="sr-only peer"
+                                />
+                                <div className="w-8 h-4 bg-[var(--card-border)] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-blue-500"></div>
+                              </label>
+                            </div>
+                          </div>
+
+                          <p className="text-[11px] text-[var(--muted)] line-clamp-2 leading-relaxed">
+                            {conn.description}
+                          </p>
+
+                          {conn.statusMessage && (
+                            <div className="text-[10px] text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 rounded-lg px-2 py-0.5 truncate">
+                              {conn.statusMessage}
+                            </div>
+                          )}
+
+                          <p className="text-[10px] text-[var(--muted)] font-mono truncate bg-[var(--card-bg)] px-2 py-1 rounded-lg border border-[var(--card-border)]">
+                            {conn.customBridgeType === "local-http" ? (conn.endpoint || "No endpoint configured") : (conn.webhookUrl || "No webhook URL configured")}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Helper info tip */}
+                <div className="p-3 rounded-2xl bg-blue-500/5 border border-blue-500/15 flex items-start gap-2.5 text-[11px] text-[var(--muted)] leading-relaxed">
+                  <Info className="w-4 h-4 text-blue-400 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <span className="font-semibold text-[var(--foreground)]">Chat Trigger: </span>
+                    You can trigger any bridge directly from the chat input with <code className="px-1.5 py-0.5 rounded bg-black/20 text-blue-300 font-mono">/bridge &lt;bridge-id&gt; &lt;message&gt;</code>.
+                  </div>
+                </div>
+
+                {/* Bridge Configuration Modal / Overlay */}
+                {configuringConnector && (
+                  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs p-3 animate-in fade-in duration-150">
+                    <div className="relative w-full max-w-lg bg-[var(--card-bg)] border border-[var(--card-border)] rounded-2xl shadow-2xl p-5 space-y-4 text-[var(--foreground)]">
+                      <div className="flex items-center justify-between pb-2 border-b border-[var(--card-border)]">
+                        <div className="font-bold text-sm flex items-center gap-2">
+                          <Blocks className="w-4 h-4 text-blue-400" />
+                          <span>{configuringConnector.id ? "Configure Custom Bridge" : "Add Custom Bridge"}</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setConfiguringConnector(null)}
+                          className="p-1 rounded-lg text-[var(--muted)] hover:text-[var(--foreground)]"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+
+                      <div className="space-y-3 text-xs">
+                        <div>
+                          <label className="block text-[11px] font-semibold text-[var(--muted)] mb-1">Bridge Name</label>
+                          <input
+                            type="text"
+                            value={connName}
+                            onChange={(e) => setConnName(e.target.value)}
+                            placeholder="e.g. Discord Alerts or Blender RPC"
+                            className="w-full px-3 py-1.5 rounded-xl border border-[var(--card-border)] bg-[var(--sidebar-bg)] text-[var(--foreground)] focus:outline-none focus:ring-1 focus:ring-blue-500"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-[11px] font-semibold text-[var(--muted)] mb-1">Description</label>
+                          <input
+                            type="text"
+                            value={connDescription}
+                            onChange={(e) => setConnDescription(e.target.value)}
+                            placeholder="Brief description of what this bridge connects to"
+                            className="w-full px-3 py-1.5 rounded-xl border border-[var(--card-border)] bg-[var(--sidebar-bg)] text-[var(--foreground)] focus:outline-none focus:ring-1 focus:ring-blue-500"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-[11px] font-semibold text-[var(--muted)] mb-1">Bridge Protocol Type</label>
+                          <div className="grid grid-cols-2 gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setConnBridgeType("webhook")}
+                              className={`p-2 rounded-xl border text-left cursor-pointer transition-all ${
+                                connBridgeType === "webhook"
+                                  ? "border-blue-500/60 bg-blue-500/10 text-blue-400 font-semibold"
+                                  : "border-[var(--card-border)] bg-[var(--sidebar-bg)] text-[var(--muted)]"
+                              }`}
+                            >
+                              <div className="font-semibold text-xs flex items-center gap-1.5">
+                                <Globe className="w-3.5 h-3.5" /> Webhook (POST)
+                              </div>
+                              <div className="text-[10px] opacity-75 mt-0.5">Slack, Discord, external URL</div>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setConnBridgeType("local-http")}
+                              className={`p-2 rounded-xl border text-left cursor-pointer transition-all ${
+                                connBridgeType === "local-http"
+                                  ? "border-purple-500/60 bg-purple-500/10 text-purple-400 font-semibold"
+                                  : "border-[var(--card-border)] bg-[var(--sidebar-bg)] text-[var(--muted)]"
+                              }`}
+                            >
+                              <div className="font-semibold text-xs flex items-center gap-1.5">
+                                <Terminal className="w-3.5 h-3.5" /> Local App (HTTP)
+                              </div>
+                              <div className="text-[10px] opacity-75 mt-0.5">127.0.0.1 / localhost server</div>
+                            </button>
+                          </div>
+                        </div>
+
+                        {connBridgeType === "webhook" ? (
+                          <div>
+                            <label className="block text-[11px] font-semibold text-[var(--muted)] mb-1">Webhook URL</label>
+                            <input
+                              type="text"
+                              value={connWebhookUrl}
+                              onChange={(e) => setConnWebhookUrl(e.target.value)}
+                              placeholder="https://discord.com/api/webhooks/... or https://hooks.slack.com/..."
+                              className="w-full px-3 py-1.5 rounded-xl border border-[var(--card-border)] bg-[var(--sidebar-bg)] text-[var(--foreground)] font-mono text-[11px] focus:outline-none focus:ring-1 focus:ring-blue-500"
+                            />
+                          </div>
+                        ) : (
+                          <div>
+                            <label className="block text-[11px] font-semibold text-[var(--muted)] mb-1">Local App Endpoint</label>
+                            <input
+                              type="text"
+                              value={connEndpoint}
+                              onChange={(e) => setConnEndpoint(e.target.value)}
+                              placeholder="http://127.0.0.1:8080/api or http://localhost:9000"
+                              className="w-full px-3 py-1.5 rounded-xl border border-[var(--card-border)] bg-[var(--sidebar-bg)] text-[var(--foreground)] font-mono text-[11px] focus:outline-none focus:ring-1 focus:ring-purple-500"
+                            />
+                          </div>
+                        )}
+
+                        <div>
+                          <label className="block text-[11px] font-semibold text-[var(--muted)] mb-1">
+                            Authorization Token / API Key <span className="font-normal text-[10px]">(Optional)</span>
+                          </label>
+                          <input
+                            type="password"
+                            value={connApiKey}
+                            onChange={(e) => setConnApiKey(e.target.value)}
+                            placeholder="Bearer token or secret key"
+                            className="w-full px-3 py-1.5 rounded-xl border border-[var(--card-border)] bg-[var(--sidebar-bg)] text-[var(--foreground)] font-mono text-[11px] focus:outline-none"
+                          />
+                        </div>
+
+                        {/* Test Connection Button & Result */}
+                        <div className="pt-1">
+                          <button
+                            type="button"
+                            onClick={handleTestConnectorConnection}
+                            disabled={isTestingConn || (!connWebhookUrl && !connEndpoint)}
+                            className="w-full py-1.5 px-3 rounded-xl border border-[var(--card-border)] bg-[var(--sidebar-bg)] hover:bg-[var(--sidebar-hover)] disabled:opacity-50 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                          >
+                            {isTestingConn ? (
+                              <>
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                <span>Testing Bridge Connection...</span>
+                              </>
+                            ) : (
+                              <>
+                                <RefreshCw className="w-3.5 h-3.5" />
+                                <span>Test Bridge Connectivity</span>
+                              </>
+                            )}
+                          </button>
+
+                          {testResult && (
+                            <div
+                              className={`mt-2 p-2.5 rounded-xl text-xs leading-relaxed flex items-start gap-2 ${
+                                testResult.success
+                                  ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                                  : "bg-rose-500/10 text-rose-400 border border-rose-500/20"
+                              }`}
+                            >
+                              {testResult.success ? (
+                                <CheckCircle2 className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                              ) : (
+                                <XCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                              )}
+                              <span>{testResult.message}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-end gap-2 pt-3 border-t border-[var(--card-border)]">
+                        <button
+                          type="button"
+                          onClick={() => setConfiguringConnector(null)}
+                          className="px-3.5 py-1.5 rounded-xl text-xs text-[var(--muted)] hover:text-[var(--foreground)] transition-colors cursor-pointer"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleSaveConnectorConfig}
+                          disabled={!connName.trim()}
+                          className="px-4 py-1.5 rounded-xl text-xs font-semibold bg-blue-500 hover:bg-blue-600 disabled:opacity-50 text-white transition-all cursor-pointer shadow-xs"
+                        >
+                          Save Bridge
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* 5. PLUGINS & EXTENSIONS SECTION (MOVED FROM SIDEBAR TO SETTINGS) */}
+            {activeSection === "plugins" && (
+              <div className="space-y-4 animate-in fade-in duration-150">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div>
+                    <h3 className="text-sm font-bold text-[var(--foreground)] flex items-center gap-2">
+                      <Plug className="w-4 h-4 text-emerald-400" />
+                      <span>Plugins & Feature Suites</span>
+                    </h3>
+                    <p className="text-xs text-[var(--muted)] mt-0.5">
+                      Enable specialized capabilities and tool suites injected directly into system prompts and model context.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1.5 bg-[var(--sidebar-bg)] p-1 rounded-xl border border-[var(--card-border)] self-start sm:self-auto">
+                    {(["All", "Anthropic", "Partners"] as const).map((cat) => (
+                      <button
+                        key={cat}
+                        type="button"
+                        onClick={() => setPluginCategory(cat)}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                          pluginCategory === cat
+                            ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shadow-2xs"
+                            : "text-[var(--muted)] hover:text-[var(--foreground)]"
+                        }`}
+                      >
+                        {cat}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Search Bar */}
+                <div className="relative flex items-center w-full">
+                  <Search className="absolute left-3 w-4 h-4 text-[var(--muted)] pointer-events-none" />
+                  <input
+                    type="text"
+                    value={pluginSearch}
+                    onChange={(e) => setPluginSearch(e.target.value)}
+                    placeholder="Search plugins by name, author, or capabilities..."
+                    className="w-full pl-9 pr-8 py-2 text-xs rounded-xl border border-[var(--card-border)] bg-[var(--sidebar-bg)] text-[var(--foreground)] placeholder-[var(--muted)] focus:outline-none focus:ring-1 focus:ring-emerald-500 transition-all shadow-2xs"
+                  />
+                  {pluginSearch && (
+                    <button
+                      type="button"
+                      onClick={() => setPluginSearch("")}
+                      className="absolute right-2.5 p-1 rounded-md text-[var(--muted)] hover:text-[var(--foreground)]"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+
+                {/* Plugins Grid */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {filteredPlugins.map((plugin) => (
+                    <div
+                      key={plugin.id}
+                      className="p-3.5 rounded-2xl bg-[var(--sidebar-bg)] border border-[var(--card-border)] flex flex-col justify-between hover:border-[var(--muted)]/40 transition-all shadow-2xs"
+                    >
+                      <div className="space-y-2">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className="font-semibold text-xs text-[var(--foreground)] flex items-center gap-1.5">
+                              <span>{plugin.name}</span>
+                              {plugin.installed && (
+                                <span className="px-1.5 py-0.2 rounded text-[9px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                                  Active
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-[10px] text-[var(--muted)] pt-0.5">
+                              By {plugin.author} • {plugin.category || "Anthropic"}
+                            </div>
+                          </div>
+
+                          <label className="relative inline-flex items-center cursor-pointer flex-shrink-0">
+                            <input
+                              type="checkbox"
+                              checked={plugin.installed}
+                              onChange={() => handleTogglePlugin(plugin.id)}
+                              className="sr-only peer"
+                            />
+                            <div className="w-8 h-4 bg-[var(--card-border)] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500"></div>
+                          </label>
+                        </div>
+
+                        <p className="text-[11px] text-[var(--muted)] line-clamp-3 leading-relaxed">
+                          {plugin.description}
+                        </p>
+                      </div>
+
+                      {plugin.skillsIncluded && plugin.skillsIncluded.length > 0 && (
+                        <div className="flex flex-wrap gap-1 pt-2.5 mt-2 border-t border-[var(--card-border)]/50">
+                          {plugin.skillsIncluded.map((sk) => (
+                            <span
+                              key={sk}
+                              className="px-1.5 py-0.5 rounded-md text-[10px] font-mono bg-[var(--card-bg)] border border-[var(--card-border)] text-[var(--muted)]"
+                            >
+                              #{sk}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* 6. MEMORY & CONTEXT SECTION (MOVED FROM SIDEBAR TO SETTINGS) */}
+            {activeSection === "memory" && (
+              <div className="space-y-5 animate-in fade-in duration-150">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div>
+                    <h3 className="text-sm font-bold text-[var(--foreground)] flex items-center gap-2">
+                      <Brain className="w-4 h-4 text-purple-400" />
+                      <span>Persistent Memory & Context</span>
+                    </h3>
+                    <p className="text-xs text-[var(--muted)] mt-0.5">
+                      Manage user profile facts, preferences, and topic knowledge preserved across chat sessions.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 self-start sm:self-auto">
+                    <button
+                      type="button"
+                      onClick={() => setIsImportMemOpen(true)}
+                      className="px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-[var(--sidebar-bg)] border border-[var(--card-border)] hover:bg-[var(--sidebar-hover)] text-[var(--foreground)] transition-all flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Upload className="w-3.5 h-3.5 text-[var(--muted)]" />
+                      <span>Import</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleExportMemory}
+                      className="px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-[var(--sidebar-bg)] border border-[var(--card-border)] hover:bg-[var(--sidebar-hover)] text-[var(--foreground)] transition-all flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Download className="w-3.5 h-3.5 text-[var(--muted)]" />
+                      <span>Export</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsAddingCustomMem(!isAddingCustomMem)}
+                      className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-purple-500/15 hover:bg-purple-500/25 text-purple-400 border border-purple-500/30 transition-all flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Add Memory</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Global Memory Behavior Toggles */}
+                <div className="p-4 rounded-2xl bg-[var(--sidebar-bg)] border border-[var(--card-border)] space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="text-xs font-semibold text-[var(--foreground)]">
+                        Generate Memory from Chats
+                      </div>
+                      <div className="text-[11px] text-[var(--muted)]">
+                        Allow models to automatically synthesize and refine persistent context from conversations.
+                      </div>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer flex-shrink-0">
+                      <input
+                        type="checkbox"
+                        checked={currentMemory.generateFromChats ?? true}
+                        onChange={handleToggleGenerateMemory}
+                        className="sr-only peer"
+                      />
+                      <div className="w-9 h-5 bg-[var(--card-border)] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-purple-500"></div>
+                    </label>
+                  </div>
+
+                  <div className="border-t border-[var(--card-border)]/50 pt-3 flex items-center justify-between gap-3">
+                    <div>
+                      <div className="text-xs font-semibold text-[var(--foreground)]">
+                        Include Sensitive Context
+                      </div>
+                      <div className="text-[11px] text-[var(--muted)]">
+                        Retain confidential user identifiers, keys, and workspace paths in memory.
+                      </div>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer flex-shrink-0">
+                      <input
+                        type="checkbox"
+                        checked={currentMemory.includeSensitive ?? false}
+                        onChange={handleToggleSensitiveMemory}
+                        className="sr-only peer"
+                      />
+                      <div className="w-9 h-5 bg-[var(--card-border)] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-purple-500"></div>
+                    </label>
+                  </div>
+                </div>
+
+                {/* Natural Language Memory Input Form */}
+                <form
+                  onSubmit={handleProcessNaturalLanguageMemory}
+                  className="relative flex items-center w-full"
+                >
+                  <Sparkles className="absolute left-3 w-4 h-4 text-purple-400 pointer-events-none" />
+                  <input
+                    type="text"
+                    value={memoryInput}
+                    onChange={(e) => setMemoryInput(e.target.value)}
+                    placeholder="Tell Ollama what to remember (e.g. 'Saya seorang software engineer', 'Prefer jawaban ringkas', 'Hapus <topik>')..."
+                    className="w-full pl-9 pr-24 py-2.5 text-xs rounded-xl border border-purple-500/30 bg-[var(--sidebar-bg)] text-[var(--foreground)] placeholder-[var(--muted)] focus:outline-none focus:ring-1 focus:ring-purple-500 transition-all shadow-2xs"
+                  />
+                  <button
+                    type="submit"
+                    disabled={!memoryInput.trim()}
+                    className="absolute right-1.5 px-3 py-1 rounded-lg bg-purple-600 hover:bg-purple-500 disabled:opacity-40 text-white text-xs font-semibold transition-all cursor-pointer shadow-xs"
+                  >
+                    Remember
+                  </button>
+                </form>
+
+                {/* Manual Add Memory Item Form */}
+                {isAddingCustomMem && (
+                  <form
+                    onSubmit={handleCreateCustomMemory}
+                    className="p-4 rounded-2xl bg-[var(--sidebar-bg)] border border-purple-500/30 space-y-3 animate-in fade-in duration-150"
+                  >
+                    <div className="text-xs font-bold text-purple-400">Add Manual Memory Item</div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <input
+                        type="text"
+                        placeholder="Memory Title (e.g. Work Background or Coding Style)"
+                        value={newMemTitle}
+                        onChange={(e) => setNewMemTitle(e.target.value)}
+                        required
+                        className="px-3 py-1.5 text-xs rounded-xl border border-[var(--card-border)] bg-[var(--card-bg)] text-[var(--foreground)] focus:outline-none"
+                      />
+                      <select
+                        value={newMemCategory}
+                        onChange={(e) => setNewMemCategory(e.target.value as any)}
+                        className="px-3 py-1.5 text-xs rounded-xl border border-[var(--card-border)] bg-[var(--card-bg)] text-[var(--foreground)] focus:outline-none"
+                      >
+                        <option value="profile">Category: Profile (Who you are)</option>
+                        <option value="preference">Category: Preference (How AI responds)</option>
+                        <option value="topic">Category: Topic (Project or Domain fact)</option>
+                      </select>
+                    </div>
+                    <textarea
+                      placeholder="Memory content or instructions to remember..."
+                      value={newMemContent}
+                      onChange={(e) => setNewMemContent(e.target.value)}
+                      required
+                      rows={2}
+                      className="w-full p-2.5 text-xs rounded-xl border border-[var(--card-border)] bg-[var(--card-bg)] text-[var(--foreground)] focus:outline-none"
+                    />
+                    <div className="flex justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setIsAddingCustomMem(false)}
+                        className="px-3 py-1 text-xs text-[var(--muted)] hover:text-[var(--foreground)] cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="submit"
+                        className="px-3.5 py-1 text-xs font-semibold rounded-xl bg-purple-500 text-white hover:bg-purple-400 transition-colors cursor-pointer"
+                      >
+                        Save Memory Item
+                      </button>
+                    </div>
+                  </form>
+                )}
+
+                {/* Edit Memory Modal */}
+                {editingMemoryItem && (
+                  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs p-3 animate-in fade-in duration-150">
+                    <div className="relative w-full max-w-md bg-[var(--card-bg)] border border-[var(--card-border)] rounded-2xl shadow-2xl p-5 space-y-3 text-[var(--foreground)]">
+                      <div className="flex items-center justify-between pb-2 border-b border-[var(--card-border)]">
+                        <div className="font-bold text-xs flex items-center gap-1.5">
+                          <Edit2 className="w-3.5 h-3.5 text-purple-400" />
+                          <span>Edit Memory Item</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setEditingMemoryItem(null)}
+                          className="p-1 rounded-lg text-[var(--muted)] hover:text-[var(--foreground)]"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+
+                      <div className="space-y-2 text-xs">
+                        <div>
+                          <label className="block text-[11px] font-semibold text-[var(--muted)] mb-1">Title</label>
+                          <input
+                            type="text"
+                            value={editMemTitle}
+                            onChange={(e) => setEditMemTitle(e.target.value)}
+                            className="w-full px-3 py-1.5 rounded-xl border border-[var(--card-border)] bg-[var(--sidebar-bg)] text-[var(--foreground)] focus:outline-none"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-semibold text-[var(--muted)] mb-1">Content</label>
+                          <textarea
+                            rows={3}
+                            value={editMemContent}
+                            onChange={(e) => setEditMemContent(e.target.value)}
+                            className="w-full p-2.5 rounded-xl border border-[var(--card-border)] bg-[var(--sidebar-bg)] text-[var(--foreground)] focus:outline-none text-xs"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-end gap-2 pt-2 border-t border-[var(--card-border)]">
+                        <button
+                          type="button"
+                          onClick={() => setEditingMemoryItem(null)}
+                          className="px-3 py-1.5 rounded-xl text-xs text-[var(--muted)] hover:text-[var(--foreground)] cursor-pointer"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleSaveEditMemory}
+                          className="px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-purple-600 hover:bg-purple-500 text-white cursor-pointer shadow-xs"
+                        >
+                          Save Changes
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Import Memory JSON Modal */}
+                {isImportMemOpen && (
+                  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs p-3 animate-in fade-in duration-150">
+                    <div className="relative w-full max-w-md bg-[var(--card-bg)] border border-[var(--card-border)] rounded-2xl shadow-2xl p-5 space-y-3 text-[var(--foreground)]">
+                      <div className="flex items-center justify-between pb-2 border-b border-[var(--card-border)]">
+                        <div className="font-bold text-xs flex items-center gap-1.5">
+                          <Upload className="w-3.5 h-3.5 text-purple-400" />
+                          <span>Import Memory JSON</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setIsImportMemOpen(false)}
+                          className="p-1 rounded-lg text-[var(--muted)] hover:text-[var(--foreground)]"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+
+                      <div className="space-y-2 text-xs">
+                        <p className="text-[11px] text-[var(--muted)]">
+                          Paste an exported memory JSON array or object to append items to your memory store.
+                        </p>
+                        <textarea
+                          rows={6}
+                          value={importMemText}
+                          onChange={(e) => setImportMemText(e.target.value)}
+                          placeholder='[{"category":"profile","title":"Profile","content":"..."}, ...]'
+                          className="w-full p-2.5 rounded-xl border border-[var(--card-border)] bg-[var(--sidebar-bg)] text-[var(--foreground)] font-mono text-[11px] focus:outline-none"
+                        />
+                      </div>
+
+                      <div className="flex items-center justify-end gap-2 pt-2 border-t border-[var(--card-border)]">
+                        <button
+                          type="button"
+                          onClick={() => setIsImportMemOpen(false)}
+                          className="px-3 py-1.5 rounded-xl text-xs text-[var(--muted)] hover:text-[var(--foreground)] cursor-pointer"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleImportMemoryJson}
+                          disabled={!importMemText.trim()}
+                          className="px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white cursor-pointer shadow-xs"
+                        >
+                          Import Memory
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Memory Items: You (Profile & Preferences) */}
+                <div className="space-y-2">
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-[var(--muted)] px-1">
+                    Profile & Preferences (You)
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {memoryItems
+                      .filter((i) => i.category === "profile" || i.category === "preference")
+                      .map((item) => (
+                        <div
+                          key={item.id}
+                          className="p-3.5 rounded-2xl bg-[var(--sidebar-bg)] border border-[var(--card-border)] flex flex-col justify-between hover:border-[var(--muted)]/40 transition-all shadow-2xs"
+                        >
+                          <div className="space-y-1.5">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-semibold text-xs text-[var(--foreground)]">
+                                {item.title}
+                              </span>
+                              <div className="flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => handleStartEditMemory(item)}
+                                  className="p-1 rounded-lg text-[var(--muted)] hover:text-purple-400 transition-colors cursor-pointer"
+                                  title="Edit"
+                                >
+                                  <Edit2 className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteMemoryItem(item.id)}
+                                  className="p-1 rounded-lg text-[var(--muted)] hover:text-rose-400 transition-colors cursor-pointer"
+                                  title="Delete"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </div>
+                            <p className="text-xs text-[var(--muted)] leading-relaxed">
+                              {item.content}
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+
+                {/* Memory Items: Topics & Knowledge Contexts */}
+                <div className="space-y-2 pt-2">
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-[var(--muted)] px-1">
+                    Topic Contexts & Facts
+                  </div>
+                  {memoryItems.filter((i) => i.category === "topic").length === 0 ? (
+                    <div className="p-4 text-center text-xs text-[var(--muted)] italic rounded-2xl border border-dashed border-[var(--card-border)]">
+                      No topic memories saved yet. Use the prompt box above or talk to Ollama to add topics.
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {memoryItems
+                        .filter((i) => i.category === "topic")
+                        .map((item) => (
+                          <div
+                            key={item.id}
+                            className="p-3.5 rounded-2xl bg-[var(--sidebar-bg)] border border-[var(--card-border)] flex flex-col justify-between hover:border-[var(--muted)]/40 transition-all shadow-2xs"
+                          >
+                            <div className="space-y-1.5">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="font-semibold text-xs text-[var(--foreground)]">
+                                  {item.title}
+                                </span>
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleStartEditMemory(item)}
+                                    className="p-1 rounded-lg text-[var(--muted)] hover:text-purple-400 transition-colors cursor-pointer"
+                                    title="Edit"
+                                  >
+                                    <Edit2 className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteMemoryItem(item.id)}
+                                    className="p-1 rounded-lg text-[var(--muted)] hover:text-rose-400 transition-colors cursor-pointer"
+                                    title="Delete"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              </div>
+                              <p className="text-xs text-[var(--muted)] leading-relaxed">
+                                {item.content}
+                              </p>
+                            </div>
+                          </div>
+                        ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* 7. CLOUD AI MODELS SECTION */}
             {activeSection === "cloud" && (
               <div className="space-y-4 animate-in fade-in duration-150">
                 <div>
@@ -1826,7 +3136,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <div className="p-3 rounded-2xl bg-[var(--sidebar-bg)] border border-[var(--card-border)] space-y-1.5">
                     <div className="flex items-center justify-between text-xs font-bold text-[var(--foreground)]">
                       <span className="flex items-center gap-1.5 text-blue-400">
-                        🔷 Google Gemini API Key
+                        Google Gemini API Key
                       </span>
                       <a
                         href="https://aistudio.google.com/app/apikey"
@@ -1864,7 +3174,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <div className="p-3 rounded-2xl bg-[var(--sidebar-bg)] border border-[var(--card-border)] space-y-1.5">
                     <div className="flex items-center justify-between text-xs font-bold text-[var(--foreground)]">
                       <span className="flex items-center gap-1.5 text-emerald-400">
-                        🟢 OpenAI API Key
+                        OpenAI API Key
                       </span>
                       <a
                         href="https://platform.openai.com/api-keys"
@@ -1902,7 +3212,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <div className="p-3 rounded-2xl bg-[var(--sidebar-bg)] border border-[var(--card-border)] space-y-1.5">
                     <div className="flex items-center justify-between text-xs font-bold text-[var(--foreground)]">
                       <span className="flex items-center gap-1.5 text-purple-400">
-                        🟣 Anthropic Claude API Key
+                        Anthropic Claude API Key
                       </span>
                       <a
                         href="https://console.anthropic.com/"
@@ -1940,7 +3250,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <div className="p-3 rounded-2xl bg-[var(--sidebar-bg)] border border-[var(--card-border)] space-y-1.5">
                     <div className="flex items-center justify-between text-xs font-bold text-[var(--foreground)]">
                       <span className="flex items-center gap-1.5 text-cyan-400">
-                        🐋 DeepSeek API Key
+                        DeepSeek API Key
                       </span>
                       <a
                         href="https://platform.deepseek.com/"
@@ -1978,7 +3288,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <div className="p-3 rounded-2xl bg-[var(--sidebar-bg)] border border-[var(--card-border)] space-y-1.5">
                     <div className="flex items-center justify-between text-xs font-bold text-[var(--foreground)]">
                       <span className="flex items-center gap-1.5 text-amber-400">
-                        ⚡ Groq LPU API Key (300+ tok/s)
+                        Groq LPU API Key (300+ tok/s)
                       </span>
                       <a
                         href="https://console.groq.com/keys"

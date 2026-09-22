@@ -348,7 +348,7 @@ async function readServerDbJson(): Promise<ServerDatabase> {
             id: t.id,
             title: t.title,
             content: t.description || "",
-            icon: "🎯",
+            icon: "",
             category: "task" as const,
             status: t.status === "todo" ? "draft" : t.status === "in_progress" ? "in_progress" : t.status === "done" ? "done" : "draft",
             priority: t.priority || "medium",

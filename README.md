@@ -1,4 +1,4 @@
-# 🦙 Ollama Chat Web
+# Ollama Chat Web
 
 <div align="center">
 
@@ -18,29 +18,29 @@ Engineered from the ground up for maximum local LLM inference efficiency, GPU VR
 
 ---
 
-## 🌟 Overview
+## Overview
 
 **Ollama Chat Web** is not just another UI skin for local models. It is a full-featured AI workspace designed to solve the real-world friction of running models locally: silent context truncation, high latency on prompt re-evaluation, VRAM contention, hallucinations during long chats, and insecure tool execution.
 
 ### Why Ollama Chat Web?
 
-- ⚡ **Zero VRAM Waste & Instant Turnaround**: Automated **KV Cache Prefix Pinning** (`options.num_keep`) keeps static system prompts warm in GPU memory, cutting prompt evaluation delays to zero.
-- 🎯 **Eliminates 2048-Token Silent Truncation**: Automatic **Model Context-Window Resolution** derives native context limits (`num_ctx`) per model family (up to 131K for Llama 3.1 & Qwen 2.5) with local hardware safety ceilings.
-- 🔍 **Stanford Lost-in-the-Middle RAG**: Reorders retrieved chunks into a **U-shaped perimeter** (placing high-relevance chunks at the context boundaries) with two-stage coarse-to-fine hybrid search (BM25 $\to$ Vector Embeddings).
-- 🧬 **Constrained Structured Output Decoding**: Enforces native **JSON Schema Grammar (GBNF)** at the sampler level for reliable machine-readable extraction without markdown preamble or broken JSON.
-- 💨 **Dual-Tier Response Caching**: Sub-millisecond exact FNV-1a hash matching combined with **Semantic Vector Caching** (Cosine Similarity $\ge 0.96$) to answer repeated or rephrased queries with **0ms GPU latency and 0 tokens generated**.
-- 🛡️ **Defensive Security Architecture**: Sandboxed filesystem access, DNS-rebinding-proof SSRF guards, and cryptographically verified **approval tokens with one-click reversibility** on all mutating actions.
-- 🖥️ **Silky Smooth 60fps Streaming**: Micro-batched token render throttler prevents browser DOM thrashing during high-speed local inference (60–120+ tokens/sec) while isolating `<think>` reasoning tags in real time.
+- **Zero VRAM Waste & Instant Turnaround**: Automated **KV Cache Prefix Pinning** (`options.num_keep`) keeps static system prompts warm in GPU memory, cutting prompt evaluation delays to zero.
+- **Eliminates 2048-Token Silent Truncation**: Automatic **Model Context-Window Resolution** derives native context limits (`num_ctx`) per model family (up to 131K for Llama 3.1 & Qwen 2.5) with local hardware safety ceilings.
+- **Stanford Lost-in-the-Middle RAG**: Reorders retrieved chunks into a **U-shaped perimeter** (placing high-relevance chunks at the context boundaries) with two-stage coarse-to-fine hybrid search (BM25 $\to$ Vector Embeddings).
+- **Constrained Structured Output Decoding**: Enforces native **JSON Schema Grammar (GBNF)** at the sampler level for reliable machine-readable extraction without markdown preamble or broken JSON.
+- **Dual-Tier Response Caching**: Sub-millisecond exact FNV-1a hash matching combined with **Semantic Vector Caching** (Cosine Similarity $\ge 0.96$) to answer repeated or rephrased queries with **0ms GPU latency and 0 tokens generated**.
+- **Defensive Security Architecture**: Sandboxed filesystem access, DNS-rebinding-proof SSRF guards, and cryptographically verified **approval tokens with one-click reversibility** on all mutating actions.
+- **Silky Smooth 60fps Streaming**: Micro-batched token render throttler prevents browser DOM thrashing during high-speed local inference (60–120+ tokens/sec) while isolating `<think>` reasoning tags in real time.
 
 ---
 
-## 🏛️ System Architecture
+## System Architecture
 
 The workspace is organized into five tightly integrated subsystems that decouple UI interaction, retrieval pipeline, context optimization, and model execution:
 
 ```mermaid
 flowchart TD
-    subgraph UI_Client["🖥️ Client Workspace (Next.js 14 App Router)"]
+    subgraph UI_Client["Client Workspace (Next.js 14 App Router)"]
         UI["Chat Interface & Parameter Controls"]
         ST["60fps Stream Render Throttler\n(lib/streamThrottler.ts)"]
         RP["Streaming <think> State-Machine Parser\n(lib/reasoningParser.ts)"]
@@ -49,7 +49,7 @@ flowchart TD
         ST --> RP
     end
 
-    subgraph Context_Pipeline["🧠 Context & Knowledge Optimization Pipeline"]
+    subgraph Context_Pipeline["Context & Knowledge Optimization Pipeline"]
         BPE["Exact BPE Tokenizer (cl100k_base)\n(lib/tokenizer.ts)"]
         RAG_Hybrid["Two-Stage Coarse-to-Fine Search\n(BM25 Filter -> Semantic Embeddings)"]
         RAG_Order["Perimeter U-Shaped Chunk Reordering\n(Lost-in-the-Middle Optimization)"]
@@ -57,13 +57,13 @@ flowchart TD
         BPE --> RAG_Hybrid --> RAG_Order --> Mem_Store
     end
 
-    subgraph Cache_Engine["⚡ Dual-Tier Response & KV Cache"]
+    subgraph Cache_Engine["Dual-Tier Response & KV Cache"]
         Exact_Cache["O(1) Exact FNV-1a Hash Cache\n(lib/responseCache.ts)"]
         Semantic_Cache["Vector Semantic Response Cache\n(Cosine Similarity >= 0.96)"]
         KV_Pin["Prefix KV Cache Pinning\n(options.num_keep = staticTokens)"]
     end
 
-    subgraph Runtime_Inference["🚀 Local & Cloud Inference Engine"]
+    subgraph Runtime_Inference["Local & Cloud Inference Engine"]
         VRAM_Q["VRAM Semaphore Concurrency Queue\n(lib/ollamaRateLimit.ts)"]
         Ctx_Resolve["Auto Context Resolution (num_ctx)\n(Hardware VRAM Safety Guard)"]
         Sampling["Adaptive Sampling Engine\n(min_p, Top-K, Family Stop Sequences)"]
@@ -72,7 +72,7 @@ flowchart TD
         Cloud_Fallback["Cloud AI Fallback (Redacted Proxy)"]
     end
 
-    subgraph Security_Tools["🛡️ Security Sandbox & Execution Tools"]
+    subgraph Security_Tools["Security Sandbox & Execution Tools"]
         SSRF["SSRF Defense Matrix (DNS Rebind Guard)"]
         Sandbox["Filesystem Path Sandbox (lib/pathSandbox.ts)"]
         Approval["Server-Verified Approval Token & Revert Engine"]
@@ -89,20 +89,20 @@ flowchart TD
 
 ---
 
-## 🔄 End-to-End Inference Lifecycle
+## End-to-End Inference Lifecycle
 
 Here is the exact step-by-step lifecycle of a user prompt through the optimization and inference pipeline:
 
 ```mermaid
 sequenceDiagram
     autonumber
-    actor User as 👤 User
-    participant Client as 💻 Web Client (app/page.tsx)
-    participant Cache as ⚡ Dual Response Cache
-    participant RAG as 📚 Hybrid RAG Pipeline
-    participant RateLimit as 🚦 VRAM Semaphore Queue
-    participant Ollama as 🦙 Ollama Local Engine
-    participant Parser as ⚙️ Stream & Reasoning Parser
+    actor User as User
+    participant Client as Web Client (app/page.tsx)
+    participant Cache as Dual Response Cache
+    participant RAG as Hybrid RAG Pipeline
+    participant RateLimit as VRAM Semaphore Queue
+    participant Ollama as Ollama Local Engine
+    participant Parser as Stream & Reasoning Parser
 
     User->>Client: Submit Query / Follow-up
     Client->>Cache: 1. Check Exact FNV-1a Hash Key
@@ -145,7 +145,7 @@ sequenceDiagram
 
 ---
 
-## 🚀 Key Features
+## Key Features
 
 ### 1. Model Inference Efficiency & VRAM Architecture
 - **Prefix KV Cache Pinning (`options.num_keep`)**:
@@ -188,7 +188,7 @@ sequenceDiagram
 
 ---
 
-## 🛡️ Security Model
+## Security Model
 
 Ollama Chat Web treats all local filesystem and network interactions with defensive, multi-layered security controls:
 
@@ -202,7 +202,7 @@ Ollama Chat Web treats all local filesystem and network interactions with defens
 
 ---
 
-## 🔌 API Surface
+## API Surface
 
 | Endpoint | Method | Description |
 | :--- | :--- | :--- |
@@ -222,7 +222,7 @@ Ollama Chat Web treats all local filesystem and network interactions with defens
 
 ---
 
-## 📋 Tech Stack
+## Tech Stack
 
 | Component | Technology | Version / Details |
 | :--- | :--- | :--- |
@@ -237,7 +237,7 @@ Ollama Chat Web treats all local filesystem and network interactions with defens
 
 ---
 
-## ⚡ Quick Start
+## Quick Start
 
 ### Prerequisites
 - [Node.js](https://nodejs.org/) 18.x or 20.x+
@@ -278,7 +278,7 @@ Ollama Chat Web treats all local filesystem and network interactions with defens
 
 ---
 
-## 🧪 Testing & Verification
+## Testing & Verification
 
 The codebase is protected by comprehensive unit and integration test suites:
 
@@ -295,7 +295,7 @@ npm run build
 
 ---
 
-## 📂 Project Layout
+## Project Layout
 
 ```
 ollama-chat-web/
@@ -323,6 +323,6 @@ ollama-chat-web/
 
 ---
 
-## 📄 License
+## License
 
 This project is licensed under the [MIT License](LICENSE).

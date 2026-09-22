@@ -5,7 +5,7 @@ const PORT = 3000;
 
 if (!process.env.APP_ACCESS_TOKEN) {
   console.log("\n============================================================");
-  console.log("🚫 REFUSING TO START TUNNEL: APP_ACCESS_TOKEN is not set.");
+  console.log("REFUSING TO START TUNNEL: APP_ACCESS_TOKEN is not set.");
   console.log("============================================================");
   console.log("This app has routes (/api/fs, /api/tools/execute, /api/connectors,");
   console.log("the Ollama proxy, etc.) that would be reachable by ANYONE with the");
@@ -19,9 +19,9 @@ if (!process.env.APP_ACCESS_TOKEN) {
 }
 
 console.log("\n============================================================");
-console.log("🌐 Starting Secure Public Internet Tunnel (Pinggy SSH)...");
+console.log("Starting Secure Public Internet Tunnel (Pinggy SSH)...");
 console.log(`Forwarding traffic to local Next.js on port ${PORT}...`);
-console.log("🔒 Access token check: ENABLED (APP_ACCESS_TOKEN is set)");
+console.log("Access token check: ENABLED (APP_ACCESS_TOKEN is set)");
 console.log("============================================================\n");
 
 const sshProcess = spawn(
@@ -53,16 +53,16 @@ const handleOutput = (data) => {
     linkFound = true;
     const url = matches[0];
 
-    console.log("\n🎉 TUNNEL IS LIVE & CONNECTED! 🎉");
+    console.log("\nTUNNEL IS LIVE & CONNECTED!");
     console.log("------------------------------------------------------------");
-    console.log(`👉 Public HTTPS URL: \x1b[36m\x1b[1m${url}\x1b[0m`);
+    console.log(`Public HTTPS URL: \x1b[36m\x1b[1m${url}\x1b[0m`);
     console.log("------------------------------------------------------------\n");
-    console.log("📱 Scan this QR Code with your phone camera to open:");
+    console.log("Scan this QR Code with your phone camera to open:");
 
     qrcode.generate(url, { small: true });
 
-    console.log("\n💡 You can now open this link from ANY phone or laptop outside!");
-    console.log("⚠️  Keep this window OPEN while chatting. Press Ctrl + C to exit.\n");
+    console.log("\nYou can now open this link from ANY phone or laptop outside!");
+    console.log("Keep this window OPEN while chatting. Press Ctrl + C to exit.\n");
   }
 };
 
