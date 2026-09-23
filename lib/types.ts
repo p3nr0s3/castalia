@@ -129,6 +129,9 @@ export interface RetrievedChunkInfo {
   score?: number;
   textSnippet: string;
   estimatedTokens: number;
+  symbolsDefined?: string[];
+  linkedSymbols?: string[];
+  stitchedPartRange?: [number, number];
 }
 
 export interface SearchStepInfo {
@@ -259,6 +262,14 @@ export interface Project {
   ragChunkOverlapChars?: number;
   ragTopK?: number;
   ragSemanticWeight?: number;
+  /** Reciprocal Rank Fusion (RRF) smoothing parameter k (default 60). */
+  ragRrfK?: number;
+  /** Whether adjacent retrieved chunks from the same file should be stitched together (default true). */
+  ragStitchChunks?: boolean;
+  /** Enable Hypothetical Document Embeddings (HyDE) for dense semantic retrieval. */
+  ragHydeEnabled?: boolean;
+  /** Custom model to use for HyDE generation (defaults to active chat model). */
+  ragHydeModel?: string;
   /** Ambient file-watcher indexing (server-side, opt-in per project).
    * Path is resolved and sandboxed relative to the server's home directory
    * the same way disk tools are (see lib/pathSandbox.ts) — never an

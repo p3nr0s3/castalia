@@ -22,7 +22,7 @@ import {
 } from "@/lib/types";
 import { storage } from "@/lib/storage";
 import { DEFAULT_SETTINGS, PRESET_PERSONAS, DEFAULT_CUSTOM_THEME } from "@/lib/constants";
-import { checkOllamaHealth, fetchOllamaModels, streamChatCompletion, detectModelProvider, checkVramPressure, prewarmModel, resolveEffectiveNumCtxSync } from "@/lib/ollama";
+import { checkOllamaHealth, fetchOllamaModels, streamChatCompletion, detectModelProvider, checkVramPressure, prewarmModel, resolveEffectiveNumCtxSync, formatBytes } from "@/lib/ollama";
 import { getBatterySignal, isBatteryConstrained } from "@/lib/hardwareSignals";
 import { buildToolDirectivePrompt, parseToolDirective, getNativeOllamaTools, MUTATING_TOOLS, ToolName } from "@/lib/tools";
 import { executeToolCall, revertApproval } from "@/lib/toolEngine";
@@ -1067,11 +1067,18 @@ export default function HomePage() {
           embeddingModel: settings.embeddingModel,
           enabled: Boolean(settings.semanticRagEnabled),
           semanticWeight: proj.ragSemanticWeight,
+          rrfK: proj.ragRrfK,
+          hyde: {
+            enabled: Boolean(proj.ragHydeEnabled),
+            model: proj.ragHydeModel || proj.defaultModel || settings.defaultModel,
+          },
         },
         {
           chunkSizeChars: proj.ragChunkSizeChars,
           chunkOverlapChars: proj.ragChunkOverlapChars,
           topK: proj.ragTopK,
+          rrfK: proj.ragRrfK,
+          stitchAdjacent: proj.ragStitchChunks ?? true,
         }
       );
       if (knowledgeResult.contextText) {
@@ -1347,8 +1354,24 @@ export default function HomePage() {
       ? trimmedInput.replace(/^\/search\s+/i, "").trim()
       : trimmedInput;
 
+    // Check for URL Ingestion Intent (/url <url> [question...])
+    const isUrlCommand = /^\/url(\s+|$)/i.test(trimmedInput);
+    let urlCommandTarget = "";
+    let urlCommandQuestion = "";
+    if (isUrlCommand) {
+      const remainder = trimmedInput.replace(/^\/url\s*/i, "").trim();
+      if (remainder) {
+        const parts = remainder.split(/\s+/);
+        urlCommandTarget = parts[0];
+        urlCommandQuestion = parts.slice(1).join(" ").trim();
+        if (urlCommandTarget && !/^https?:\/\//i.test(urlCommandTarget)) {
+          urlCommandTarget = `https://${urlCommandTarget}`;
+        }
+      }
+    }
+
     const shouldRunSearch = Boolean(
-      !isScanCommand && (webSearchActive || isExplicitSearchCommand) && searchInput
+      !isScanCommand && !isUrlCommand && (webSearchActive || isExplicitSearchCommand) && searchInput
     );
 
     // Multi-turn context resolution: resolve anaphoric follow-up references using previous conversation turn
@@ -1456,7 +1479,9 @@ export default function HomePage() {
 
     const isFirstMessage = targetConv.messages.length === 0;
     const newTitle = isFirstMessage
-      ? trimmedInput
+      ? isUrlCommand && urlCommandTarget
+        ? `Docs: ${urlCommandTarget.replace(/^https?:\/\//i, "").slice(0, 26)}`
+        : trimmedInput
         ? trimmedInput.slice(0, 32).replace(/\n/g, " ") + (trimmedInput.length > 32 ? "..." : "")
         : `File: ${currentAttachments[0]?.name || "Attachment"}`
       : targetConv.title;
@@ -1640,6 +1665,107 @@ export default function HomePage() {
         }
       }
 
+      // Execute URL / Web Documentation Ingestion if requested (/url <url> [question])
+      let urlIngestContextText = "";
+      let urlNotice = "";
+
+      if (isUrlCommand) {
+        if (!urlCommandTarget) {
+          const usageNotice = "*Usage: `/url <url> [question]` — Ingest a web documentation page or article into context or project knowledge.*\n\n*Example:* `/url https://docs.rs/tokio/latest/tokio/ Explain the runtime architecture*";
+          setConversations((prev) =>
+            prev.map((c) => {
+              if (c.id !== targetId) return c;
+              const msgs = c.messages.map((m) =>
+                m.id === assistantMessageId ? { ...m, content: usageNotice } : m
+              );
+              return { ...c, messages: msgs };
+            })
+          );
+          setIsStreaming(false);
+          return;
+        }
+
+        try {
+          const ingestRes = await apiFetch("/api/projects/ingest-url", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ url: urlCommandTarget }),
+          });
+
+          const ingestData = await ingestRes.json().catch(() => ({}));
+          if (ingestRes.ok && ingestData.success && ingestData.file) {
+            const ingestedFile: ProjectFile = ingestData.file;
+            const docTitle = ingestData.title || urlCommandTarget;
+            const docUrl = ingestData.url || urlCommandTarget;
+
+            // If an active project is selected, persist file into project knowledge
+            if (proj) {
+              const existingIdx = proj.files.findIndex((f) => f.name === ingestedFile.name);
+              const nextFiles = existingIdx >= 0
+                ? proj.files.map((f) => (f.name === ingestedFile.name ? ingestedFile : f))
+                : [...proj.files, ingestedFile];
+              const updatedProj = { ...proj, files: nextFiles, updatedAt: Date.now() };
+              handleSaveProject(updatedProj);
+            }
+
+            urlNotice = `*Ingested documentation from [${docTitle}](${docUrl}) (${formatBytes(ingestedFile.size)}) into ${proj ? `project "${proj.name}" & ` : ""}context.*\n\n`;
+
+            urlIngestContextText = `\n\n=== INGESTED DOCUMENTATION (${docTitle}) ===\nSource URL: ${docUrl}\n\n${ingestedFile.textContent}\n=== END OF INGESTED DOCUMENTATION ===\n\n`;
+
+            const docSnippet = (ingestedFile.textContent || "").slice(0, 300).replace(/\s+/g, " ");
+            const urlSource = {
+              title: docTitle,
+              url: docUrl,
+              snippet: docSnippet,
+            };
+            searchSources = [urlSource];
+
+            setConversations((prev) =>
+              prev.map((c) => {
+                if (c.id !== targetId) return c;
+                return {
+                  ...c,
+                  messages: c.messages.map((m) =>
+                    m.id === assistantMessageId
+                      ? {
+                          ...m,
+                          sources: [urlSource],
+                        }
+                      : m
+                  ),
+                };
+              })
+            );
+          } else {
+            const failNotice = `*Failed to ingest URL [${urlCommandTarget}](${urlCommandTarget}): ${ingestData.error || "Unknown error"}*\n\n`;
+            setConversations((prev) =>
+              prev.map((c) => {
+                if (c.id !== targetId) return c;
+                const msgs = c.messages.map((m) =>
+                  m.id === assistantMessageId ? { ...m, content: failNotice } : m
+                );
+                return { ...c, messages: msgs };
+              })
+            );
+            setIsStreaming(false);
+            return;
+          }
+        } catch (ingestErr: any) {
+          const failNotice = `*Failed to fetch URL [${urlCommandTarget}](${urlCommandTarget}): ${ingestErr?.message || "Network error"}*\n\n`;
+          setConversations((prev) =>
+            prev.map((c) => {
+              if (c.id !== targetId) return c;
+              const msgs = c.messages.map((m) =>
+                m.id === assistantMessageId ? { ...m, content: failNotice } : m
+              );
+              return { ...c, messages: msgs };
+            })
+          );
+          setIsStreaming(false);
+          return;
+        }
+      }
+
       const {
         prompt: baseEffectivePrompt,
         staticPrompt,
@@ -1649,9 +1775,9 @@ export default function HomePage() {
       } = await getEffectiveSystemPrompt(convWithNewMessages, trimmedInput);
       const effectiveDiskToolsActive =
         diskToolsActive || skillsRequireDiskTools(settings.skills || DEFAULT_SKILLS, convWithNewMessages.activeSkillIds);
-      let accumulatedText = connectorNotice || knowledgeNotice || "";
+      let accumulatedText = `${urlNotice}${connectorNotice}${knowledgeNotice}`;
 
-      // Dynamic contexts for this turn (RAG + search + OWASP + connector)
+      // Dynamic contexts for this turn (RAG + search + OWASP + connector + url)
       let combinedDynamicContext = ragDynamicContext || "";
       if (searchContextText) {
         combinedDynamicContext = combinedDynamicContext
@@ -1667,6 +1793,11 @@ export default function HomePage() {
         combinedDynamicContext = combinedDynamicContext
           ? `${combinedDynamicContext}\n\n${connectorContextText}`
           : connectorContextText;
+      }
+      if (urlIngestContextText) {
+        combinedDynamicContext = combinedDynamicContext
+          ? `${combinedDynamicContext}\n\n${urlIngestContextText}`
+          : urlIngestContextText;
       }
 
       // Check Smart Context mode (default: true)
@@ -1692,6 +1823,9 @@ export default function HomePage() {
         if (connectorContextText) {
           effectiveSystemPrompt = `${effectiveSystemPrompt}${connectorContextText}`;
         }
+        if (urlIngestContextText) {
+          effectiveSystemPrompt = `${effectiveSystemPrompt}${urlIngestContextText}`;
+        }
         if (effectiveDiskToolsActive && !isOllamaProvider) {
           effectiveSystemPrompt = `${effectiveSystemPrompt}\n\n${buildToolDirectivePrompt()}`;
         }
@@ -1712,9 +1846,23 @@ export default function HomePage() {
       if (isSmartContext && combinedDynamicContext && finalMessagesToSend.length > 0) {
         finalMessagesToSend = finalMessagesToSend.map((m, idx) => {
           if (idx === finalMessagesToSend.length - 1 && m.role === "user") {
+            const effectiveUserContent = isUrlCommand
+              ? (urlCommandQuestion || "Please provide a comprehensive summary and key takeaways of this documentation page.")
+              : m.content;
             return {
               ...m,
-              content: formatUserEphemeralContext(m.content, combinedDynamicContext),
+              content: formatUserEphemeralContext(effectiveUserContent, combinedDynamicContext),
+            };
+          }
+          return m;
+        });
+      } else if (isUrlCommand && finalMessagesToSend.length > 0) {
+        finalMessagesToSend = finalMessagesToSend.map((m, idx) => {
+          if (idx === finalMessagesToSend.length - 1 && m.role === "user") {
+            const effectiveUserContent = urlCommandQuestion || "Please provide a comprehensive summary and key takeaways of this documentation page.";
+            return {
+              ...m,
+              content: effectiveUserContent,
             };
           }
           return m;

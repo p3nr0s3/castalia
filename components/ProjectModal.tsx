@@ -1,12 +1,12 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
-import { X, FolderPlus, Folder, FileText, Upload, Trash as Trash2, Faders as Sliders, Sparkle as Sparkles, Check, Plus, Brain, Lightning as Zap, MagicWand as Wand2, Hash, Prohibit as Ban, Eye, EyeSlash } from "@phosphor-icons/react";
+import { X, FolderPlus, Folder, FileText, Upload, Trash as Trash2, Faders as Sliders, Sparkle as Sparkles, Check, Plus, Brain, Lightning as Zap, MagicWand as Wand2, Hash, Prohibit as Ban, Eye, EyeSlash, Globe, CircleNotch } from "@phosphor-icons/react";
 import { Project, ProjectFile, OllamaModel, ThinkingMode } from "@/lib/types";
 import { formatBytes } from "@/lib/ollama";
 import { processSelectedFiles } from "@/lib/fileUtils";
 import { CLOUD_MODEL_PRESETS } from "@/lib/constants";
-import { estimateTokens, chunkDocument } from "@/lib/rag";
+import { estimateTokens, chunkDocument, getCachedFileChunks } from "@/lib/rag";
 import { apiFetch } from "@/lib/apiClient";
 
 interface ProjectModalProps {
@@ -64,11 +64,17 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
   const [ragChunkOverlapChars, setRagChunkOverlapChars] = useState(project?.ragChunkOverlapChars ?? 200);
   const [ragTopK, setRagTopK] = useState(project?.ragTopK ?? 8);
   const [ragSemanticWeight, setRagSemanticWeight] = useState(project?.ragSemanticWeight ?? 0.55);
+  const [ragStitchChunks, setRagStitchChunks] = useState<boolean>(Boolean(project?.ragStitchChunks));
+  const [ragHydeEnabled, setRagHydeEnabled] = useState<boolean>(Boolean(project?.ragHydeEnabled));
+  const [ragHydeModel, setRagHydeModel] = useState<string>(project?.ragHydeModel ?? "");
   const [watchedFolderPath, setWatchedFolderPath] = useState(project?.watchedFolderPath ?? "");
   const [watchedFolderEnabled, setWatchedFolderEnabled] = useState(Boolean(project?.watchedFolderEnabled));
   const [watcherStatus, setWatcherStatus] = useState<"idle" | "starting" | "stopping" | "error">("idle");
   const [watcherError, setWatcherError] = useState<string | null>(null);
   const [files, setFiles] = useState<ProjectFile[]>(project?.files || []);
+  const [urlToIngest, setUrlToIngest] = useState("");
+  const [isIngestingUrl, setIsIngestingUrl] = useState(false);
+  const [urlIngestError, setUrlIngestError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"general" | "parameters" | "knowledge">(initialTab);
 
   // Sync state whenever modal opens or active project changes
@@ -96,9 +102,15 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
         setRagChunkOverlapChars(project.ragChunkOverlapChars ?? 200);
         setRagTopK(project.ragTopK ?? 8);
         setRagSemanticWeight(project.ragSemanticWeight ?? 0.55);
+        setRagStitchChunks(Boolean(project.ragStitchChunks));
+        setRagHydeEnabled(Boolean(project.ragHydeEnabled));
+        setRagHydeModel(project.ragHydeModel ?? "");
         setWatchedFolderPath(project.watchedFolderPath ?? "");
         setWatchedFolderEnabled(Boolean(project.watchedFolderEnabled));
         setWatcherError(null);
+        setUrlToIngest("");
+        setIsIngestingUrl(false);
+        setUrlIngestError(null);
         setFiles(project.files || []);
       } else {
         setName("");
@@ -121,9 +133,15 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
         setRagChunkOverlapChars(200);
         setRagTopK(8);
         setRagSemanticWeight(0.55);
+        setRagStitchChunks(false);
+        setRagHydeEnabled(false);
+        setRagHydeModel("");
         setWatchedFolderPath("");
         setWatchedFolderEnabled(false);
         setWatcherError(null);
+        setUrlToIngest("");
+        setIsIngestingUrl(false);
+        setUrlIngestError(null);
         setFiles([]);
       }
       if (initialTab) {
@@ -193,6 +211,31 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
 
   const removeFile = (id: string) => {
     setFiles((prev) => prev.filter((f) => f.id !== id));
+  };
+
+  const handleIngestUrl = async () => {
+    const trimmed = urlToIngest.trim();
+    if (!trimmed) return;
+    setIsIngestingUrl(true);
+    setUrlIngestError(null);
+    try {
+      const res = await apiFetch("/api/projects/ingest-url", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: trimmed }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success || !data.file) {
+        setUrlIngestError(data.error || "Failed to ingest URL.");
+        return;
+      }
+      setFiles((prev) => [...prev, data.file]);
+      setUrlToIngest("");
+    } catch (err: any) {
+      setUrlIngestError(err.message || "Failed to ingest URL.");
+    } finally {
+      setIsIngestingUrl(false);
+    }
   };
 
   const toggleWatcher = async () => {
@@ -274,6 +317,9 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
       ragChunkOverlapChars,
       ragTopK,
       ragSemanticWeight,
+      ragStitchChunks,
+      ragHydeEnabled,
+      ragHydeModel: ragHydeModel.trim() || undefined,
       watchedFolderPath: watchedFolderPath.trim() || undefined,
       watchedFolderEnabled,
       files,
@@ -834,6 +880,56 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
                           Only applies when hybrid semantic RAG is enabled in Settings — otherwise pure keyword (BM25) ranking is used regardless of this slider.
                         </p>
                       </div>
+
+                      {/* Adjacent Chunk Stitching */}
+                      <div className="pt-2 border-t border-[var(--card-border)] space-y-2">
+                        <label className="flex items-center justify-between cursor-pointer">
+                          <div className="pr-4">
+                            <span className="text-xs font-medium text-[var(--foreground)]">Stitch Adjacent Chunks</span>
+                            <p className="text-[10px] text-[var(--muted)]">
+                              Merges consecutive chunks from the same file into unified passages with boundary deduplication, eliminating fragmented code across chunk edges.
+                            </p>
+                          </div>
+                          <input
+                            type="checkbox"
+                            checked={ragStitchChunks}
+                            onChange={(e) => setRagStitchChunks(e.target.checked)}
+                            className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 bg-[var(--card-bg)] border-[var(--card-border)] cursor-pointer shrink-0"
+                          />
+                        </label>
+                      </div>
+
+                      {/* HyDE (Hypothetical Document Embeddings) */}
+                      <div className="pt-2 border-t border-[var(--card-border)] space-y-2">
+                        <label className="flex items-center justify-between cursor-pointer">
+                          <div className="pr-4">
+                            <span className="text-xs font-medium text-[var(--foreground)]">HyDE Dense Semantic Expansion</span>
+                            <p className="text-[10px] text-[var(--muted)]">
+                              Generates a brief hypothetical code/technical answer to embed into dense vector space, matching documentation with higher conceptual relevance.
+                            </p>
+                          </div>
+                          <input
+                            type="checkbox"
+                            checked={ragHydeEnabled}
+                            onChange={(e) => setRagHydeEnabled(e.target.checked)}
+                            className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 bg-[var(--card-bg)] border-[var(--card-border)] cursor-pointer shrink-0"
+                          />
+                        </label>
+                        {ragHydeEnabled && (
+                          <div className="mt-2 space-y-1">
+                            <label className="text-[10px] font-medium text-[var(--muted)]">
+                              HyDE Generator Model (optional, defaults to project or active model)
+                            </label>
+                            <input
+                              type="text"
+                              placeholder="e.g. llama3.2, qwen2.5:7b"
+                              value={ragHydeModel}
+                              onChange={(e) => setRagHydeModel(e.target.value)}
+                              className="w-full text-xs px-2.5 py-1.5 rounded-lg border border-[var(--card-border)] bg-[var(--card-bg)] text-[var(--foreground)] focus:outline-hidden focus:ring-1 focus:ring-blue-500"
+                            />
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </details>
@@ -890,23 +986,66 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
                   </div>
                 </details>
 
-                {/* Upload Button */}
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="flex items-center gap-2 px-3.5 py-2 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-xl shadow-xs transition-colors cursor-pointer"
-                >
-                  <Upload className="w-3.5 h-3.5" />
-                  Add Files to Project
-                </button>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  multiple
-                  accept=".pdf,.txt,.md,.json,.csv,.py,.js,.ts,.html,.css,.java,.cpp,.c,.rs,.go,.sql,.sh,.yml,.yaml,.xml,.log,.env"
-                  onChange={handleUploadFiles}
-                  className="hidden"
-                />
+                {/* File Upload & Web URL Ingestion */}
+                <div className="space-y-3 pt-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="flex items-center gap-2 px-3.5 py-2 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-xl shadow-xs transition-colors cursor-pointer"
+                    >
+                      <Upload className="w-3.5 h-3.5" />
+                      Add Files to Project
+                    </button>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      multiple
+                      accept=".pdf,.txt,.md,.json,.csv,.py,.js,.ts,.html,.css,.java,.cpp,.c,.rs,.go,.sql,.sh,.yml,.yaml,.xml,.log,.env"
+                      onChange={handleUploadFiles}
+                      className="hidden"
+                    />
+                  </div>
+
+                  {/* Web URL Documentation Ingestion */}
+                  <div className="p-3 rounded-xl border border-[var(--card-border)] bg-[var(--card-bg)] space-y-2">
+                    <div className="text-xs font-semibold text-[var(--foreground)] flex items-center gap-1.5">
+                      <Globe className="w-3.5 h-3.5 text-blue-400" />
+                      <span>Import Web Documentation / URL</span>
+                    </div>
+                    <div className="flex gap-2">
+                      <input
+                        type="url"
+                        value={urlToIngest}
+                        onChange={(e) => {
+                          setUrlToIngest(e.target.value);
+                          if (urlIngestError) setUrlIngestError(null);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            handleIngestUrl();
+                          }
+                        }}
+                        placeholder="https://docs.example.com/api..."
+                        disabled={isIngestingUrl}
+                        className="flex-1 px-3 py-1.5 rounded-xl bg-[var(--sidebar-bg)] border border-[var(--card-border)] text-xs text-[var(--foreground)] placeholder:text-[var(--muted)] disabled:opacity-60 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleIngestUrl}
+                        disabled={isIngestingUrl || !urlToIngest.trim()}
+                        className="px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white flex items-center gap-1.5 cursor-pointer whitespace-nowrap transition-colors"
+                      >
+                        {isIngestingUrl && <CircleNotch className="w-3.5 h-3.5 animate-spin" />}
+                        {isIngestingUrl ? "Ingesting..." : "Import URL"}
+                      </button>
+                    </div>
+                    {urlIngestError && (
+                      <p className="text-[11px] text-red-400 font-medium">{urlIngestError}</p>
+                    )}
+                  </div>
+                </div>
               </div>
 
               {/* Uploaded Files List */}
@@ -928,7 +1067,7 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
                   <div className="space-y-1.5 max-h-60 overflow-y-auto touch-scroll">
                     {files.map((file) => {
                       const fileTok = estimateTokens(file.textContent || "");
-                      const chunkCount = chunkDocument(file).length;
+                      const chunkCount = getCachedFileChunks(file).length;
                       return (
                         <div
                           key={file.id}

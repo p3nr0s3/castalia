@@ -16,6 +16,9 @@ export interface DocumentChunk {
   charCount: number;
   estimatedTokens: number;
   preview: string;
+  symbolsDefined?: string[];
+  symbolsReferenced?: string[];
+  stitchedPartRange?: [number, number];
 }
 
 export interface RankedChunk extends DocumentChunk {
@@ -179,6 +182,41 @@ export function clearTokenCache(): void {
   chunkDataCache.clear();
 }
 
+// File-level DocumentChunk cache: avoids re-chunking files across consecutive turns
+// when file textContent and chunking options remain unchanged.
+const fileChunkCache = new Map<string, DocumentChunk[]>();
+const FILE_CHUNK_CACHE_MAX_ENTRIES = 2000;
+
+/**
+ * Retrieves pre-computed document chunks for a project file from memory cache,
+ * or computes and caches them if missing or if file content has changed.
+ */
+export function getCachedFileChunks(
+  file: ProjectFile,
+  targetChunkChars = 1800,
+  overlapChars = 200
+): DocumentChunk[] {
+  const content = file.textContent || "";
+  const key = `${file.id || file.name}:${hashText(content)}:${targetChunkChars}:${overlapChars}`;
+  const cached = fileChunkCache.get(key);
+  if (cached) {
+    return [...cached];
+  }
+
+  const chunks = chunkDocument(file, targetChunkChars, overlapChars);
+  if (fileChunkCache.size >= FILE_CHUNK_CACHE_MAX_ENTRIES) {
+    const oldestKey = fileChunkCache.keys().next().value;
+    if (oldestKey !== undefined) fileChunkCache.delete(oldestKey);
+  }
+  fileChunkCache.set(key, chunks);
+  return [...chunks];
+}
+
+/** Test/debug hook — clears the module-level DocumentChunk cache. */
+export function clearChunkCache(): void {
+  fileChunkCache.clear();
+}
+
 /**
  * Expands the current turn's query with recent prior user turns before it
  * goes into retrieval (BM25/embedding), without touching what's actually
@@ -221,6 +259,119 @@ const CODE_FILE_EXTENSIONS = new Set([
 export function isCodeFile(fileName: string): boolean {
   const ext = fileName.split(".").pop()?.toLowerCase();
   return ext ? CODE_FILE_EXTENSIONS.has(ext) : false;
+}
+
+/**
+ * Extracts top-level declared symbols (functions, classes, interfaces, types, structs, enums)
+ * from a code snippet across common programming languages (TypeScript, JavaScript, Python, Go, Rust).
+ */
+export function extractDefinedSymbols(code: string): string[] {
+  if (!code) return [];
+  const symbols = new Set<string>();
+  const lines = code.split("\n");
+
+  const patterns: RegExp[] = [
+    // JS/TS functions: function foo(, export default function foo(
+    /(?:export\s+(?:default\s+)?)?(?:async\s+)?function\s+([a-zA-Z0-9_$]+)\s*[\(<]/,
+    // JS/TS arrow functions: const foo = ( or const foo = async (
+    /(?:export\s+)?(?:const|let|var)\s+([a-zA-Z0-9_$]+)\s*=\s*(?:async\s*)?(?:\([^)]*\)|[a-zA-Z0-9_$]+)\s*=>/,
+    // JS/TS class, interface, type, enum
+    /(?:export\s+)?(?:class|interface|type|enum)\s+([a-zA-Z0-9_$]+)/,
+    // Python def / class
+    /(?:async\s+)?def\s+([a-zA-Z0-9_]+)\s*\(/,
+    /class\s+([a-zA-Z0-9_]+)\s*[:\(]/,
+    // Go func (receiver)? name(
+    /func\s+(?:\([^)]+\)\s+)?([a-zA-Z0-9_]+)\s*\(/,
+    // Rust fn, struct, enum, trait
+    /(?:pub(?:\([^)]+\))?\s+)?(?:async\s+)?(?:fn|struct|enum|trait)\s+([a-zA-Z0-9_]+)/,
+  ];
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (
+      !trimmed ||
+      trimmed.startsWith("//") ||
+      trimmed.startsWith("#") ||
+      trimmed.startsWith("/*") ||
+      trimmed.startsWith("*")
+    ) {
+      continue;
+    }
+    for (const pattern of patterns) {
+      const match = trimmed.match(pattern);
+      if (match && match[1]) {
+        const sym = match[1];
+        if (sym.length > 1 && !STOPWORDS.has(sym.toLowerCase())) {
+          symbols.add(sym);
+        }
+      }
+    }
+  }
+
+  return Array.from(symbols);
+}
+
+export interface ProjectSymbolGraph {
+  /** Map lowercased symbol name -> list of chunk IDs that define it */
+  symbolToChunkIds: Map<string, string[]>;
+  /** Map chunk ID -> list of symbols defined in it */
+  chunkDefinedSymbols: Map<string, string[]>;
+  /** Map chunk ID -> list of external defined symbols referenced in it */
+  chunkReferencedSymbols: Map<string, string[]>;
+}
+
+/**
+ * Builds an in-memory cross-file symbol call and reference graph from document chunks.
+ */
+export function buildProjectSymbolGraph(chunks: DocumentChunk[]): ProjectSymbolGraph {
+  const symbolToChunkIds = new Map<string, string[]>();
+  const chunkDefinedSymbols = new Map<string, string[]>();
+
+  // Pass 1: Index all defined symbols
+  for (const chunk of chunks) {
+    const defined = chunk.symbolsDefined || [];
+    if (defined.length > 0) {
+      chunkDefinedSymbols.set(chunk.id, defined);
+      for (const sym of defined) {
+        const key = sym.toLowerCase();
+        const existing = symbolToChunkIds.get(key) || [];
+        existing.push(chunk.id);
+        symbolToChunkIds.set(key, existing);
+      }
+    }
+  }
+
+  // Pass 2: Map cross-chunk references to project-defined symbols
+  const chunkReferencedSymbols = new Map<string, string[]>();
+  const definedSymbolNames = Array.from(symbolToChunkIds.keys());
+
+  for (const chunk of chunks) {
+    const selfDefined = new Set((chunk.symbolsDefined || []).map((s) => s.toLowerCase()));
+    const referenced = new Set<string>();
+
+    const chunkLower = chunk.text.toLowerCase();
+    for (const symKey of definedSymbolNames) {
+      if (selfDefined.has(symKey)) continue;
+      // Fast check before regex
+      if (!chunkLower.includes(symKey)) continue;
+
+      const regex = new RegExp(`\\b${symKey}\\b`, "i");
+      if (regex.test(chunk.text)) {
+        const defChunkId = symbolToChunkIds.get(symKey)?.[0];
+        const origName =
+          chunkDefinedSymbols.get(defChunkId || "")?.find((s) => s.toLowerCase() === symKey) || symKey;
+        referenced.add(origName);
+      }
+    }
+
+    if (referenced.size > 0) {
+      const refList = Array.from(referenced);
+      chunkReferencedSymbols.set(chunk.id, refList);
+      chunk.symbolsReferenced = refList;
+    }
+  }
+
+  return { symbolToChunkIds, chunkDefinedSymbols, chunkReferencedSymbols };
 }
 
 // Regex to identify top-level code constructs (functions, classes, interfaces, types)
@@ -294,6 +445,7 @@ function chunkCodeDocument(
     charCount: chunkText.length,
     estimatedTokens: estimateTokens(chunkText),
     preview: chunkText.slice(0, 120).replace(/\n/g, " "),
+    symbolsDefined: extractDefinedSymbols(chunkText),
   }));
 }
 
@@ -310,6 +462,8 @@ export function chunkDocument(
   const content = file.textContent || "";
   if (!content.trim()) return [];
 
+  const isCode = isCodeFile(file.name);
+
   // Short documents (under targetChunkChars) don't need splitting
   if (content.length <= targetChunkChars) {
     return [
@@ -323,6 +477,7 @@ export function chunkDocument(
         charCount: content.length,
         estimatedTokens: estimateTokens(content),
         preview: content.slice(0, 120).replace(/\n/g, " "),
+        symbolsDefined: isCode ? extractDefinedSymbols(content) : undefined,
       },
     ];
   }
@@ -396,6 +551,7 @@ export function chunkDocument(
     charCount: chunkText.length,
     estimatedTokens: estimateTokens(chunkText),
     preview: chunkText.slice(0, 120).replace(/\n/g, " "),
+    symbolsDefined: isCode ? extractDefinedSymbols(chunkText) : undefined,
   }));
 }
 
@@ -493,6 +649,23 @@ export function rankChunksBM25(
       }
     }
 
+    // Pass 3: Symbol definition bonus
+    // If a chunk explicitly defines a symbol queried by the user, grant it an authoritative definition boost
+    const SYMBOL_DEF_BONUS_RATIO = 0.45;
+    if (maxContentScore > 0 && chunk.symbolsDefined && chunk.symbolsDefined.length > 0) {
+      let symMatched = 0;
+      const lowerSymbols = chunk.symbolsDefined.map((s) => s.toLowerCase());
+      for (const qToken of queryTokens) {
+        if (lowerSymbols.some((s) => s === qToken || s.includes(qToken))) {
+          symMatched++;
+        }
+      }
+      if (symMatched > 0) {
+        const coverage = symMatched / queryTokens.length;
+        score += coverage * SYMBOL_DEF_BONUS_RATIO * maxContentScore;
+      }
+    }
+
     return {
       ...chunk,
       score,
@@ -519,10 +692,109 @@ export function rankChunksBM25(
   return [];
 }
 
+/**
+ * Merges text of two overlapping or adjacent chunks, removing duplicate overlap text.
+ */
+export function mergeChunkTexts(text1: string, text2: string, maxOverlap = 600): string {
+  if (!text1) return text2 || "";
+  if (!text2) return text1 || "";
+  const minCheck = 10;
+  const maxSearch = Math.min(text1.length, text2.length, maxOverlap);
+  for (let len = maxSearch; len >= minCheck; len--) {
+    const suffix = text1.slice(text1.length - len);
+    if (text2.startsWith(suffix)) {
+      return text1 + text2.slice(len);
+    }
+  }
+  return `${text1.trimEnd()}\n\n${text2.trimStart()}`;
+}
+
+/**
+ * Stitches consecutive chunks from the same file into single contiguous passages.
+ * When chunks (e.g. Part 1 and Part 2) are selected together:
+ * - Deduplicates the overlap between them
+ * - Avoids fragmented document headers that break code/syntax across lines
+ * - Recalculates estimated tokens and preserves symbol definitions
+ */
+export function stitchAdjacentChunks(chunks: RankedChunk[]): RankedChunk[] {
+  if (!chunks || chunks.length <= 1) return chunks;
+
+  // Group chunks by fileId
+  const byFile = new Map<string, RankedChunk[]>();
+  for (const chunk of chunks) {
+    const list = byFile.get(chunk.fileId) || [];
+    list.push(chunk);
+    byFile.set(chunk.fileId, list);
+  }
+
+  const stitched: RankedChunk[] = [];
+
+  for (const [, fileChunks] of byFile.entries()) {
+    // Sort ascending by chunkIndex
+    fileChunks.sort((a, b) => a.chunkIndex - b.chunkIndex);
+
+    let current: RankedChunk | null = null;
+    let startPart = 1;
+    let endPart = 1;
+
+    for (const chunk of fileChunks) {
+      if (!current) {
+        current = { ...chunk };
+        startPart = current.chunkIndex + 1;
+        endPart = startPart;
+        continue;
+      }
+
+      // Check if this chunk is immediately consecutive to current
+      if (chunk.chunkIndex === endPart) {
+        // Consecutive! Merge chunk into current
+        const mergedText = mergeChunkTexts(current.text, chunk.text);
+        const mergedDefs: string[] = Array.from(
+          new Set([...(current.symbolsDefined || []), ...(chunk.symbolsDefined || [])])
+        );
+        const mergedRefs: string[] = Array.from(
+          new Set([...(current.symbolsReferenced || []), ...(chunk.symbolsReferenced || [])])
+        );
+
+        endPart = chunk.chunkIndex + 1;
+        current = {
+          ...current,
+          id: `${current.id}+${chunk.id}`,
+          text: mergedText,
+          charCount: mergedText.length,
+          estimatedTokens: estimateTokens(mergedText),
+          preview: mergedText.slice(0, 120).replace(/\n/g, " "),
+          score: Math.max(current.score ?? 0, chunk.score ?? 0),
+          symbolsDefined: mergedDefs.length > 0 ? mergedDefs : undefined,
+          symbolsReferenced: mergedRefs.length > 0 ? mergedRefs : undefined,
+          stitchedPartRange: [startPart, endPart],
+        };
+      } else {
+        // Not consecutive, push current and start new
+        stitched.push(current);
+        current = { ...chunk };
+        startPart = current.chunkIndex + 1;
+        endPart = startPart;
+      }
+    }
+
+    if (current) {
+      stitched.push(current);
+    }
+  }
+
+  // Restore descending score order
+  stitched.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+  return stitched;
+}
+
 function assembleContextFromRanked(
   files: ProjectFile[],
   ranked: RankedChunk[],
-  tokenBudget: number
+  tokenBudget: number,
+  symbolGraph?: ProjectSymbolGraph,
+  allProjectChunks?: DocumentChunk[],
+  options?: { stitchAdjacent?: boolean }
 ): OptimizedKnowledgeResult {
   // If retrieval genuinely found nothing relevant, don't emit a "here
   // are the relevant passages" header with nothing under it — that
@@ -579,9 +851,44 @@ function assembleContextFromRanked(
     matchedFileSet.add(chunk.fileName);
   }
 
+  // Pass 3: Graph-Augmented Retrieval Expansion
+  // If budget permits, pull in definitions of referenced symbols that were not yet included
+  if (symbolGraph && accumulatedTokens < tokenBudget * 0.85) {
+    const chunkById = new Map((allProjectChunks || ranked).map((c) => [c.id, c]));
+    const selectedIds = new Set(selectedChunks.map((c) => c.id));
+
+    for (const chunk of [...selectedChunks]) {
+      const refs = chunk.symbolsReferenced || [];
+      for (const ref of refs) {
+        const targetChunkIds = symbolGraph.symbolToChunkIds.get(ref.toLowerCase()) || [];
+        for (const targetId of targetChunkIds) {
+          if (!selectedIds.has(targetId)) {
+            const rawDefChunk = chunkById.get(targetId);
+            if (rawDefChunk && accumulatedTokens + rawDefChunk.estimatedTokens <= tokenBudget) {
+              const defChunk: RankedChunk = {
+                ...rawDefChunk,
+                score: (rawDefChunk as any).score ?? 0.5,
+              };
+              selectedChunks.push(defChunk);
+              selectedIds.add(targetId);
+              accumulatedTokens += defChunk.estimatedTokens;
+              matchedFileSet.add(defChunk.fileName);
+            }
+          }
+        }
+      }
+    }
+  }
+
   // Keep final order score-descending (the two-pass selection above can
   // interleave first-pass and deferred-pass picks out of score order).
   selectedChunks.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+
+  // Pass 4: Adjacent Chunk Stitching (Boundary Optimization)
+  // Merge consecutive chunks from the same file into unified passages with overlap deduplication.
+  const finalChunks = options?.stitchAdjacent
+    ? stitchAdjacentChunks(selectedChunks)
+    : selectedChunks;
 
   let contextText = "\n\n=== RETRIEVED PROJECT KNOWLEDGE ===\n";
   contextText += `Relevant source files (${matchedFileSet.size}): ${Array.from(matchedFileSet).join(", ")}\n`;
@@ -589,12 +896,24 @@ function assembleContextFromRanked(
 
   // Reorder chunks using U-shaped perimeter order ("Lost in the Middle") so highest-scoring
   // passages sit at the top and bottom of the context window rather than in the degraded middle.
-  const contextOrderedChunks = reorderChunksLostInTheMiddle(selectedChunks);
+  const contextOrderedChunks = reorderChunksLostInTheMiddle(finalChunks);
   for (const chunk of contextOrderedChunks) {
-    contextText += `\n--- [Document: ${chunk.fileName} (Part ${chunk.chunkIndex + 1}/${chunk.totalChunks})] ---\n`;
+    const defs =
+      chunk.symbolsDefined && chunk.symbolsDefined.length > 0
+        ? ` (Defines: ${chunk.symbolsDefined.slice(0, 5).join(", ")})`
+        : "";
+    const refs =
+      chunk.symbolsReferenced && chunk.symbolsReferenced.length > 0
+        ? ` (References: ${chunk.symbolsReferenced.slice(0, 5).join(", ")})`
+        : "";
+    const symHeader = defs || refs ? `${defs}${refs}` : "";
+    const partLabel = chunk.stitchedPartRange
+      ? `Parts ${chunk.stitchedPartRange[0]}-${chunk.stitchedPartRange[1]}/${chunk.totalChunks}`
+      : `Part ${chunk.chunkIndex + 1}/${chunk.totalChunks}`;
+    contextText += `\n--- [Document: ${chunk.fileName} (${partLabel})${symHeader}] ---\n`;
     contextText += `${chunk.text}\n`;
   }
-  const retrievedChunks: RetrievedChunkInfo[] = selectedChunks.map((c) => ({
+  const retrievedChunks: RetrievedChunkInfo[] = finalChunks.map((c) => ({
     id: c.id,
     fileName: c.fileName,
     chunkIndex: c.chunkIndex,
@@ -602,14 +921,19 @@ function assembleContextFromRanked(
     score: c.score !== undefined ? Math.round(c.score * 100) / 100 : undefined,
     textSnippet: c.text.slice(0, 300),
     estimatedTokens: c.estimatedTokens,
+    symbolsDefined: c.symbolsDefined,
+    linkedSymbols: c.symbolsReferenced,
+    stitchedPartRange: c.stitchedPartRange,
   }));
+
+  const totalEstimatedTokens = finalChunks.reduce((acc, c) => acc + c.estimatedTokens, 0);
 
   return {
     contextText,
-    matchedChunksCount: selectedChunks.length,
+    matchedChunksCount: finalChunks.length,
     totalFilesCount: files.length,
     matchedFiles: Array.from(matchedFileSet),
-    totalEstimatedTokens: accumulatedTokens,
+    totalEstimatedTokens,
     isChunked: true,
     retrievedChunks,
   };
@@ -639,18 +963,88 @@ export function reorderChunksLostInTheMiddle<T>(items: T[]): T[] {
 }
 
 /**
+ * Constructs a prompt for generating a hypothetical document (HyDE)
+ * to expand the semantic space of user queries.
+ */
+export function buildHydePrompt(query: string): string {
+  return `Write a concise technical documentation passage or code snippet that directly answers or implements the following query. Do not include greetings, explanations, or conversational preamble—output only the hypothetical code or documentation paragraph:\n\nQuery: ${query.trim()}`;
+}
+
+/**
+ * Generates a hypothetical answer/document snippet for a query using a local model.
+ * Fails soft (returns null) on timeout or connection error.
+ */
+export async function generateHypotheticalDocument(
+  query: string,
+  options: {
+    ollamaUrl: string;
+    model?: string;
+    timeoutMs?: number;
+  }
+): Promise<string | null> {
+  if (!query || !query.trim() || !options.ollamaUrl) return null;
+
+  const model = options.model || "llama3.2";
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? 5000);
+
+  try {
+    const baseUrl = options.ollamaUrl.replace(/\/+$/, "");
+    const prompt = buildHydePrompt(query);
+
+    const res = await fetch(`${baseUrl}/api/generate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model,
+        prompt,
+        stream: false,
+        options: {
+          temperature: 0.1,
+          num_predict: 180,
+        },
+        keep_alive: "5s",
+      }),
+      signal: controller.signal,
+    });
+
+    if (!res.ok) return null;
+    const data = await res.json();
+    const responseText = typeof data?.response === "string" ? data.response.trim() : null;
+    return responseText || null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+export interface HybridEmbeddingOptions {
+  ollamaUrl: string;
+  embeddingModel?: string;
+  enabled?: boolean;
+  semanticWeight?: number;
+  rrfK?: number;
+  hyde?: {
+    enabled?: boolean;
+    model?: string;
+    hypotheticalDocument?: string;
+    timeoutMs?: number;
+  };
+}
+
+/**
  * Hybrid retrieval: blends the existing BM25 keyword score with cosine
  * similarity over embeddings from a local Ollama embedding model
- * (default: nomic-embed-text). Falls back to pure BM25 if embeddings are
- * unavailable for any reason (model not pulled, Ollama unreachable,
- * request timeout) — this never throws and never returns worse results
- * than the existing BM25-only path.
+ * (default: nomic-embed-text). Supports Reciprocal Rank Fusion (RRF)
+ * and Hypothetical Document Embeddings (HyDE).
+ * Falls back to pure BM25 if embeddings are unavailable.
  */
 export async function rankChunksHybrid(
   chunks: DocumentChunk[],
   query: string,
   topK: number,
-  embeddingOptions: { ollamaUrl: string; embeddingModel?: string; semanticWeight?: number }
+  embeddingOptions: HybridEmbeddingOptions
 ): Promise<RankedChunk[]> {
   // Full BM25 ranking (unsliced) so we have a score for every chunk to blend with.
   const bm25Ranked = rankChunksBM25(chunks, query, chunks.length);
@@ -685,31 +1079,68 @@ export async function rankChunksHybrid(
     candidateChunks = candidates;
   }
 
-  // Stage 2: Fine Semantic Embedding & Hybrid Blending
+  // Stage 2: Fine Semantic Embedding & Reciprocal Rank Fusion (RRF)
+  let semanticSearchText = query;
+
+  if (embeddingOptions.hyde?.enabled) {
+    let hypoDoc = embeddingOptions.hyde.hypotheticalDocument;
+    if (!hypoDoc && embeddingOptions.ollamaUrl) {
+      hypoDoc = (await generateHypotheticalDocument(query, {
+        ollamaUrl: embeddingOptions.ollamaUrl,
+        model: embeddingOptions.hyde.model,
+        timeoutMs: embeddingOptions.hyde.timeoutMs,
+      })) || undefined;
+    }
+
+    if (hypoDoc) {
+      // Concatenate query + hypothetical document to preserve original search terms
+      // while expanding vector embedding into answer/document semantic space
+      semanticSearchText = `${query}\n\n${hypoDoc}`;
+    }
+  }
+
   const [queryEmbedding, ...chunkEmbeddings] = await embedTexts(
-    [query, ...candidateChunks.map((c) => c.text)],
+    [semanticSearchText, ...candidateChunks.map((c) => c.text)],
     { ollamaUrl: embeddingOptions.ollamaUrl, model: embeddingOptions.embeddingModel }
   );
 
   if (!queryEmbedding) return bm25Ranked.slice(0, topK);
 
-  const maxBm25 = Math.max(...bm25Ranked.map((c) => c.score), 1e-9);
-  const bm25ScoreById = new Map(bm25Ranked.map((c) => [c.id, c.score / maxBm25]));
-  const chunkEmbeddingById = new Map(candidateChunks.map((c, i) => [c.id, chunkEmbeddings[i]]));
+  // 1-based BM25 ranks
+  const bm25RankById = new Map<string, number>();
+  bm25Ranked.forEach((c, idx) => {
+    bm25RankById.set(c.id, idx + 1);
+  });
 
-  // Default blend keeps the semantic signal leading (catches
-  // paraphrases/synonyms BM25 misses) while keyword score still counts so
-  // exact identifiers/filenames aren't drowned out by embedding similarity
-  // alone. Clamped to [0, 1] so a bad config value (e.g. from a stale
-  // project setting) can't produce a negative or >1 weight.
+  // Calculate semantic similarities for all candidate chunks
+  const semanticScored = candidateChunks.map((chunk, idx) => {
+    const emb = chunkEmbeddings[idx];
+    const similarity = emb ? cosineSimilarity(queryEmbedding, emb) : 0;
+    return { chunk, similarity };
+  });
+
+  // Sort candidates descending by cosine similarity to assign dense semantic ranks
+  semanticScored.sort((a, b) => b.similarity - a.similarity);
+  const semanticRankById = new Map<string, number>();
+  semanticScored.forEach((item, idx) => {
+    semanticRankById.set(item.chunk.id, idx + 1);
+  });
+
+  // RRF smoothing parameter k (standard default 60)
+  const k = embeddingOptions.rrfK ?? 60;
   const semanticWeight = Math.min(1, Math.max(0, embeddingOptions.semanticWeight ?? 0.55));
   const keywordWeight = 1 - semanticWeight;
 
   const hybridScored: RankedChunk[] = candidateChunks.map((chunk) => {
-    const emb = chunkEmbeddingById.get(chunk.id);
-    const semanticScore = emb ? cosineSimilarity(queryEmbedding, emb) : 0;
-    const keywordScore = bm25ScoreById.get(chunk.id) || 0;
-    const score = semanticWeight * semanticScore + keywordWeight * keywordScore;
+    const bm25Rank = bm25RankById.get(chunk.id);
+    const semRank = semanticRankById.get(chunk.id);
+
+    // Standard RRF formula: 1 / (k + rank)
+    const bm25Rrf = bm25Rank !== undefined && keywordWeight > 0 ? 1 / (k + bm25Rank) : 0;
+    const semRrf = semRank !== undefined && semanticWeight > 0 ? 1 / (k + semRank) : 0;
+
+    // Normalizing by (k + 1) scales the theoretical maximum (rank 1 in both signals) to 1.0
+    const score = (k + 1) * (keywordWeight * bm25Rrf + semanticWeight * semRrf);
     return { ...chunk, score };
   });
 
@@ -732,8 +1163,27 @@ export async function buildOptimizedKnowledgeContextAsync(
     embeddingModel?: string;
     enabled?: boolean;
     semanticWeight?: number;
+    rrfK?: number;
+    hyde?: {
+      enabled?: boolean;
+      model?: string;
+      hypotheticalDocument?: string;
+      timeoutMs?: number;
+    };
   },
-  ragOptions?: { chunkSizeChars?: number; chunkOverlapChars?: number; topK?: number }
+  ragOptions?: {
+    chunkSizeChars?: number;
+    chunkOverlapChars?: number;
+    topK?: number;
+    rrfK?: number;
+    stitchAdjacent?: boolean;
+    hyde?: {
+      enabled?: boolean;
+      model?: string;
+      hypotheticalDocument?: string;
+      timeoutMs?: number;
+    };
+  }
 ): Promise<OptimizedKnowledgeResult> {
   if (!files || files.length === 0) {
     return {
@@ -750,7 +1200,9 @@ export async function buildOptimizedKnowledgeContextAsync(
   const totalTokens = files.reduce((acc, f) => acc + estimateTokens(f.textContent || ""), 0);
 
   if (totalTokens <= effectiveBudget) {
-    return buildOptimizedKnowledgeContext(files, userQuery, effectiveBudget);
+    return buildOptimizedKnowledgeContext(files, userQuery, effectiveBudget, {
+      stitchAdjacent: ragOptions?.stitchAdjacent,
+    });
   }
 
   const chunkSizeChars = ragOptions?.chunkSizeChars ?? 1800;
@@ -759,15 +1211,27 @@ export async function buildOptimizedKnowledgeContextAsync(
 
   const allChunks: DocumentChunk[] = [];
   for (const file of files) {
-    allChunks.push(...chunkDocument(file, chunkSizeChars, chunkOverlapChars));
+    allChunks.push(...getCachedFileChunks(file, chunkSizeChars, chunkOverlapChars));
   }
 
+  const symbolGraph = buildProjectSymbolGraph(allChunks);
+
+  const effectiveEmbeddingOptions = embeddingOptions
+    ? {
+        ...embeddingOptions,
+        rrfK: embeddingOptions.rrfK ?? ragOptions?.rrfK,
+        hyde: embeddingOptions.hyde ?? ragOptions?.hyde,
+      }
+    : undefined;
+
   const ranked =
-    embeddingOptions?.enabled && embeddingOptions.ollamaUrl
-      ? await rankChunksHybrid(allChunks, userQuery, topK, embeddingOptions)
+    effectiveEmbeddingOptions?.enabled && effectiveEmbeddingOptions.ollamaUrl
+      ? await rankChunksHybrid(allChunks, userQuery, topK, effectiveEmbeddingOptions)
       : rankChunksBM25(allChunks, userQuery, topK);
 
-  return assembleContextFromRanked(files, ranked, effectiveBudget);
+  return assembleContextFromRanked(files, ranked, effectiveBudget, symbolGraph, allChunks, {
+    stitchAdjacent: ragOptions?.stitchAdjacent,
+  });
 }
 
 /**
@@ -778,7 +1242,8 @@ export async function buildOptimizedKnowledgeContextAsync(
 export function buildOptimizedKnowledgeContext(
   files: ProjectFile[],
   userQuery = "",
-  tokenBudget?: number
+  tokenBudget?: number,
+  ragOptions?: { stitchAdjacent?: boolean }
 ): OptimizedKnowledgeResult {
   if (!files || files.length === 0) {
     return {
@@ -806,14 +1271,18 @@ export function buildOptimizedKnowledgeContext(
     }
     contextText += "=== END OF PROJECT KNOWLEDGE BASE ===\n\n";
 
-    const retrievedChunks: RetrievedChunkInfo[] = files.map((f, i) => ({
-      id: `file_${f.id || i}`,
-      fileName: f.name,
-      chunkIndex: 0,
-      totalChunks: 1,
-      textSnippet: (f.textContent || "").slice(0, 300),
-      estimatedTokens: estimateTokens(f.textContent || ""),
-    }));
+    const retrievedChunks: RetrievedChunkInfo[] = files.map((f, i) => {
+      const isCode = isCodeFile(f.name);
+      return {
+        id: `file_${f.id || i}`,
+        fileName: f.name,
+        chunkIndex: 0,
+        totalChunks: 1,
+        textSnippet: (f.textContent || "").slice(0, 300),
+        estimatedTokens: estimateTokens(f.textContent || ""),
+        symbolsDefined: isCode ? extractDefinedSymbols(f.textContent || "") : undefined,
+      };
+    });
 
     return {
       contextText,
@@ -829,14 +1298,18 @@ export function buildOptimizedKnowledgeContext(
   // CASE 2: Large document set exceeding budget -> Apply Smart Chunking & BM25 Relevance Retrieval
   const allChunks: DocumentChunk[] = [];
   for (const file of files) {
-    const fileChunks = chunkDocument(file);
+    const fileChunks = getCachedFileChunks(file);
     allChunks.push(...fileChunks);
   }
+
+  const symbolGraph = buildProjectSymbolGraph(allChunks);
 
   // Rank chunks against the user's latest query
   const ranked = rankChunksBM25(allChunks, userQuery, 8);
 
-  return assembleContextFromRanked(files, ranked, effectiveBudget);
+  return assembleContextFromRanked(files, ranked, effectiveBudget, symbolGraph, allChunks, {
+    stitchAdjacent: ragOptions?.stitchAdjacent,
+  });
 }
 
 /**

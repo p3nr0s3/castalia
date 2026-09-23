@@ -6,7 +6,7 @@
 [![Next.js](https://img.shields.io/badge/Next.js-14.2.35-black?logo=next.js)](https://nextjs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.6.3-blue?logo=typescript)](https://www.typescriptlang.org/)
 [![Ollama](https://img.shields.io/badge/Ollama-Native%20API-white?logo=ollama)](https://ollama.com/)
-[![Tests](https://img.shields.io/badge/Tests-38%20Suites%20%7C%20332%20Passed-brightgreen)](https://vitest.dev/)
+[![Tests](https://img.shields.io/badge/Tests-40%20Suites%20%7C%20358%20Passed-brightgreen)](https://vitest.dev/)
 [![Security](https://img.shields.io/badge/Security-SSRF%20Guarded%20%2B%20Sandboxed-success)](#security-model)
 
 **A high-performance, local-first AI workspace and agentic development environment built on Next.js 14.**  
@@ -26,7 +26,7 @@ Engineered from the ground up for maximum local LLM inference efficiency, GPU VR
 
 - **Zero VRAM Waste & Instant Turnaround**: Automated **KV Cache Prefix Pinning** (`options.num_keep`) keeps static system prompts warm in GPU memory, cutting prompt evaluation delays to zero.
 - **Eliminates 2048-Token Silent Truncation**: Automatic **Model Context-Window Resolution** derives native context limits (`num_ctx`) per model family (up to 131K for Llama 3.1 & Qwen 2.5) with local hardware safety ceilings.
-- **Stanford Lost-in-the-Middle RAG**: Reorders retrieved chunks into a **U-shaped perimeter** (placing high-relevance chunks at the context boundaries) with two-stage coarse-to-fine hybrid search (BM25 $\to$ Vector Embeddings).
+- **Reciprocal Rank Fusion (RRF) & Lost-in-the-Middle RAG**: Blends BM25 lexical search with vector embeddings using robust **Reciprocal Rank Fusion (RRF)** to eliminate keyword-stuffing skew, reordering retrieved chunks into a **U-shaped perimeter** (placing high-relevance chunks at context boundaries).
 - **Constrained Structured Output Decoding**: Enforces native **JSON Schema Grammar (GBNF)** at the sampler level for reliable machine-readable extraction without markdown preamble or broken JSON.
 - **Dual-Tier Response Caching**: Sub-millisecond exact FNV-1a hash matching combined with **Semantic Vector Caching** (Cosine Similarity $\ge 0.96$) to answer repeated or rephrased queries with **0ms GPU latency and 0 tokens generated**.
 - **Defensive Security Architecture**: Sandboxed filesystem access, DNS-rebinding-proof SSRF guards, and cryptographically verified **approval tokens with one-click reversibility** on all mutating actions.
@@ -160,10 +160,22 @@ sequenceDiagram
   Non-blocking streaming state machine that extracts `<think>` / `</think>` boundaries on the fly (for DeepSeek-R1, QwQ, etc.), routing thoughts into a clean collapsible drawer without UI lag.
 
 ### 2. Precision RAG & Hybrid Retrieval
+- **One-Click Web URL & Documentation Ingestion**:
+  Fetch and ingest web documentation pages, API references, or technical articles on demand with `/url <url> [question]` or via the "Import Web Documentation" button in Project Knowledge. Features full SSRF protection (`assertPublicUrl`) against loopback and private subnets, hybrid article extraction with Jina Reader fallback for client-side SPAs, semantic title derivation, and automated conversion to markdown knowledge files.
+- **Adjacent Chunk Stitching (Boundary Optimization)**:
+  Consecutive retrieved passages from the same file (e.g. Parts 1 & 2) are automatically stitched into unified contiguous blocks with overlap deduplication, eliminating fragmented functions and duplicate header tokens.
+- **Hypothetical Document Embeddings (HyDE)**:
+  Optionally prompts a local model to generate a synthetic technical answer, embedding that passage into dense vector space to match documentation with far higher semantic precision than raw query terms alone.
+- **AST / Code-Graph Augmented Retrieval**:
+  Extracts declared code symbols (`function`, `class`, `interface`, `type`, `struct`) across TypeScript/JavaScript, Python, Go, and Rust. Maps an in-memory cross-file symbol graph, rewards authoritative BM25 score boosts to chunks defining queried symbols, and expands retrieved context with linked symbol definitions when budget allows.
+- **Reciprocal Rank Fusion (RRF) Hybrid Retrieval**:
+  Combines BM25 lexical keyword ranking and dense semantic cosine embeddings using standard Reciprocal Rank Fusion ($1 / (k + \text{rank})$). Prevents outlier keyword spikes from dominating results while ensuring semantic paraphrases are captured.
+- **Pre-Indexed Memory Chunk Cache**:
+  Caches document chunks (`getCachedFileChunks`) in memory keyed by content hash and chunking geometry. Chunks are only recomputed when file text is modified, eliminating redundant CPU splitting during multi-turn chats.
 - **Perimeter U-Shaped "Lost in the Middle" Reordering**:
   In accordance with Stanford & Berkeley long-context research, chunks are ordered in a U-shape: Rank #1 at the beginning, Rank #2 at the end (closest to user prompt), and lower-ranked chunks in the middle where LLM attention is weakest.
 - **Two-Stage Coarse-to-Fine Retrieval**:
-  Runs fast in-memory BM25 filtering across all document chunks first (< 2ms), then sends only the top 30 candidates for embedding cosine calculation. Reduces embedding latency and GPU queue locks by 80–90%.
+  Runs fast in-memory BM25 filtering across all document chunks first (< 2ms), then sends only the top candidates for embedding cosine calculation. Reduces embedding latency and GPU queue locks by 80–90%.
 - **Word-Boundary Overlap Snapping**:
   Document chunking snaps overlap boundaries back to the nearest space or newline, eliminating broken sub-word tokens and garbled BPE splits.
 - **Exact BPE Token Accounting**:
@@ -218,6 +230,7 @@ Ollama Chat Web treats all local filesystem and network interactions with defens
 | `POST /api/connectors` | POST | Custom bridge dispatcher for public webhooks and loopback HTTP bridges |
 | `POST /api/search` | POST | Integrated multi-engine search scraper with deep-scrape fallback |
 | `POST /api/scan` | POST | Passive OWASP Top 10 security scanner for target URLs |
+| `POST /api/projects/ingest-url` | POST | SSRF-guarded web documentation and article scraper converting URLs to markdown ProjectFiles |
 | `GET/POST /api/projects/watcher` | GET, POST | Controls ambient filesystem watchers for project knowledge folders |
 
 ---
@@ -231,7 +244,7 @@ Ollama Chat Web treats all local filesystem and network interactions with defens
 | **Styling** | Tailwind CSS | `^3.4.15` |
 | **Tokenizer** | `js-tiktoken` (cl100k_base) | BPE exact token counting |
 | **Storage Engine** | `better-sqlite3` (WAL Mode) | Automatic fallback to `data/db.json` |
-| **Testing** | Vitest | `^1.6.1` (38 test suites, 332 tests) |
+| **Testing** | Vitest | `^1.6.1` (39 test suites, 348 tests) |
 | **Icons** | `@phosphor-icons/react` | `^2.1.10` |
 | **Markdown / Math** | `react-markdown`, `remark-gfm`, `rehype-katex` | LaTeX math + GitHub Flavored Markdown |
 
@@ -283,7 +296,7 @@ Ollama Chat Web treats all local filesystem and network interactions with defens
 The codebase is protected by comprehensive unit and integration test suites:
 
 ```bash
-# Run complete test suite (38 test suites, 332 tests)
+# Run complete test suite (39 test suites, 342 tests)
 npm test
 
 # Run TypeScript type safety verification

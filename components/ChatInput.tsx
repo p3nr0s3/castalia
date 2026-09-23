@@ -181,6 +181,15 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       },
     },
     {
+      command: "/url",
+      label: "Ingest Web URL / Docs",
+      desc: "Fetch and ingest a web documentation page into context or project (e.g. /url https://example.com/docs)",
+      icon: Globe,
+      action: () => {
+        setInput("/url ");
+      },
+    },
+    {
       command: "/think",
       label: "Deep Reasoning",
       desc: "Ask model to produce step-by-step chain-of-thought",

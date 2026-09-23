@@ -34,7 +34,12 @@ Model bisa manggil tool lewat directive `[TOOL_CALL:nama:{json}]` di teks output
 
 ## RAG / pencarian di knowledge base project
 
-- Hybrid: BM25 keyword ranking (selalu jalan, zero cost GPU) + opsional semantic ranking (cosine similarity embedding Ollama).
+- **One-Click URL & Documentation Ingestion**: Ingest dokumentasi web atau artikel teknis langsung ke konteks chat dan knowledge base project via slash command `/url <url> [pertanyaan]` atau tombol "Import Web Documentation" di modal Project Knowledge. Dilengkapi proteksi SSRF berbasis DNS lookup (`assertPublicUrl`), fallback scraper Jina Reader untuk SPA/JavaScript, ekstraksi judul semantik, dan konversi otomatis menjadi file `.md` project.
+- **Adjacent Chunk Stitching (Boundary Optimization)**: Menggabungkan beberapa chunk berurutan dari file yang sama (misal Part 1 dan Part 2) menjadi satu blok teks utuh dengan deduplikasi overlap perbatasan. Mencegah fungsi/syntax terpotong di tengah jalan dan menghemat token dari duplikasi header dokumen.
+- **Hypothetical Document Embeddings (HyDE)**: Opsi generate jawaban sintesis teknis singkat via model lokal untuk di-embed ke ruang vektor, menjembatani jarak semantik antara pertanyaan pendek pengguna dengan deklarasi kode/dokumentasi.
+- **Code-Graph Augmented Retrieval & AST Symbol Extraction**: Ekstraksi simbol kode otomatis (`function`, `class`, `interface`, `type`, `struct`) untuk TypeScript, JavaScript, Python, Go, dan Rust tanpa dependency binary berat. Membangun in-memory symbol graph antar-chunk dan cross-file; memberikan boost skor BM25 authoritative untuk chunk yang mendefinisikan simbol yang ditanyakan, serta mengekspansi konteks otomatis untuk menyertakan definisi simbol yang dirujuk jika token budget masih tersisa.
+- **Hybrid Reciprocal Rank Fusion (RRF)**: Menggabungkan BM25 keyword ranking (selalu jalan, zero cost GPU) dengan dense semantic ranking (cosine similarity embedding Ollama) menggunakan formula RRF ($1 / (k + \text{rank})$), mencegah distorsi skor BM25 ekstrem/keyword-stuffing.
+- **Pre-indexed chunk store (memory-cached by content-hash)**: Chunking dokumen di-cache per file (`getCachedFileChunks`) dan hanya dihitung ulang jika isi file atau parameter chunk berubah, memangkas overhead CPU saat chat dan saat membuka Project modal.
 - Per-project configurable: chunk size, overlap, top-K, bobot blend BM25/semantic.
 - Cache embedding by content-hash — cuma chunk yang berubah yang di-embed ulang, bukan seluruh project tiap turn.
 - Query di-expand pakai 1-2 turn user sebelumnya, biar pertanyaan follow-up ("gimana cara pakainya?") tetap dapet konteks yang relevan.
@@ -55,10 +60,6 @@ Dipanggil dari chat dengan `/bridge <bridge-id> <pesan>`.
 ## Local App Bridge framework
 
 Pola generik (`lib/localAppBridge.ts`) buat nyambungin ke aplikasi desktop lokal lewat HTTP loopback — awalnya diekstrak dari integrasi Blender MCP, sekarang bisa dipakai buat aplikasi lain yang punya HTTP API lokal.
-
-## BrowserSkill (`bsk`) — deteksi doang, belum jadi tool
-
-Ada primitive (`lib/browserSkillBridge.ts`) buat deteksi apakah CLI `bsk` (browser automation dari Tencent) terinstall, plus command-runner generik. **Belum ada tool `browser_*` yang beneran kepake dari chat** — ini beda dari Graphify di atas, yang udah full terintegrasi. Baru fondasi.
 
 ## Memory extraction otomatis
 
