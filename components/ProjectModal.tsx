@@ -67,6 +67,9 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
   const [ragStitchChunks, setRagStitchChunks] = useState<boolean>(Boolean(project?.ragStitchChunks));
   const [ragHydeEnabled, setRagHydeEnabled] = useState<boolean>(Boolean(project?.ragHydeEnabled));
   const [ragHydeModel, setRagHydeModel] = useState<string>(project?.ragHydeModel ?? "");
+  const [ragRerankEnabled, setRagRerankEnabled] = useState<boolean>(Boolean(project?.ragRerankEnabled));
+  const [ragRerankModel, setRagRerankModel] = useState<string>(project?.ragRerankModel ?? "");
+  const [ragRerankMinScore, setRagRerankMinScore] = useState<number>(project?.ragRerankMinScore ?? 0.0);
   const [watchedFolderPath, setWatchedFolderPath] = useState(project?.watchedFolderPath ?? "");
   const [watchedFolderEnabled, setWatchedFolderEnabled] = useState(Boolean(project?.watchedFolderEnabled));
   const [watcherStatus, setWatcherStatus] = useState<"idle" | "starting" | "stopping" | "error">("idle");
@@ -105,6 +108,9 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
         setRagStitchChunks(Boolean(project.ragStitchChunks));
         setRagHydeEnabled(Boolean(project.ragHydeEnabled));
         setRagHydeModel(project.ragHydeModel ?? "");
+        setRagRerankEnabled(Boolean(project.ragRerankEnabled));
+        setRagRerankModel(project.ragRerankModel ?? "");
+        setRagRerankMinScore(project.ragRerankMinScore ?? 0.0);
         setWatchedFolderPath(project.watchedFolderPath ?? "");
         setWatchedFolderEnabled(Boolean(project.watchedFolderEnabled));
         setWatcherError(null);
@@ -136,6 +142,9 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
         setRagStitchChunks(false);
         setRagHydeEnabled(false);
         setRagHydeModel("");
+        setRagRerankEnabled(false);
+        setRagRerankModel("");
+        setRagRerankMinScore(0.0);
         setWatchedFolderPath("");
         setWatchedFolderEnabled(false);
         setWatcherError(null);
@@ -320,6 +329,9 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
       ragStitchChunks,
       ragHydeEnabled,
       ragHydeModel: ragHydeModel.trim() || undefined,
+      ragRerankEnabled,
+      ragRerankModel: ragRerankModel.trim() || undefined,
+      ragRerankMinScore: ragRerankMinScore > 0 ? ragRerankMinScore : undefined,
       watchedFolderPath: watchedFolderPath.trim() || undefined,
       watchedFolderEnabled,
       files,
@@ -927,6 +939,62 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
                               onChange={(e) => setRagHydeModel(e.target.value)}
                               className="w-full text-xs px-2.5 py-1.5 rounded-lg border border-[var(--card-border)] bg-[var(--card-bg)] text-[var(--foreground)] focus:outline-hidden focus:ring-1 focus:ring-blue-500"
                             />
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Stage-2 Cross-Encoder Re-Ranking */}
+                      <div className="pt-2 border-t border-[var(--card-border)] space-y-2">
+                        <label className="flex items-center justify-between cursor-pointer">
+                          <div className="pr-4">
+                            <span className="text-xs font-medium text-[var(--foreground)]">Stage-2 Cross-Encoder Re-Ranking</span>
+                            <p className="text-[10px] text-[var(--muted)]">
+                              Evaluates candidate passages with deep query-document cross-attention via local LLM batch scoring or instant in-memory cross-scoring, filtering false positives.
+                            </p>
+                          </div>
+                          <input
+                            type="checkbox"
+                            checked={ragRerankEnabled}
+                            onChange={(e) => setRagRerankEnabled(e.target.checked)}
+                            className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 bg-[var(--card-bg)] border-[var(--card-border)] cursor-pointer shrink-0"
+                          />
+                        </label>
+                        {ragRerankEnabled && (
+                          <div className="mt-2 space-y-2">
+                            <div className="space-y-1">
+                              <label className="text-[10px] font-medium text-[var(--muted)]">
+                                Re-ranker Model (optional, defaults to project or active model)
+                              </label>
+                              <input
+                                type="text"
+                                placeholder="e.g. llama3.2, qwen2.5:7b"
+                                value={ragRerankModel}
+                                onChange={(e) => setRagRerankModel(e.target.value)}
+                                className="w-full text-xs px-2.5 py-1.5 rounded-lg border border-[var(--card-border)] bg-[var(--card-bg)] text-[var(--foreground)] focus:outline-hidden focus:ring-1 focus:ring-blue-500"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <div className="flex items-center justify-between">
+                                <label className="text-[10px] font-medium text-[var(--muted)]">
+                                  Min Relevance Score Threshold
+                                </label>
+                                <span className="text-[10px] font-mono text-[var(--foreground)]">
+                                  {ragRerankMinScore.toFixed(2)}
+                                </span>
+                              </div>
+                              <input
+                                type="range"
+                                min={0}
+                                max={0.9}
+                                step={0.05}
+                                value={ragRerankMinScore}
+                                onChange={(e) => setRagRerankMinScore(parseFloat(e.target.value))}
+                                className="w-full h-1.5 bg-[var(--card-border)] rounded-lg appearance-none cursor-pointer accent-blue-600"
+                              />
+                              <p className="text-[9px] text-[var(--muted)]">
+                                Passages scoring below this threshold are pruned from context (0.00 = disabled).
+                              </p>
+                            </div>
                           </div>
                         )}
                       </div>

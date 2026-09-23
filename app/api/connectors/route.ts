@@ -81,7 +81,7 @@ export async function POST(req: NextRequest) {
         throw e;
       }
 
-      const testBody = payload || { text: "Test message from Ollama AI Workspace's custom bridge." };
+      const testBody = payload || { text: "Test message from Castalia Workspace's custom bridge." };
       const headers: Record<string, string> = { "Content-Type": "application/json" };
       if (apiKey) headers["Authorization"] = `Bearer ${apiKey.trim()}`;
 
@@ -119,7 +119,7 @@ export async function POST(req: NextRequest) {
       const res = await fetch(targetUrl, {
         method: "POST",
         headers,
-        body: JSON.stringify(payload || { text: "Notification from Ollama AI Workspace" }),
+        body: JSON.stringify(payload || { text: "Notification from Castalia Workspace" }),
       });
 
       if (!res.ok) {

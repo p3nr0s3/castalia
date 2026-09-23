@@ -1,12 +1,12 @@
 {
-  "name": "Ollama Chat Web - AI Studio & IDE",
-  "short_name": "Ollama Web",
-  "description": "Modern local-first AI workspace with RAG, Knowledge Graph, Notion Journal, and Codespace IDE.",
+  "name": "Castalia - Local AI Workspace",
+  "short_name": "Castalia",
+  "description": "Minimalist, local-first AI workspace featuring RAG, AST code intelligence, and zero-compromise security.",
   "start_url": "/",
   "display": "standalone",
   "orientation": "any",
-  "theme_color": "#0f172a",
-  "background_color": "#0f172a",
+  "theme_color": "#090d16",
+  "background_color": "#090d16",
   "icons": [
     {
       "src": "/favicon.svg",

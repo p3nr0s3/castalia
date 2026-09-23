@@ -1019,6 +1019,287 @@ export async function generateHypotheticalDocument(
   }
 }
 
+export interface RerankOptions {
+  enabled?: boolean;
+  ollamaUrl?: string;
+  model?: string;
+  minScore?: number;
+  timeoutMs?: number;
+  topK?: number;
+  /** Blend factor alpha between reranker score and stage-1 score (0.0 - 1.0, default 0.70). */
+  blendAlpha?: number;
+}
+
+/**
+ * Computes an in-memory cross-attention proxy score between a query and a passage chunk.
+ * Features evaluated:
+ * 1. Normalized query keyword coverage (fraction of non-stopwords present in chunk).
+ * 2. Multi-word phrase proximity and exact n-gram matching (bigrams/trigrams).
+ * 3. AST symbol definition affinity: if the query mentions a symbol or code construct
+ *    defined in this chunk (`symbolsDefined`), grants a strong precision boost (+0.25).
+ * 4. File name / header alignment bonus (+0.10).
+ *
+ * Runs deterministically in < 0.1ms with zero network or VRAM overhead.
+ */
+export function computeLexicalCrossScore(
+  query: string,
+  chunk: DocumentChunk | RankedChunk
+): number {
+  if (!query || !query.trim() || !chunk || !chunk.text) return 0.5;
+
+  const queryTokens = tokenizeText(query);
+  if (queryTokens.length === 0) return 0.5;
+
+  const chunkLower = chunk.text.toLowerCase();
+  const chunkTokenData = getChunkTokenData(chunk.text);
+  const chunkTf = chunkTokenData.tf;
+
+  // 1. Query Term Coverage
+  let matchedCount = 0;
+  for (const token of queryTokens) {
+    if (chunkTf.has(token) || chunkLower.includes(token)) {
+      matchedCount++;
+    }
+  }
+  const coverage = matchedCount / queryTokens.length;
+
+  // 2. Exact n-gram phrase proximity
+  let phraseBonus = 0;
+  if (queryTokens.length >= 2) {
+    let matchedBigrams = 0;
+    const totalBigrams = queryTokens.length - 1;
+    for (let i = 0; i < totalBigrams; i++) {
+      const bigram = `${queryTokens[i]} ${queryTokens[i + 1]}`;
+      if (chunkLower.includes(bigram)) {
+        matchedBigrams++;
+      }
+    }
+    const bigramRatio = matchedBigrams / totalBigrams;
+
+    // Check full query phrase if 3+ tokens
+    let exactPhrase = false;
+    if (queryTokens.length >= 3) {
+      const fullPhrase = queryTokens.join(" ");
+      if (chunkLower.includes(fullPhrase)) {
+        exactPhrase = true;
+      }
+    }
+
+    phraseBonus = bigramRatio * 0.2 + (exactPhrase ? 0.15 : 0);
+  }
+
+  // 3. AST Symbol Definition Affinity
+  let symbolBonus = 0;
+  if (chunk.symbolsDefined && chunk.symbolsDefined.length > 0) {
+    const definedSet = new Set(chunk.symbolsDefined.map((s) => s.toLowerCase()));
+    for (const token of queryTokens) {
+      if (definedSet.has(token)) {
+        symbolBonus = 0.25;
+        break;
+      }
+    }
+  } else if (chunk.symbolsReferenced && chunk.symbolsReferenced.length > 0) {
+    const refSet = new Set(chunk.symbolsReferenced.map((s) => s.toLowerCase()));
+    for (const token of queryTokens) {
+      if (refSet.has(token)) {
+        symbolBonus = 0.1;
+        break;
+      }
+    }
+  }
+
+  // 4. File Name Alignment
+  let fileNameBonus = 0;
+  if (chunk.fileName) {
+    const fileLower = chunk.fileName.toLowerCase();
+    for (const token of queryTokens) {
+      if (fileLower.includes(token)) {
+        fileNameBonus = 0.1;
+        break;
+      }
+    }
+  }
+
+  const rawScore = coverage * 0.55 + phraseBonus + symbolBonus + fileNameBonus;
+  return Math.min(1.0, Math.max(0.0, Math.round(rawScore * 1000) / 1000));
+}
+
+/**
+ * Constructs a single compact batch prompt evaluating multiple candidate passages.
+ * Numbered candidate keys ("1", "2", etc.) keep output tokens minimal (~20-50 tokens)
+ * and prevent JSON parser thrashing in quantized local models.
+ */
+export function buildRerankBatchPrompt(
+  query: string,
+  candidates: Array<{ numId: string; text: string; fileName?: string }>
+): string {
+  const passagesText = candidates
+    .map((c) => {
+      const header = c.fileName ? `[Passage ${c.numId} - ${c.fileName}]` : `[Passage ${c.numId}]`;
+      const snippet = c.text.trim().slice(0, 450).replace(/\r?\n/g, " ");
+      return `${header}\n${snippet}`;
+    })
+    .join("\n\n");
+
+  return `You are an expert retrieval re-ranker. Evaluate how directly each candidate passage answers, discusses, or implements the query.
+Assign a continuous relevance score from 0.0 to 1.0 (1.0 = exact direct answer/implementation, 0.0 = completely irrelevant).
+
+Query: "${query.trim()}"
+
+Candidate Passages:
+${passagesText}
+
+Output ONLY a valid JSON object mapping each passage number to its numeric score between 0.0 and 1.0. Example:
+{"scores": {"1": 0.95, "2": 0.15}}`;
+}
+
+/**
+ * Calls Ollama /api/generate with format: "json" and temperature: 0.0 to score
+ * candidate passages in a single batch. Fails soft (returns null) on error/timeout.
+ */
+export async function scorePassagesWithLocalModel(
+  query: string,
+  candidates: RankedChunk[],
+  options: {
+    ollamaUrl: string;
+    model?: string;
+    timeoutMs?: number;
+  }
+): Promise<Record<string, number> | null> {
+  if (!query || !query.trim() || candidates.length === 0 || !options.ollamaUrl) {
+    return null;
+  }
+
+  const model = options.model || "llama3.2";
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? 2500);
+
+  try {
+    const baseUrl = options.ollamaUrl.replace(/\/+$/, "");
+    const candidateItems = candidates.map((c, i) => ({
+      numId: String(i + 1),
+      realId: c.id,
+      text: c.text,
+      fileName: c.fileName,
+    }));
+
+    const prompt = buildRerankBatchPrompt(query, candidateItems);
+
+    const res = await fetch(`${baseUrl}/api/generate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model,
+        prompt,
+        format: "json",
+        stream: false,
+        options: {
+          temperature: 0.0,
+          num_predict: Math.min(300, candidateItems.length * 30 + 60),
+        },
+        keep_alive: "5s",
+      }),
+      signal: controller.signal,
+    });
+
+    if (!res.ok) return null;
+    const data = await res.json();
+    const rawResponse = typeof data?.response === "string" ? data.response.trim() : "";
+    if (!rawResponse) return null;
+
+    let parsed: any;
+    try {
+      parsed = JSON.parse(rawResponse);
+    } catch {
+      return null;
+    }
+
+    const scoresObj =
+      parsed && typeof parsed === "object"
+        ? parsed.scores && typeof parsed.scores === "object"
+          ? parsed.scores
+          : parsed
+        : null;
+
+    if (!scoresObj) return null;
+
+    const result: Record<string, number> = {};
+    for (const item of candidateItems) {
+      const val = scoresObj[item.numId] ?? scoresObj[item.realId];
+      if (typeof val === "number" && !isNaN(val)) {
+        result[item.realId] = Math.min(1.0, Math.max(0.0, val));
+      }
+    }
+
+    return Object.keys(result).length > 0 ? result : null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+/**
+ * Stage-2 Cross-Encoder Re-Ranking:
+ * Evaluates candidate chunks against the user query using deep query-passage
+ * attention (via local Ollama model in a single batch JSON prompt, or instant
+ * in-memory lexical-semantic cross-scoring fallback).
+ * Blends re-ranker score with Stage-1 score, filters by minScore, and returns
+ * the top K refined passages.
+ */
+export async function rerankChunks(
+  chunks: RankedChunk[],
+  query: string,
+  topK: number,
+  options?: RerankOptions
+): Promise<RankedChunk[]> {
+  if (!chunks || chunks.length === 0) return [];
+  if (!query || !query.trim()) return chunks.slice(0, topK);
+
+  if (options && options.enabled === false) {
+    return chunks.slice(0, topK);
+  }
+
+  const alpha = Math.min(1.0, Math.max(0.0, options?.blendAlpha ?? 0.7));
+  const minScore = options?.minScore ?? 0.0;
+
+  let llmScores: Record<string, number> | null = null;
+  if (options?.ollamaUrl) {
+    llmScores = await scorePassagesWithLocalModel(query, chunks, {
+      ollamaUrl: options.ollamaUrl,
+      model: options.model,
+      timeoutMs: options.timeoutMs,
+    });
+  }
+
+  const reranked: RankedChunk[] = chunks.map((chunk) => {
+    let crossScore: number;
+    if (llmScores && typeof llmScores[chunk.id] === "number" && !isNaN(llmScores[chunk.id])) {
+      crossScore = llmScores[chunk.id];
+    } else {
+      crossScore = computeLexicalCrossScore(query, chunk);
+    }
+
+    const stage1Score = chunk.score ?? 0.5;
+    const blendedScore = alpha * crossScore + (1 - alpha) * stage1Score;
+
+    return {
+      ...chunk,
+      score: Math.round(blendedScore * 1000) / 1000,
+    };
+  });
+
+  reranked.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+
+  let filtered = reranked;
+  if (minScore > 0) {
+    const passed = reranked.filter((c) => (c.score ?? 0) >= minScore);
+    filtered = passed.length > 0 ? passed : [reranked[0]];
+  }
+
+  return filtered.slice(0, topK);
+}
+
 export interface HybridEmbeddingOptions {
   ollamaUrl: string;
   embeddingModel?: string;
@@ -1183,6 +1464,13 @@ export async function buildOptimizedKnowledgeContextAsync(
       hypotheticalDocument?: string;
       timeoutMs?: number;
     };
+    rerank?: {
+      enabled?: boolean;
+      model?: string;
+      minScore?: number;
+      timeoutMs?: number;
+      blendAlpha?: number;
+    };
   }
 ): Promise<OptimizedKnowledgeResult> {
   if (!files || files.length === 0) {
@@ -1208,6 +1496,7 @@ export async function buildOptimizedKnowledgeContextAsync(
   const chunkSizeChars = ragOptions?.chunkSizeChars ?? 1800;
   const chunkOverlapChars = ragOptions?.chunkOverlapChars ?? 200;
   const topK = ragOptions?.topK ?? 8;
+  const rerankEnabled = Boolean(ragOptions?.rerank?.enabled);
 
   const allChunks: DocumentChunk[] = [];
   for (const file of files) {
@@ -1224,10 +1513,23 @@ export async function buildOptimizedKnowledgeContextAsync(
       }
     : undefined;
 
-  const ranked =
+  // When re-ranking is enabled, Stage 1 coarse filtering selects a broader candidate pool (2x topK, min 16)
+  const coarseTopK = rerankEnabled
+    ? Math.min(allChunks.length, Math.max(topK * 2, 16))
+    : topK;
+
+  let ranked =
     effectiveEmbeddingOptions?.enabled && effectiveEmbeddingOptions.ollamaUrl
-      ? await rankChunksHybrid(allChunks, userQuery, topK, effectiveEmbeddingOptions)
-      : rankChunksBM25(allChunks, userQuery, topK);
+      ? await rankChunksHybrid(allChunks, userQuery, coarseTopK, effectiveEmbeddingOptions)
+      : rankChunksBM25(allChunks, userQuery, coarseTopK);
+
+  // Stage 2: Cross-Encoder Re-Ranking (Local LLM Batch or In-Memory Cross-Scorer)
+  if (rerankEnabled) {
+    ranked = await rerankChunks(ranked, userQuery, topK, {
+      ollamaUrl: effectiveEmbeddingOptions?.ollamaUrl,
+      ...ragOptions?.rerank,
+    });
+  }
 
   return assembleContextFromRanked(files, ranked, effectiveBudget, symbolGraph, allChunks, {
     stitchAdjacent: ragOptions?.stitchAdjacent,

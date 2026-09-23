@@ -270,6 +270,12 @@ export interface Project {
   ragHydeEnabled?: boolean;
   /** Custom model to use for HyDE generation (defaults to active chat model). */
   ragHydeModel?: string;
+  /** Enable Stage-2 Cross-Encoder Re-Ranking over top coarse candidates. */
+  ragRerankEnabled?: boolean;
+  /** Custom model to use for Cross-Encoder re-ranking (defaults to active chat model). */
+  ragRerankModel?: string;
+  /** Minimum relevance score threshold (0.0 - 1.0) after re-ranking. */
+  ragRerankMinScore?: number;
   /** Ambient file-watcher indexing (server-side, opt-in per project).
    * Path is resolved and sandboxed relative to the server's home directory
    * the same way disk tools are (see lib/pathSandbox.ts) — never an

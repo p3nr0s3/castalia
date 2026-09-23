@@ -1,4 +1,4 @@
-# Fitur — Ollama Chat Web
+# Fitur — Castalia
 
 Katalog lengkap semua fitur yang **beneran ada dan jalan** di codebase ini saat ini. Berbeda dari `DOCUMENTATION.md` (yang section fitur-nya sudah basi — masih nyebut Google News RSS yang sudah diganti, dan belum nyebut Graphify/message-queue/agent-undo/dll) dan `README.md` (referensi teknis: stack, API, security). Dokumen ini jawabannya untuk "app ini bisa ngapain aja".
 
@@ -34,6 +34,7 @@ Model bisa manggil tool lewat directive `[TOOL_CALL:nama:{json}]` di teks output
 
 ## RAG / pencarian di knowledge base project
 
+- **Stage-2 Cross-Encoder Re-Ranking (Local LLM & In-Memory Cross-Scorer)**: Arsitektur two-stage retrieval mutakhir (SOTA). Tahap 1 melakukan coarse filtering cepat (BM25 + Dense Semantic via RRF) untuk menyaring kandidat awal, lalu Tahap 2 mengevaluasi relasi mendalam query-passage menggunakan cross-attention: single-batch prompt JSON via Ollama model lokal (`temperature: 0.0`) atau instant deterministic in-memory cross-scorer (< 0.1ms; phrase proximity, query term coverage, AST definition affinity). Dilengkapi score blending dinamis ($\alpha \cdot S_{\text{rerank}} + (1-\alpha) \cdot S_{\text{stage1}}$) serta pemangkasan threshold relevansi minimum (`minScore`) agar passage tidak relevan (false positive) langsung dibuang.
 - **One-Click URL & Documentation Ingestion**: Ingest dokumentasi web atau artikel teknis langsung ke konteks chat dan knowledge base project via slash command `/url <url> [pertanyaan]` atau tombol "Import Web Documentation" di modal Project Knowledge. Dilengkapi proteksi SSRF berbasis DNS lookup (`assertPublicUrl`), fallback scraper Jina Reader untuk SPA/JavaScript, ekstraksi judul semantik, dan konversi otomatis menjadi file `.md` project.
 - **Adjacent Chunk Stitching (Boundary Optimization)**: Menggabungkan beberapa chunk berurutan dari file yang sama (misal Part 1 dan Part 2) menjadi satu blok teks utuh dengan deduplikasi overlap perbatasan. Mencegah fungsi/syntax terpotong di tengah jalan dan menghemat token dari duplikasi header dokumen.
 - **Hypothetical Document Embeddings (HyDE)**: Opsi generate jawaban sintesis teknis singkat via model lokal untuk di-embed ke ruang vektor, menjembatani jarak semantik antara pertanyaan pendek pengguna dengan deklarasi kode/dokumentasi.

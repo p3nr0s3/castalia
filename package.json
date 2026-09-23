@@ -1,6 +1,7 @@
 {
-  "name": "ollama-chat-web",
+  "name": "castalia",
   "version": "0.1.0",
+  "description": "Castalia — Minimalist Local-First AI Workspace & Knowledge Studio",
   "private": true,
   "scripts": {
     "predev": "node scripts/warnOpenAccess.mjs",

@@ -2,8 +2,8 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Ollama Local AI Chat",
-  description: "Modern, local-first web interface for Ollama LLMs with vision, documents & Claude-style projects",
+  title: "Castalia — Local AI Workspace",
+  description: "Castalia: Minimalist, local-first AI workspace for Ollama LLMs with vision, documents & Claude-style projects",
   icons: {
     icon: [
       { url: "/favicon.svg", type: "image/svg+xml" },
@@ -16,7 +16,7 @@ export const metadata: Metadata = {
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "Ollama Chat",
+    title: "Castalia",
   },
   manifest: "/manifest.json",
 };
