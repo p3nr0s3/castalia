@@ -175,7 +175,7 @@ graph TD
 
 ### 2. Menjalankan Server Pengembangan:
 ```powershell
-cd C:\Users\Rei\.gemini\antigravity\scratch\ollama-chat-web
+cd <path-ke>/castalia
 npm run dev
 ```
 Aplikasi akan aktif di:
@@ -215,7 +215,7 @@ New-NetFirewallRule -DisplayName "Ollama Chat Web Port 3000" -Direction Inbound 
 ### 2. Akses dari Luar Rumah via Public Tunnel
 Buka terminal PowerShell baru dan jalankan skrip tunnel:
 ```powershell
-cd C:\Users\Rei\.gemini\antigravity\scratch\ollama-chat-web
+cd <path-ke>/castalia
 npm run tunnel
 ```
 - Terminal akan menghasilkan **Public HTTPS URL** dan **QR Code**.
@@ -275,7 +275,7 @@ Test suite framework ini ada di `tests/localAppBridge.test.ts` (18 test — life
 ## Struktur Folder Proyek
 
 ```text
-ollama-chat-web/
+castalia/
 ├── app/
 │   ├── api/
 │   │   ├── ollama/[...path]/route.ts  # Proxy streaming Ollama API (tanpa isu CORS)

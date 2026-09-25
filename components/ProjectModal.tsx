@@ -64,10 +64,10 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
   const [ragChunkOverlapChars, setRagChunkOverlapChars] = useState(project?.ragChunkOverlapChars ?? 200);
   const [ragTopK, setRagTopK] = useState(project?.ragTopK ?? 8);
   const [ragSemanticWeight, setRagSemanticWeight] = useState(project?.ragSemanticWeight ?? 0.55);
-  const [ragStitchChunks, setRagStitchChunks] = useState<boolean>(Boolean(project?.ragStitchChunks));
+  const [ragStitchChunks, setRagStitchChunks] = useState<boolean>(project?.ragStitchChunks ?? true);
   const [ragHydeEnabled, setRagHydeEnabled] = useState<boolean>(Boolean(project?.ragHydeEnabled));
   const [ragHydeModel, setRagHydeModel] = useState<string>(project?.ragHydeModel ?? "");
-  const [ragRerankEnabled, setRagRerankEnabled] = useState<boolean>(Boolean(project?.ragRerankEnabled));
+  const [ragRerankEnabled, setRagRerankEnabled] = useState<boolean>(project?.ragRerankEnabled ?? true);
   const [ragRerankModel, setRagRerankModel] = useState<string>(project?.ragRerankModel ?? "");
   const [ragRerankMinScore, setRagRerankMinScore] = useState<number>(project?.ragRerankMinScore ?? 0.0);
   const [watchedFolderPath, setWatchedFolderPath] = useState(project?.watchedFolderPath ?? "");
@@ -105,10 +105,10 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
         setRagChunkOverlapChars(project.ragChunkOverlapChars ?? 200);
         setRagTopK(project.ragTopK ?? 8);
         setRagSemanticWeight(project.ragSemanticWeight ?? 0.55);
-        setRagStitchChunks(Boolean(project.ragStitchChunks));
+        setRagStitchChunks(project.ragStitchChunks ?? true);
         setRagHydeEnabled(Boolean(project.ragHydeEnabled));
         setRagHydeModel(project.ragHydeModel ?? "");
-        setRagRerankEnabled(Boolean(project.ragRerankEnabled));
+        setRagRerankEnabled(project.ragRerankEnabled ?? true);
         setRagRerankModel(project.ragRerankModel ?? "");
         setRagRerankMinScore(project.ragRerankMinScore ?? 0.0);
         setWatchedFolderPath(project.watchedFolderPath ?? "");

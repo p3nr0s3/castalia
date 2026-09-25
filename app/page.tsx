@@ -1080,7 +1080,7 @@ export default function HomePage() {
           rrfK: proj.ragRrfK,
           stitchAdjacent: proj.ragStitchChunks ?? true,
           rerank: {
-            enabled: Boolean(proj.ragRerankEnabled),
+            enabled: proj.ragRerankEnabled ?? true,
             model: proj.ragRerankModel || proj.defaultModel || settings.defaultModel,
             minScore: proj.ragRerankMinScore,
           },
