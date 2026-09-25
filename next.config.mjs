@@ -1,11 +1,21 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  // SECURITY NOTE (verified 2026-09-16, extended 2026-09-18): this
-  // project is pinned to next@^14.2.35. `npm audit` currently lists 8
-  // vulnerabilities against it (2 critical, 4 high, 2 moderate as of the
-  // 2026-07-21 Next.js security release). All 8 were checked against
-  // this codebase's actual usage, not just the advisory text:
+  // SECURITY NOTE (verified 2026-09-16, extended 2026-09-18, re-verified
+  // 2026-09-25): this project is pinned to next@^14.2.35. There is no
+  // patched 14.x release to move to yet — the latest published 14.x is
+  // still a canary prerelease, not a stable release; the official fix
+  // ships only in Next 16.x, a major/breaking upgrade this codebase has
+  // not taken. `npm audit` now lists exactly 2 vulnerabilities, both
+  // this Next pin: next itself, and postcss as a next.js transitive
+  // dependency. Everything else `npm audit` used to report (axios and
+  // its dependents, via the unused `localtunnel` package; a stale
+  // vite/esbuild pulled in by an old vitest) was eliminated on
+  // 2026-09-25 by removing `localtunnel` (dead dependency — grep found
+  // zero imports of it; scripts/tunnel.mjs uses a raw SSH connection to
+  // Pinggy, not this package) and upgrading vitest 1.6.1 -> 4.1.11. All
+  // Next advisories below were checked against this codebase's actual
+  // usage, not just the advisory text:
   //
   // - CVE-2026-75604 (Windows RCE via path traversal): requires a Pages
   //   Router + App Router mix without Cache Components. This project has
@@ -35,7 +45,9 @@ const nextConfig = {
   // skip a future major-version upgrade indefinitely — if Server
   // Actions, a /pages router, rewrites(), next/image+AVIF, or a
   // fetch(new Request(...), ...) call is ever added, re-check this note
-  // against the current advisories before shipping.
+  // against the current advisories before shipping. Track upstream for
+  // a 14.3.x stable release that backports these fixes; if none ships,
+  // budget time for the Next 16 major upgrade.
   experimental: {
     // Lets Next tree-shake these barrel-exported icon packages per-icon
     // instead of pulling the whole package into the bundle — matters most
@@ -84,4 +96,6 @@ const nextConfig = {
   },
 };
 
-export default nextConfig;
+import withBundleAnalyzerInit from "@next/bundle-analyzer";
+const withBundleAnalyzer = withBundleAnalyzerInit({ enabled: process.env.ANALYZE === "true" });
+export default withBundleAnalyzer(nextConfig);

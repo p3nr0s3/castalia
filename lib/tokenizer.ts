@@ -1,11 +1,17 @@
-import { getEncoding, Tiktoken } from "js-tiktoken";
+import { Tiktoken } from "js-tiktoken/lite";
+import cl100k_base from "js-tiktoken/ranks/cl100k_base";
 
 let tokenizerInstance: Tiktoken | null = null;
 
 function getTokenizer(): Tiktoken | null {
   if (!tokenizerInstance) {
     try {
-      tokenizerInstance = getEncoding("cl100k_base");
+      // js-tiktoken's default export (`getEncoding`) bundles every OpenAI
+      // rank table statically and weighs ~5.3MB on its own — most of this
+      // app's entire first-load JS. The /lite entry + a single named rank
+      // import gets the exact same encode/decode behavior for cl100k_base
+      // while letting webpack code-split the rank table into its own chunk.
+      tokenizerInstance = new Tiktoken(cl100k_base);
     } catch (e) {
       console.warn("Failed to initialize js-tiktoken cl100k_base encoder:", e);
       return null;

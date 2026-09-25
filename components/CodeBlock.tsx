@@ -3,8 +3,92 @@
 import React, { useState, useRef, useEffect } from "react";
 import { apiFetch } from "../lib/apiClient";
 import { Check, Copy, Download, Play, Eye, Code, ArrowCounterClockwise as RotateCcw, Terminal, X, Package as Box, SpinnerGap as Loader2, WarningCircle as AlertCircle } from "@phosphor-icons/react";
-import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { vscDarkPlus } from "react-syntax-highlighter/dist/cjs/styles/prism";
+import { PrismAsyncLight as SyntaxHighlighter } from "react-syntax-highlighter";
+import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
+
+// PrismAsyncLight ships with zero languages registered — it lazy-loads only
+// the grammars actually used, instead of the ~250 grammars bundled by the
+// default `Prism` export (that used to inflate the / route's first-load JS
+// to ~2.85MB). Map every language key CodeBlock can receive (see
+// LANGUAGE_EXTENSION_MAP + detectLanguage below) to its dynamic import.
+// Anything not in this map (or a language whose registration fails, e.g. an
+// unrecognized model-supplied string) falls back to Prism's built-in
+// "text"/plain rendering rather than throwing.
+const LANGUAGE_LOADERS: Record<string, () => Promise<{ default: unknown }>> = {
+  bash: () => import("react-syntax-highlighter/dist/esm/languages/prism/bash"),
+  shell: () => import("react-syntax-highlighter/dist/esm/languages/prism/bash"),
+  sh: () => import("react-syntax-highlighter/dist/esm/languages/prism/bash"),
+  zsh: () => import("react-syntax-highlighter/dist/esm/languages/prism/bash"),
+  cmd: () => import("react-syntax-highlighter/dist/esm/languages/prism/bash"),
+  bat: () => import("react-syntax-highlighter/dist/esm/languages/prism/bash"),
+  powershell: () => import("react-syntax-highlighter/dist/esm/languages/prism/powershell"),
+  ps1: () => import("react-syntax-highlighter/dist/esm/languages/prism/powershell"),
+  c: () => import("react-syntax-highlighter/dist/esm/languages/prism/c"),
+  cpp: () => import("react-syntax-highlighter/dist/esm/languages/prism/cpp"),
+  cs: () => import("react-syntax-highlighter/dist/esm/languages/prism/csharp"),
+  csharp: () => import("react-syntax-highlighter/dist/esm/languages/prism/csharp"),
+  css: () => import("react-syntax-highlighter/dist/esm/languages/prism/css"),
+  scss: () => import("react-syntax-highlighter/dist/esm/languages/prism/scss"),
+  // @ts-ignore no bundled type declarations for this language module
+  csv: () => import("react-syntax-highlighter/dist/esm/languages/prism/csv"),
+  diff: () => import("react-syntax-highlighter/dist/esm/languages/prism/diff"),
+  patch: () => import("react-syntax-highlighter/dist/esm/languages/prism/diff"),
+  docker: () => import("react-syntax-highlighter/dist/esm/languages/prism/docker"),
+  dockerfile: () => import("react-syntax-highlighter/dist/esm/languages/prism/docker"),
+  go: () => import("react-syntax-highlighter/dist/esm/languages/prism/go"),
+  golang: () => import("react-syntax-highlighter/dist/esm/languages/prism/go"),
+  graphql: () => import("react-syntax-highlighter/dist/esm/languages/prism/graphql"),
+  html: () => import("react-syntax-highlighter/dist/esm/languages/prism/markup"),
+  htm: () => import("react-syntax-highlighter/dist/esm/languages/prism/markup"),
+  xml: () => import("react-syntax-highlighter/dist/esm/languages/prism/markup"),
+  svg: () => import("react-syntax-highlighter/dist/esm/languages/prism/markup"),
+  ini: () => import("react-syntax-highlighter/dist/esm/languages/prism/ini"),
+  toml: () => import("react-syntax-highlighter/dist/esm/languages/prism/toml"),
+  java: () => import("react-syntax-highlighter/dist/esm/languages/prism/java"),
+  javascript: () => import("react-syntax-highlighter/dist/esm/languages/prism/javascript"),
+  js: () => import("react-syntax-highlighter/dist/esm/languages/prism/javascript"),
+  jsx: () => import("react-syntax-highlighter/dist/esm/languages/prism/jsx"),
+  typescript: () => import("react-syntax-highlighter/dist/esm/languages/prism/typescript"),
+  ts: () => import("react-syntax-highlighter/dist/esm/languages/prism/typescript"),
+  tsx: () => import("react-syntax-highlighter/dist/esm/languages/prism/tsx"),
+  json: () => import("react-syntax-highlighter/dist/esm/languages/prism/json"),
+  yaml: () => import("react-syntax-highlighter/dist/esm/languages/prism/yaml"),
+  yml: () => import("react-syntax-highlighter/dist/esm/languages/prism/yaml"),
+  latex: () => import("react-syntax-highlighter/dist/esm/languages/prism/latex"),
+  tex: () => import("react-syntax-highlighter/dist/esm/languages/prism/latex"),
+  lua: () => import("react-syntax-highlighter/dist/esm/languages/prism/lua"),
+  markdown: () => import("react-syntax-highlighter/dist/esm/languages/prism/markdown"),
+  md: () => import("react-syntax-highlighter/dist/esm/languages/prism/markdown"),
+  php: () => import("react-syntax-highlighter/dist/esm/languages/prism/php"),
+  python: () => import("react-syntax-highlighter/dist/esm/languages/prism/python"),
+  py: () => import("react-syntax-highlighter/dist/esm/languages/prism/python"),
+  rb: () => import("react-syntax-highlighter/dist/esm/languages/prism/ruby"),
+  ruby: () => import("react-syntax-highlighter/dist/esm/languages/prism/ruby"),
+  rs: () => import("react-syntax-highlighter/dist/esm/languages/prism/rust"),
+  rust: () => import("react-syntax-highlighter/dist/esm/languages/prism/rust"),
+  sol: () => import("react-syntax-highlighter/dist/esm/languages/prism/solidity"),
+  solidity: () => import("react-syntax-highlighter/dist/esm/languages/prism/solidity"),
+  sql: () => import("react-syntax-highlighter/dist/esm/languages/prism/sql"),
+  asm: () => import("react-syntax-highlighter/dist/esm/languages/prism/nasm"),
+  zig: () => import("react-syntax-highlighter/dist/esm/languages/prism/zig"),
+};
+
+const registeredLanguages = new Set<string>();
+async function ensureLanguageRegistered(language: string): Promise<string> {
+  const key = language.toLowerCase();
+  const loader = LANGUAGE_LOADERS[key];
+  if (!loader) return "text";
+  if (!registeredLanguages.has(key)) {
+    try {
+      const mod = await loader();
+      SyntaxHighlighter.registerLanguage(key, mod.default);
+      registeredLanguages.add(key);
+    } catch {
+      return "text";
+    }
+  }
+  return key;
+}
 
 interface CodeBlockProps {
   language?: string;
@@ -186,6 +270,19 @@ export const CodeBlock: React.FC<CodeBlockProps> = ({ language = "text", value }
   };
 
   const detectedLanguage = (language || "text").toLowerCase();
+  // PrismAsyncLight starts with no grammars registered; resolve and lazy-load
+  // the one this block needs, falling back to "text" until it's ready (and
+  // permanently for languages with no loader / a failed dynamic import).
+  const [highlightLanguage, setHighlightLanguage] = useState("text");
+  useEffect(() => {
+    let cancelled = false;
+    ensureLanguageRegistered(detectedLanguage).then((resolved) => {
+      if (!cancelled) setHighlightLanguage(resolved);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [detectedLanguage]);
 
   const isHtmlOrWeb =
     detectedLanguage === "html" ||
@@ -431,7 +528,7 @@ export const CodeBlock: React.FC<CodeBlockProps> = ({ language = "text", value }
       ) : (
         <div className="overflow-x-auto text-[13px] leading-relaxed">
           <SyntaxHighlighter
-            language={detectedLanguage}
+            language={highlightLanguage}
             style={vscDarkPlus}
             customStyle={{
               margin: 0,
