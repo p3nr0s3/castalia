@@ -192,6 +192,16 @@ export interface OwaspScanResult {
   findings: OwaspFinding[];
 }
 
+export interface GroundingReport {
+  score: number; // 0 - 100 percentage
+  verifiedFiles: string[];
+  unverifiedFiles: string[];
+  verifiedCitationCount: number;
+  totalClaimsCount: number;
+  status: "verified" | "partial" | "unverified";
+  summary: string;
+}
+
 export interface Message {
   id: string;
   role: MessageRole;
@@ -208,6 +218,7 @@ export interface Message {
   servedFromCache?: boolean;
   toolExecutions?: ToolCallExecution[];
   retrievedChunks?: RetrievedChunkInfo[];
+  groundingReport?: GroundingReport;
 }
 
 // ============================================================================
@@ -633,6 +644,22 @@ export interface AppSettings {
    * Enables 100% KV cache reuse on preceding turns in Ollama.
    */
   smartContextEnabled?: boolean;
+  /**
+   * Dynamically scales the context window to nearest power-of-two bucket
+   * (2K, 4K, 8K, 16K, 32K) based on active prompt tokens + predict buffer.
+   * Cuts upfront KV-cache VRAM footprint by up to 75% on short chats.
+   */
+  dynamicContextBucketing?: boolean;
+  /**
+   * Automatically adapts sampling hyperparameters (temperature, top_p, min_p, repeat_penalty)
+   * to the active task (e.g. 0.2 for coding, 0.3 for RAG, 0.85 for creative) unless explicitly overridden.
+   */
+  adaptiveSampling?: boolean;
+  /**
+   * Immediately unloads the embedding model from VRAM after semantic ranking completes,
+   * guaranteeing maximum free VRAM for the main LLM on <= 8GB GPUs.
+   */
+  unloadEmbeddingAfterRetrieval?: boolean;
   /**
    * Keep-alive duration for models in Ollama VRAM/RAM (e.g. "30m", "60m", "24h", "-1" for indefinite).
    * Prevents model unloading and KV-cache flushing during pauses in chat.

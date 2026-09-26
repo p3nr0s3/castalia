@@ -3,7 +3,7 @@
 // Runs 100% in-memory with ZERO GPU VRAM usage and sub-millisecond retrieval.
 
 import { ProjectFile, Message, RetrievedChunkInfo } from "./types";
-import { embedTexts, cosineSimilarity } from "./embeddings";
+import { embedTexts, cosineSimilarity, unloadEmbeddingModel } from "./embeddings";
 import { countTokens } from "./tokenizer";
 
 export interface DocumentChunk {
@@ -450,6 +450,27 @@ function chunkCodeDocument(
 }
 
 /**
+ * Compacts document/chunk text to minimize token waste before embedding and injection into context:
+ * - Strips common license and copyright headers at start of file/chunk
+ * - Collapses 3+ consecutive newlines to at most 2
+ * - Trims trailing whitespace on each line
+ */
+export function compactDocumentChunk(text: string): string {
+  if (!text) return "";
+  let cleaned = text.replace(/\r\n/g, "\n");
+  // Clean trailing whitespace on each line first, including blank lines with spaces
+  cleaned = cleaned.replace(/[ \t]+$/gm, "");
+  // Strip common license / copyright header blocks at the start of text
+  cleaned = cleaned.replace(
+    /^(?:\/\*[\s\S]*?(?:copyright|license|apache|mit|bsd|gnu|all rights reserved)[\s\S]*?\*\/|(?:\/\/[^\n]*\n|\#[^\n]*\n)*(?:\/\/[^\n]*(?:copyright|license|apache|mit|bsd|gnu|all rights reserved)[^\n]*\n|\#[^\n]*(?:copyright|license|apache|mit|bsd|gnu|all rights reserved)[^\n]*\n)(?:\/\/[^\n]*\n|\#[^\n]*\n)*)/i,
+    ""
+  );
+  // Collapse 3+ newlines to at most 2
+  cleaned = cleaned.replace(/\n{3,}/g, "\n\n");
+  return cleaned.trim();
+}
+
+/**
  * Splits document text into semantic chunks (~400-600 tokens each)
  * respecting markdown sections, code blocks, paragraphs, and lists.
  * For source code files, uses language-aware boundary chunking.
@@ -788,7 +809,7 @@ export function stitchAdjacentChunks(chunks: RankedChunk[]): RankedChunk[] {
   return stitched;
 }
 
-function assembleContextFromRanked(
+export function assembleContextFromRanked(
   files: ProjectFile[],
   ranked: RankedChunk[],
   tokenBudget: number,
@@ -892,6 +913,7 @@ function assembleContextFromRanked(
 
   let contextText = "\n\n=== RETRIEVED PROJECT KNOWLEDGE ===\n";
   contextText += `Relevant source files (${matchedFileSet.size}): ${Array.from(matchedFileSet).join(", ")}\n`;
+  contextText += "\nGROUNDING DIRECTIVE: Answer the user's prompt strictly based on the verified passages below. If the information needed is not present in these passages, state clearly that it is not available in the project documents instead of speculating or fabricating facts.\n";
   contextText += "\nBelow are the most relevant document passages retrieved for the user's prompt:\n";
 
   // Reorder chunks using U-shaped perimeter order ("Lost in the Middle") so highest-scoring
@@ -910,8 +932,9 @@ function assembleContextFromRanked(
     const partLabel = chunk.stitchedPartRange
       ? `Parts ${chunk.stitchedPartRange[0]}-${chunk.stitchedPartRange[1]}/${chunk.totalChunks}`
       : `Part ${chunk.chunkIndex + 1}/${chunk.totalChunks}`;
+    const cleanChunk = compactDocumentChunk(chunk.text);
     contextText += `\n--- [Document: ${chunk.fileName} (${partLabel})${symHeader}] ---\n`;
-    contextText += `${chunk.text}\n`;
+    contextText += `${cleanChunk}\n`;
   }
   const retrievedChunks: RetrievedChunkInfo[] = finalChunks.map((c) => ({
     id: c.id,
@@ -1451,6 +1474,7 @@ export async function buildOptimizedKnowledgeContextAsync(
       hypotheticalDocument?: string;
       timeoutMs?: number;
     };
+    unloadAfterRetrieval?: boolean;
   },
   ragOptions?: {
     chunkSizeChars?: number;
@@ -1523,6 +1547,15 @@ export async function buildOptimizedKnowledgeContextAsync(
       ? await rankChunksHybrid(allChunks, userQuery, coarseTopK, effectiveEmbeddingOptions)
       : rankChunksBM25(allChunks, userQuery, coarseTopK);
 
+  // Evacuate embedding model from VRAM immediately if configured, freeing full GPU memory for chat LLM
+  if (
+    effectiveEmbeddingOptions?.enabled &&
+    effectiveEmbeddingOptions.ollamaUrl &&
+    (effectiveEmbeddingOptions.unloadAfterRetrieval ?? true)
+  ) {
+    unloadEmbeddingModel(effectiveEmbeddingOptions.ollamaUrl, effectiveEmbeddingOptions.embeddingModel).catch(() => {});
+  }
+
   // Stage 2: Cross-Encoder Re-Ranking (Local LLM Batch or In-Memory Cross-Scorer)
   if (rerankEnabled) {
     ranked = await rerankChunks(ranked, userQuery, topK, {
@@ -1567,9 +1600,11 @@ export function buildOptimizedKnowledgeContext(
   // Inject with 100% full fidelity without chunking.
   if (totalTokens <= effectiveBudget) {
     let contextText = "\n\n=== PROJECT KNOWLEDGE BASE ===\n";
+    contextText += "GROUNDING DIRECTIVE: Answer the user's prompt strictly using the verified project documents below. If the answer cannot be found in these documents, explicitly indicate that instead of assuming or making up details.\n";
     contextText += "The following persistent knowledge files belong to this project. Refer to them whenever relevant:\n";
     for (const file of files) {
-      contextText += `\n[Project Document: ${file.name}]\n\`\`\`\n${file.textContent}\n\`\`\`\n`;
+      const cleanContent = compactDocumentChunk(file.textContent || "");
+      contextText += `\n[Project Document: ${file.name}]\n\`\`\`\n${cleanContent}\n\`\`\`\n`;
     }
     contextText += "=== END OF PROJECT KNOWLEDGE BASE ===\n\n";
 
@@ -1615,20 +1650,43 @@ export function buildOptimizedKnowledgeContext(
 }
 
 /**
- * Extracts a concise recap of omitted messages for context shift notices.
+ * Extracts a high-density, semantic recap of omitted messages for context shift notices.
+ * Captures user objectives, technical conclusions, and files touched across truncated turns.
  */
 export function extractQuickSummary(messages: Message[]): string {
   if (!messages || messages.length === 0) return "";
   const points: string[] = [];
+
   for (const m of messages) {
-    const rolePrefix = m.role === "user" ? "User asked" : "Discussed";
-    const firstLine = (m.content || "").trim().split("\n")[0];
-    const snippet = firstLine.slice(0, 140).trim();
-    if (snippet) {
-      points.push(`- ${rolePrefix}: "${snippet}${snippet.length >= 140 ? "..." : ""}"`);
+    const content = (m.content || "").trim();
+    if (!content) continue;
+
+    if (m.role === "user") {
+      const firstLine = content.split("\n")[0].replace(/^#+\s*/, "").slice(0, 120).trim();
+      if (firstLine) {
+        points.push(`- User objective: "${firstLine}${firstLine.length >= 120 ? "..." : ""}"`);
+      }
+    } else if (m.role === "assistant") {
+      // Look for key decision or action sentences
+      const lines = content.split("\n").map((l) => l.trim()).filter((l) => l.length > 0);
+      let foundAction = false;
+      for (const line of lines) {
+        if (/^(?:-|\*|\d+\.)\s*(?:implemented|created|fixed|updated|added|configured|decided|used|modified)\b/i.test(line)) {
+          points.push(`- Key action: ${line.slice(0, 120)}`);
+          foundAction = true;
+          break;
+        }
+      }
+      if (!foundAction && lines.length > 0) {
+        const firstLine = lines[0].replace(/^#+\s*/, "").slice(0, 120).trim();
+        if (firstLine && !firstLine.startsWith("```")) {
+          points.push(`- Assistant outcome: "${firstLine}${firstLine.length >= 120 ? "..." : ""}"`);
+        }
+      }
     }
   }
-  return points.slice(0, 5).join("\n");
+
+  return points.slice(0, 8).join("\n");
 }
 
 /**

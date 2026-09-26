@@ -22,12 +22,15 @@ import {
 } from "@/lib/types";
 import { storage } from "@/lib/storage";
 import { DEFAULT_SETTINGS, PRESET_PERSONAS, DEFAULT_CUSTOM_THEME } from "@/lib/constants";
-import { checkOllamaHealth, fetchOllamaModels, streamChatCompletion, detectModelProvider, checkVramPressure, prewarmModel, resolveEffectiveNumCtxSync, formatBytes } from "@/lib/ollama";
+import { checkOllamaHealth, fetchOllamaModels, streamChatCompletion, detectModelProvider, checkVramPressure, prewarmModel, resolveEffectiveNumCtxSync, calculateContextBucket, formatBytes } from "@/lib/ollama";
 import { getBatterySignal, isBatteryConstrained } from "@/lib/hardwareSignals";
 import { buildToolDirectivePrompt, parseToolDirective, getNativeOllamaTools, MUTATING_TOOLS, ToolName } from "@/lib/tools";
 import { executeToolCall, revertApproval } from "@/lib/toolEngine";
 import { executeAgent, calculateNextRun, resumeAgentAfterApproval } from "@/lib/agentEngine";
 import { composeSkillsPrompt, skillsRequireDiskTools, DEFAULT_SKILLS } from "@/lib/skills";
+import { resolveAdaptiveSamplingParams } from "@/lib/adaptiveSampling";
+import { isCodeFile } from "@/lib/rag";
+import { verifyGrounding } from "@/lib/groundingVerifier";
 import dynamic from "next/dynamic";
 import { Sidebar } from "@/components/Sidebar";
 import { ChatArea } from "@/components/ChatArea";
@@ -1071,6 +1074,7 @@ export default function HomePage() {
             enabled: Boolean(proj.ragHydeEnabled),
             model: proj.ragHydeModel || proj.defaultModel || settings.defaultModel,
           },
+          unloadAfterRetrieval: settings.unloadEmbeddingAfterRetrieval ?? true,
         },
         {
           chunkSizeChars: proj.ragChunkSizeChars,
@@ -1836,8 +1840,8 @@ export default function HomePage() {
       }
 
       // Enforce Context Window Budget dynamically
-      const targetCtx = targetConv.numCtx ?? proj?.numCtx ?? settings.numCtx ?? resolveEffectiveNumCtxSync(selectedModel);
-      const dynamicBudgets = calculateDynamicTokenBudgets(targetCtx);
+      const ceilingCtx = targetConv.numCtx ?? proj?.numCtx ?? settings.numCtx ?? resolveEffectiveNumCtxSync(selectedModel);
+      const dynamicBudgets = calculateDynamicTokenBudgets(ceilingCtx);
       const historyBudget = dynamicBudgets.historyBudget;
       const rawMessagesToSend = newMessages.slice(0, -1);
       const budgetedMessages = trimChatHistoryForBudget(rawMessagesToSend, historyBudget, {
@@ -1871,6 +1875,15 @@ export default function HomePage() {
           }
           return m;
         });
+      }
+
+      // Dynamic Context Window Bucketing (Power-of-two KV-cache VRAM optimization)
+      const isBucketingEnabled = settings.dynamicContextBucketing ?? true;
+      let targetCtx = ceilingCtx;
+      if (isBucketingEnabled) {
+        const totalInputTokens = countTokens(effectiveSystemPrompt) + finalMessagesToSend.reduce((acc, m) => acc + countTokens(m.content || ""), 0);
+        const expectedOutput = targetConv.numPredict ?? proj?.numPredict ?? settings.numPredict ?? 1024;
+        targetCtx = calculateContextBucket(totalInputTokens, ceilingCtx, expectedOutput);
       }
 
       // Compute deterministic cache key for identical prompt detection
@@ -1961,20 +1974,38 @@ export default function HomePage() {
         );
       });
 
+      // Resolve sampling parameters dynamically based on task type (coding, rag, creative, general)
+      // unless overridden explicitly at the conversation level
+      const adaptiveParams = resolveAdaptiveSamplingParams({
+        userPrompt: trimmedInput,
+        hasRagContext: Boolean(combinedDynamicContext || retrievedChunks?.length),
+        hasToolsActive: Boolean(effectiveDiskToolsActive),
+        hasCodeAttachments: Boolean(newMessages[newMessages.length - 1]?.attachments?.some((a) => a.type === "document" && isCodeFile(a.name))),
+        baseTemperature: settings.temperature,
+        baseTopP: settings.topP,
+        baseMinP: proj?.minP ?? settings.minP ?? 0.05,
+        baseRepeatPenalty: proj?.repeatPenalty ?? settings.repeatPenalty,
+        explicitTemperature: targetConv.temperature,
+        explicitTopP: targetConv.topP,
+        explicitMinP: targetConv.minP,
+        explicitRepeatPenalty: targetConv.repeatPenalty,
+        adaptiveSamplingEnabled: settings.adaptiveSampling ?? true,
+      });
+
       let accumulatedReasoning = "";
       await streamChatCompletion({
         hostUrl: settings.ollamaUrl,
         model: selectedModel,
         messages: finalMessagesToSend,
         systemPrompt: effectiveSystemPrompt,
-        temperature: targetConv.temperature ?? settings.temperature,
-        topP: targetConv.topP ?? settings.topP,
+        temperature: adaptiveParams.temperature,
+        topP: adaptiveParams.topP,
         topK: targetConv.topK ?? proj?.topK ?? settings.topK,
-        minP: targetConv.minP ?? proj?.minP ?? settings.minP ?? 0.05,
+        minP: adaptiveParams.minP,
         numCtx: targetCtx,
         numKeep: countTokens(effectiveSystemPrompt),
         numPredict: targetConv.numPredict ?? proj?.numPredict ?? settings.numPredict,
-        repeatPenalty: targetConv.repeatPenalty ?? proj?.repeatPenalty ?? settings.repeatPenalty,
+        repeatPenalty: adaptiveParams.repeatPenalty,
         presencePenalty: targetConv.presencePenalty ?? proj?.presencePenalty,
         frequencyPenalty: targetConv.frequencyPenalty ?? proj?.frequencyPenalty,
         seed: targetConv.seed ?? proj?.seed,
@@ -2141,6 +2172,11 @@ export default function HomePage() {
               ];
 
               let continuation = "";
+              const toolInputTokens = countTokens(effectiveSystemPrompt) + toolHistory.reduce((acc, m) => acc + countTokens(m.content || ""), 0);
+              const toolCtx = isBucketingEnabled
+                ? calculateContextBucket(toolInputTokens, ceilingCtx, targetConv.numPredict ?? proj?.numPredict ?? settings.numPredict ?? 1024)
+                : targetCtx;
+
               await streamChatCompletion({
                 hostUrl: settings.ollamaUrl,
                 model: selectedModel,
@@ -2148,6 +2184,8 @@ export default function HomePage() {
                 systemPrompt: effectiveSystemPrompt,
                 temperature: targetConv.temperature ?? settings.temperature,
                 topP: targetConv.topP ?? settings.topP,
+                numCtx: toolCtx,
+                numKeep: countTokens(effectiveSystemPrompt),
                 apiKeys: settings.apiKeys,
                 signal: abortController.signal,
                 onToken: (chunk) => {
@@ -2182,6 +2220,10 @@ export default function HomePage() {
             finalFullText = loopText;
           }
 
+          const groundingReport = retrievedChunks && retrievedChunks.length > 0
+            ? verifyGrounding(finalFullText, retrievedChunks)
+            : undefined;
+
           setConversations((prev) => {
             const finished = prev.map((c) => {
               if (c.id !== targetId) return c;
@@ -2195,6 +2237,7 @@ export default function HomePage() {
                       sources: searchSources.length > 0 ? searchSources : undefined,
                       toolExecutions: toolExecutions.length > 0 ? toolExecutions : undefined,
                       retrievedChunks: retrievedChunks && retrievedChunks.length > 0 ? retrievedChunks : undefined,
+                      groundingReport: groundingReport || undefined,
                     }
                   : m
               );
@@ -2352,9 +2395,14 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
 
       const voiceSystemDirective = `${baseEffectivePrompt}\n\n${toneDirective}`;
 
-      const targetCtx = targetConv.numCtx ?? proj?.numCtx ?? settings.numCtx ?? 16384;
-      const historyBudget = Math.max(2000, Math.floor(targetCtx * 0.45));
+      const ceilingCtx = targetConv.numCtx ?? proj?.numCtx ?? settings.numCtx ?? 16384;
+      const historyBudget = Math.max(2000, Math.floor(ceilingCtx * 0.45));
       const budgetedMessages = trimChatHistoryForBudget(newMessages.slice(0, -1), historyBudget);
+      const isVoiceBucketingEnabled = settings.dynamicContextBucketing ?? true;
+      const voiceInputTokens = countTokens(voiceSystemDirective) + budgetedMessages.reduce((acc, m) => acc + countTokens(m.content || ""), 0);
+      const targetCtx = isVoiceBucketingEnabled
+        ? calculateContextBucket(voiceInputTokens, ceilingCtx, 512, 2048)
+        : ceilingCtx;
 
       let accumulated = "";
       try {
@@ -2365,6 +2413,8 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
           systemPrompt: voiceSystemDirective,
           temperature: targetConv.temperature ?? settings.temperature,
           topP: targetConv.topP ?? settings.topP,
+          numCtx: targetCtx,
+          numKeep: countTokens(voiceSystemDirective),
           keepAlive: settings.ollamaKeepAlive || "60m",
           apiKeys: settings.apiKeys,
           onToken: (chunk) => {
@@ -2447,14 +2497,15 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
         prompt: baseEffectivePrompt,
         staticPrompt,
         dynamicContext,
+        retrievedChunks,
       } = await getEffectiveSystemPrompt(updatedConv, lastUserMessage.content);
 
       const isSmartContext = settings.smartContextEnabled ?? true;
       const effectiveSystemPrompt = isSmartContext ? staticPrompt : baseEffectivePrompt;
 
       // Enforce Dynamic Context Window Budget on regenerated chat
-      const targetCtx = activeConversation.numCtx ?? currentProject?.numCtx ?? settings.numCtx ?? resolveEffectiveNumCtxSync(selectedModel);
-      const historyBudget = Math.max(2000, Math.floor(targetCtx * 0.45));
+      const ceilingCtx = activeConversation.numCtx ?? currentProject?.numCtx ?? settings.numCtx ?? resolveEffectiveNumCtxSync(selectedModel);
+      const historyBudget = Math.max(2000, Math.floor(ceilingCtx * 0.45));
       const budgetedMessages = trimChatHistoryForBudget(trimmedHistory, historyBudget, { smartShift: isSmartContext });
 
       let finalMessagesToSend = budgetedMessages;
@@ -2468,6 +2519,15 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
           }
           return m;
         });
+      }
+
+      // Dynamic Context Window Bucketing
+      const isRegenBucketingEnabled = settings.dynamicContextBucketing ?? true;
+      let targetCtx = ceilingCtx;
+      if (isRegenBucketingEnabled) {
+        const totalInputTokens = countTokens(effectiveSystemPrompt) + finalMessagesToSend.reduce((acc, m) => acc + countTokens(m.content || ""), 0);
+        const expectedOutput = activeConversation.numPredict ?? currentProject?.numPredict ?? settings.numPredict ?? 1024;
+        targetCtx = calculateContextBucket(totalInputTokens, ceilingCtx, expectedOutput);
       }
 
       const tokenThrottler = createStreamThrottler((latestText) => {
@@ -2494,19 +2554,36 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
         );
       });
 
+      const adaptiveParams = resolveAdaptiveSamplingParams({
+        userPrompt: lastUserMessage.content,
+        hasRagContext: Boolean(dynamicContext),
+        hasToolsActive: Boolean(diskToolsActive || skillsRequireDiskTools(settings.skills || DEFAULT_SKILLS, updatedConv.activeSkillIds)),
+        hasCodeAttachments: Boolean(lastUserMessage.attachments?.some((a) => a.type === "document" && isCodeFile(a.name))),
+        baseTemperature: settings.temperature,
+        baseTopP: settings.topP,
+        baseMinP: currentProject?.minP ?? settings.minP ?? 0.05,
+        baseRepeatPenalty: currentProject?.repeatPenalty ?? settings.repeatPenalty,
+        explicitTemperature: activeConversation.temperature,
+        explicitTopP: activeConversation.topP,
+        explicitMinP: activeConversation.minP,
+        explicitRepeatPenalty: activeConversation.repeatPenalty,
+        adaptiveSamplingEnabled: settings.adaptiveSampling ?? true,
+      });
+
       let accumulatedReasoning = "";
       await streamChatCompletion({
         hostUrl: settings.ollamaUrl,
         model: selectedModel,
         messages: finalMessagesToSend,
         systemPrompt: effectiveSystemPrompt,
-        temperature: activeConversation.temperature ?? settings.temperature,
-        topP: activeConversation.topP ?? settings.topP,
+        temperature: adaptiveParams.temperature,
+        topP: adaptiveParams.topP,
         topK: activeConversation.topK ?? currentProject?.topK ?? settings.topK,
+        minP: adaptiveParams.minP,
         numCtx: targetCtx,
         numKeep: countTokens(effectiveSystemPrompt),
         numPredict: activeConversation.numPredict ?? currentProject?.numPredict ?? settings.numPredict,
-        repeatPenalty: activeConversation.repeatPenalty ?? currentProject?.repeatPenalty ?? settings.repeatPenalty,
+        repeatPenalty: adaptiveParams.repeatPenalty,
         presencePenalty: activeConversation.presencePenalty ?? currentProject?.presencePenalty,
         frequencyPenalty: activeConversation.frequencyPenalty ?? currentProject?.frequencyPenalty,
         seed: activeConversation.seed ?? currentProject?.seed,
@@ -2529,12 +2606,23 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
           let finalFullText = full || accumulatedText;
           const finalReasoning = fullReasoning || accumulatedReasoning || undefined;
 
+          const groundingReport = retrievedChunks && retrievedChunks.length > 0
+            ? verifyGrounding(finalFullText, retrievedChunks)
+            : undefined;
+
           setConversations((prev) => {
             const finished = prev.map((c) => {
               if (c.id !== activeId) return c;
               const msgs = c.messages.map((m) =>
                 m.id === assistantMessageId
-                  ? { ...m, content: finalFullText, reasoning: finalReasoning, metrics }
+                  ? {
+                      ...m,
+                      content: finalFullText,
+                      reasoning: finalReasoning,
+                      metrics,
+                      retrievedChunks: retrievedChunks && retrievedChunks.length > 0 ? retrievedChunks : undefined,
+                      groundingReport: groundingReport || undefined,
+                    }
                   : m
               );
               return { ...c, messages: msgs, updatedAt: Date.now() };
@@ -2618,14 +2706,15 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
       prompt: baseEffectivePrompt,
       staticPrompt,
       dynamicContext,
+      retrievedChunks,
     } = await getEffectiveSystemPrompt(convWithPlaceholder, newContent);
 
     const isSmartContext = settings.smartContextEnabled ?? true;
     const effectiveSystemPrompt = isSmartContext ? staticPrompt : baseEffectivePrompt;
 
     // Enforce Dynamic Context Window Budget on edited chat
-    const targetCtx = activeConversation.numCtx ?? currentProject?.numCtx ?? settings.numCtx ?? resolveEffectiveNumCtxSync(selectedModel);
-    const historyBudget = Math.max(2000, Math.floor(targetCtx * 0.45));
+    const ceilingCtx = activeConversation.numCtx ?? currentProject?.numCtx ?? settings.numCtx ?? resolveEffectiveNumCtxSync(selectedModel);
+    const historyBudget = Math.max(2000, Math.floor(ceilingCtx * 0.45));
     const budgetedMessages = trimChatHistoryForBudget(updatedMessages, historyBudget, { smartShift: isSmartContext });
 
     let finalMessagesToSend = budgetedMessages;
@@ -2641,6 +2730,15 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
       });
     }
 
+    // Dynamic Context Window Bucketing
+    const isEditBucketingEnabled = settings.dynamicContextBucketing ?? true;
+    let targetCtx = ceilingCtx;
+    if (isEditBucketingEnabled) {
+      const totalInputTokens = countTokens(effectiveSystemPrompt) + finalMessagesToSend.reduce((acc, m) => acc + countTokens(m.content || ""), 0);
+      const expectedOutput = activeConversation.numPredict ?? currentProject?.numPredict ?? settings.numPredict ?? 1024;
+      targetCtx = calculateContextBucket(totalInputTokens, ceilingCtx, expectedOutput);
+    }
+
     const tokenThrottler = createStreamThrottler((latestText) => {
       setConversations((prev) =>
         prev.map((c) => {
@@ -2653,18 +2751,35 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
       );
     });
 
+    const adaptiveParams = resolveAdaptiveSamplingParams({
+      userPrompt: newContent,
+      hasRagContext: Boolean(dynamicContext),
+      hasToolsActive: Boolean(diskToolsActive || skillsRequireDiskTools(settings.skills || DEFAULT_SKILLS, updatedConv.activeSkillIds)),
+      hasCodeAttachments: Boolean(updatedMessages[updatedMessages.length - 1]?.attachments?.some((a) => a.type === "document" && isCodeFile(a.name))),
+      baseTemperature: settings.temperature,
+      baseTopP: settings.topP,
+      baseMinP: currentProject?.minP ?? settings.minP ?? 0.05,
+      baseRepeatPenalty: currentProject?.repeatPenalty ?? settings.repeatPenalty,
+      explicitTemperature: activeConversation.temperature,
+      explicitTopP: activeConversation.topP,
+      explicitMinP: activeConversation.minP,
+      explicitRepeatPenalty: activeConversation.repeatPenalty,
+      adaptiveSamplingEnabled: settings.adaptiveSampling ?? true,
+    });
+
     streamChatCompletion({
       hostUrl: settings.ollamaUrl,
       model: selectedModel,
       messages: finalMessagesToSend,
       systemPrompt: effectiveSystemPrompt,
-      temperature: activeConversation.temperature ?? settings.temperature,
-      topP: activeConversation.topP ?? settings.topP,
+      temperature: adaptiveParams.temperature,
+      topP: adaptiveParams.topP,
       topK: activeConversation.topK ?? currentProject?.topK ?? settings.topK,
+      minP: adaptiveParams.minP,
       numCtx: targetCtx,
       numKeep: countTokens(effectiveSystemPrompt),
       numPredict: activeConversation.numPredict ?? currentProject?.numPredict ?? settings.numPredict,
-      repeatPenalty: activeConversation.repeatPenalty ?? currentProject?.repeatPenalty ?? settings.repeatPenalty,
+      repeatPenalty: adaptiveParams.repeatPenalty,
       presencePenalty: activeConversation.presencePenalty ?? currentProject?.presencePenalty,
       frequencyPenalty: activeConversation.frequencyPenalty ?? currentProject?.frequencyPenalty,
       seed: activeConversation.seed ?? currentProject?.seed,
@@ -2679,12 +2794,23 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
       },
       onFinish: (full, metrics) => {
         tokenThrottler.flush();
+        const finalFullText = full || accumulatedText;
+        const groundingReport = retrievedChunks && retrievedChunks.length > 0
+          ? verifyGrounding(finalFullText, retrievedChunks)
+          : undefined;
+
         setConversations((prev) => {
           const finished = prev.map((c) => {
             if (c.id !== activeId) return c;
             const msgs = c.messages.map((m) =>
               m.id === assistantMessageId
-                ? { ...m, content: full || accumulatedText, metrics }
+                ? {
+                    ...m,
+                    content: finalFullText,
+                    metrics,
+                    retrievedChunks: retrievedChunks && retrievedChunks.length > 0 ? retrievedChunks : undefined,
+                    groundingReport: groundingReport || undefined,
+                  }
                 : m
             );
             return { ...c, messages: msgs };

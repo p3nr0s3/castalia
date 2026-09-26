@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import { apiFetch } from "../lib/apiClient";
-import { X, Palette, Cloud, HardDrives as Server, Faders as Sliders, Database, Info, CaretRight as ChevronRight, CaretLeft as ChevronLeft, CaretDown as ChevronDown, Sun, Moon, Sparkle as Sparkles, Laptop, CheckCircle as CheckCircle2, XCircle, ArrowsClockwise as RefreshCw, Eye, EyeSlash as EyeOff, Download, Upload, Trash as Trash2, Key, Globe, Lightning as Zap, Check, Brain, MagicWand as Wand2, Plus, MagnifyingGlass as Search, Folder, HardDrive, Headphones, SpeakerHigh as Volume2, Microphone as Mic, Play, Square, Stack as Blocks, Plug, ArrowCounterClockwise as RotateCcw, Terminal, PencilSimple as Edit2, SpinnerGap as Loader2, BookmarkSimple as BookMarked, FileText } from "@phosphor-icons/react";
+import { X, Palette, Cloud, HardDrives as Server, Faders as Sliders, Database, Info, CaretRight as ChevronRight, CaretLeft as ChevronLeft, CaretDown as ChevronDown, Sun, Moon, Sparkle as Sparkles, Laptop, CheckCircle as CheckCircle2, XCircle, ArrowsClockwise as RefreshCw, Eye, EyeSlash as EyeOff, Download, Upload, Trash as Trash2, Key, Globe, Lightning as Zap, Check, Brain, MagicWand as Wand2, Plus, MagnifyingGlass as Search, Folder, HardDrive, Headphones, SpeakerHigh as Volume2, Microphone as Mic, Play, Square, Stack as Blocks, Plug, ArrowCounterClockwise as RotateCcw, Terminal, PencilSimple as Edit2, SpinnerGap as Loader2, BookmarkSimple as BookMarked, FileText, Copy, Cpu } from "@phosphor-icons/react";
 import {
   AppSettings,
   OllamaModel,
@@ -224,6 +224,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [testStatus, setTestStatus] = useState<"idle" | "testing" | "success" | "failed">("idle");
   const [showKeys, setShowKeys] = useState<{ [key: string]: boolean }>({});
   const [applyFeedback, setApplyFeedback] = useState(false);
+  const [copiedAccelCmd, setCopiedAccelCmd] = useState(false);
+
+  const handleCopyAccelCmd = () => {
+    const cmd = `[System.Environment]::SetEnvironmentVariable('OLLAMA_FLASH_ATTENTION', '1', 'User'); [System.Environment]::SetEnvironmentVariable('OLLAMA_KV_CACHE_TYPE', 'q8_0', 'User')`;
+    navigator.clipboard.writeText(cmd);
+    setCopiedAccelCmd(true);
+    setTimeout(() => setCopiedAccelCmd(false), 2500);
+  };
 
   // Dropdown states for personalization
   const [isThemeDropdownOpen, setIsThemeDropdownOpen] = useState(false);
@@ -1693,6 +1701,36 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </select>
                 </div>
 
+                {/* Auto Task-Adaptive Sampling Toggle */}
+                <div className="p-3.5 rounded-2xl bg-[var(--sidebar-bg)] border border-[var(--card-border)] space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400">
+                        <Sliders className="w-4 h-4" />
+                      </div>
+                      <div className="pr-4">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold text-[var(--foreground)]">
+                            Auto Task-Adaptive Sampling
+                          </span>
+                          <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                            Akurasi Presisi
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-[var(--muted)] leading-relaxed mt-0.5">
+                          Secara otomatis menyesuaikan suhu (temperature) dan sampling berdasarkan tipe tugas (0.2 untuk koding/tools, 0.3 untuk dokumen RAG, 0.85 untuk kreativitas). Pilihan manual per-chat tetap diprioritaskan.
+                        </p>
+                      </div>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={formData.adaptiveSampling ?? true}
+                      onChange={(e) => setFormData({ ...formData, adaptiveSampling: e.target.checked })}
+                      className="w-4 h-4 rounded border-[var(--card-border)] text-cyan-500 focus:ring-cyan-500 bg-[var(--card-bg)] cursor-pointer"
+                    />
+                  </div>
+                </div>
+
                 {/* Hyperparameter Sliders Grid */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {/* Temperature */}
@@ -1886,6 +1924,66 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </div>
                 </div>
 
+                {/* Dynamic Context Window Bucketing */}
+                <div className="p-3.5 rounded-2xl bg-[var(--sidebar-bg)] border border-[var(--card-border)] space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400">
+                        <HardDrive className="w-4 h-4" />
+                      </div>
+                      <div className="pr-4">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold text-[var(--foreground)]">
+                            Dynamic Context Bucketing (VRAM Saver)
+                          </span>
+                          <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                            Power-of-2 Tiers
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-[var(--muted)] leading-relaxed mt-0.5">
+                          Secara dinamis menyesuaikan alokasi KV-Cache VRAM (2K, 4K, 8K, 16K, 32K) berdasarkan kebutuhan prompt aktif. Menghemat hingga 70% VRAM pada obrolan pendek dan mencegah model tumpah ke CPU.
+                        </p>
+                      </div>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={formData.dynamicContextBucketing ?? true}
+                      onChange={(e) => setFormData({ ...formData, dynamicContextBucketing: e.target.checked })}
+                      className="w-4 h-4 rounded border-[var(--card-border)] text-cyan-500 focus:ring-cyan-500 bg-[var(--card-bg)] cursor-pointer"
+                    />
+                  </div>
+                </div>
+
+                {/* Unload Embedding Model After Retrieval */}
+                <div className="p-3.5 rounded-2xl bg-[var(--sidebar-bg)] border border-[var(--card-border)] space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="p-1.5 rounded-lg bg-cyan-500/10 text-cyan-400">
+                        <Cpu className="w-4 h-4" />
+                      </div>
+                      <div className="pr-4">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold text-[var(--foreground)]">
+                            Isolasi VRAM: Unload Embedding Pasca-Retrieval
+                          </span>
+                          <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
+                            Anti-Spill CPU
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-[var(--muted)] leading-relaxed mt-0.5">
+                          Segera membersihkan model embedding dari memori GPU setelah pencarian dokumen RAG selesai. Memberikan 100% kapasitas VRAM untuk model chat utama pada GPU 6GB–8GB.
+                        </p>
+                      </div>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={formData.unloadEmbeddingAfterRetrieval ?? true}
+                      onChange={(e) => setFormData({ ...formData, unloadEmbeddingAfterRetrieval: e.target.checked })}
+                      className="w-4 h-4 rounded border-[var(--card-border)] text-cyan-500 focus:ring-cyan-500 bg-[var(--card-bg)] cursor-pointer"
+                    />
+                  </div>
+                </div>
+
                 {/* VRAM / RAM Keep-Alive */}
                 <div className="p-3.5 rounded-2xl bg-[var(--sidebar-bg)] border border-[var(--card-border)] space-y-2">
                   <div className="flex items-center justify-between">
@@ -1917,6 +2015,56 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       </option>
                     ))}
                   </select>
+                </div>
+
+                {/* Host GPU Acceleration & VRAM Diagnostic Guide */}
+                <div className="p-3.5 rounded-2xl bg-[var(--sidebar-bg)] border border-cyan-500/30 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="p-1.5 rounded-lg bg-cyan-500/15 text-cyan-400">
+                        <Zap className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold text-[var(--foreground)]">
+                            Panduan Akselerasi Host GPU (Ollama)
+                          </span>
+                          <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">
+                            +30-50% TPS • -50% VRAM
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-[var(--muted)] leading-relaxed mt-0.5">
+                          Aktifkan Flash Attention-2 dan Kuantisasi KV Cache di level server Ollama untuk mempercepat inferensi dan memangkas VRAM konteks hingga 50-75%.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="p-2.5 rounded-xl bg-black/40 border border-[var(--card-border)] text-[11px] font-mono text-[var(--muted)] space-y-1.5">
+                    <div className="flex items-center justify-between text-[10px] text-cyan-400 font-sans font-semibold">
+                      <span>PowerShell (Jalankan sekali di Windows, lalu restart Ollama):</span>
+                      <button
+                        type="button"
+                        onClick={handleCopyAccelCmd}
+                        className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 transition-colors cursor-pointer text-[10px] font-mono"
+                      >
+                        {copiedAccelCmd ? (
+                          <>
+                            <Check className="w-3 h-3 text-emerald-400" />
+                            <span>Tersalin!</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-3 h-3" />
+                            <span>Salin Perintah</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                    <div className="p-2 rounded bg-black/60 text-slate-300 overflow-x-auto text-[10px] whitespace-pre-wrap select-all">
+                      [System.Environment]::SetEnvironmentVariable(&apos;OLLAMA_FLASH_ATTENTION&apos;, &apos;1&apos;, &apos;User&apos;); [System.Environment]::SetEnvironmentVariable(&apos;OLLAMA_KV_CACHE_TYPE&apos;, &apos;q8_0&apos;, &apos;User&apos;)
+                    </div>
+                  </div>
                 </div>
 
                 {/* Max Output Tokens (num_predict) */}

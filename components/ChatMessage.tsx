@@ -5,7 +5,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
-import { Robot as Bot, User, Copy, Download, Check, ArrowCounterClockwise as RotateCcw, Trash as Trash2, Pencil, Sparkle as Sparkles, WarningCircle as AlertCircle, FileText, ArrowSquareOut as ExternalLink, X, Lightning as Zap, Cpu, Globe, Brain, CaretDown as ChevronDown, CaretRight as ChevronRight, GitFork, SpeakerHigh as Volume2, Square, Wrench, CheckCircle as CheckCircle2, XCircle, SpinnerGap as Loader2, NotePencil as FileEdit, BookOpen, MagnifyingGlass as Search } from "@phosphor-icons/react";
+import { Robot as Bot, User, Copy, Download, Check, ArrowCounterClockwise as RotateCcw, Trash as Trash2, Pencil, Sparkle as Sparkles, WarningCircle as AlertCircle, FileText, ArrowSquareOut as ExternalLink, X, Lightning as Zap, Cpu, Globe, Brain, CaretDown as ChevronDown, CaretRight as ChevronRight, GitFork, SpeakerHigh as Volume2, Square, Wrench, CheckCircle as CheckCircle2, XCircle, SpinnerGap as Loader2, NotePencil as FileEdit, BookOpen, MagnifyingGlass as Search, ShieldCheck, ShieldWarning } from "@phosphor-icons/react";
 import dynamic from "next/dynamic";
 import { Message } from "@/lib/types";
 import { DiffPreview } from "./DiffPreview";
@@ -114,6 +114,7 @@ const ChatMessageComponent: React.FC<ChatMessageProps> = ({
   const [editContent, setEditContent] = useState(message.content);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [showMetricsDetail, setShowMetricsDetail] = useState(false);
+  const [showGroundingDetail, setShowGroundingDetail] = useState(false);
   const [showSources, setShowSources] = useState(true);
   const [isReasoningOpen, setIsReasoningOpen] = useState(true);
   const [isSpeaking, setIsSpeaking] = useState(false);
@@ -859,6 +860,36 @@ const ChatMessageComponent: React.FC<ChatMessageProps> = ({
                       <ChevronDown className={`w-2.5 h-2.5 text-[var(--muted)] transition-transform duration-150 ${showMetricsDetail ? "rotate-180" : ""}`} />
                     </button>
                   )}
+
+                  {/* RAG Grounding & Hallucination Verifier Badge */}
+                  {!isUser && !isStreaming && message.groundingReport && (
+                    <button
+                      type="button"
+                      onClick={() => setShowGroundingDetail(!showGroundingDetail)}
+                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-mono font-medium transition-all cursor-pointer shadow-2xs ${
+                        showGroundingDetail
+                          ? message.groundingReport.status === "verified"
+                            ? "bg-emerald-500/25 text-emerald-400 border border-emerald-500/50 shadow-xs"
+                            : message.groundingReport.status === "partial"
+                            ? "bg-amber-500/25 text-amber-400 border border-amber-500/50 shadow-xs"
+                            : "bg-rose-500/25 text-rose-400 border border-rose-500/50 shadow-xs"
+                          : message.groundingReport.status === "verified"
+                          ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/20"
+                          : message.groundingReport.status === "partial"
+                          ? "bg-amber-500/15 text-amber-400 border border-amber-500/30 hover:bg-amber-500/20"
+                          : "bg-rose-500/15 text-rose-400 border border-rose-500/30 hover:bg-rose-500/20"
+                      }`}
+                      title="Click to view Grounding & Hallucination Verification report"
+                    >
+                      {message.groundingReport.status === "verified" ? (
+                        <ShieldCheck className="w-2.5 h-2.5 text-emerald-400" />
+                      ) : (
+                        <ShieldWarning className="w-2.5 h-2.5 text-amber-400" />
+                      )}
+                      <span>{message.groundingReport.score}% Grounded</span>
+                      <ChevronDown className={`w-2.5 h-2.5 opacity-70 transition-transform duration-150 ${showGroundingDetail ? "rotate-180" : ""}`} />
+                    </button>
+                  )}
                 </div>
 
                 {/* Right: Actions (Copy, Edit, Regenerate, Delete, Time) */}
@@ -997,6 +1028,83 @@ const ChatMessageComponent: React.FC<ChatMessageProps> = ({
                   </div>
                 </div>
               )}
+
+              {/* Expandable RAG Grounding & Hallucination Verifier Card */}
+              {showGroundingDetail && message.groundingReport && !isUser && (
+                <div className="p-3 rounded-2xl bg-[var(--card-bg)]/80 backdrop-blur-md border border-[var(--card-border)] text-xs text-[var(--foreground)] space-y-2.5 shadow-xs animate-in fade-in zoom-in-95">
+                  <div className="flex items-center justify-between text-[11px] font-semibold text-[var(--muted)] pb-1.5 border-b border-[var(--sidebar-border)]">
+                    <span className="flex items-center gap-1.5">
+                      <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                      RAG Grounding & Anti-Hallucination Report
+                    </span>
+                    <button
+                      onClick={() => setShowGroundingDetail(false)}
+                      className="text-[var(--muted)] hover:text-[var(--foreground)] cursor-pointer"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-2 text-center font-mono text-[11px]">
+                    <div className="p-2 rounded-xl bg-[var(--sidebar-bg)]/60 border border-[var(--card-border)]">
+                      <div className="text-[10px] text-[var(--muted)]">Faithfulness Score</div>
+                      <div className={`font-bold text-sm mt-0.5 ${
+                        message.groundingReport.status === "verified"
+                          ? "text-emerald-400"
+                          : message.groundingReport.status === "partial"
+                          ? "text-amber-400"
+                          : "text-rose-400"
+                      }`}>
+                        {message.groundingReport.score}%
+                      </div>
+                    </div>
+                    <div className="p-2 rounded-xl bg-[var(--sidebar-bg)]/60 border border-[var(--card-border)]">
+                      <div className="text-[10px] text-[var(--muted)]">Verified Files</div>
+                      <div className="font-bold text-emerald-400 text-sm mt-0.5">
+                        {message.groundingReport.verifiedFiles.length}
+                      </div>
+                    </div>
+                    <div className="p-2 rounded-xl bg-[var(--sidebar-bg)]/60 border border-[var(--card-border)]">
+                      <div className="text-[10px] text-[var(--muted)]">Unverified Files</div>
+                      <div className="font-bold text-amber-400 text-sm mt-0.5">
+                        {message.groundingReport.unverifiedFiles.length}
+                      </div>
+                    </div>
+                  </div>
+
+                  {message.groundingReport.summary && (
+                    <div className="text-[11px] text-[var(--muted)] leading-relaxed italic">
+                      "{message.groundingReport.summary}"
+                    </div>
+                  )}
+
+                  {message.groundingReport.verifiedFiles.length > 0 && (
+                    <div className="text-[11px] space-y-1">
+                      <div className="text-[10px] text-[var(--muted)] font-medium">Valid Grounded References:</div>
+                      <div className="flex flex-wrap gap-1 font-mono text-[10px]">
+                        {message.groundingReport.verifiedFiles.map((file: string, idx: number) => (
+                          <span key={idx} className="px-1.5 py-0.5 rounded-md bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">
+                            {file}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {message.groundingReport.unverifiedFiles.length > 0 && (
+                    <div className="text-[11px] space-y-1">
+                      <div className="text-[10px] text-amber-400 font-medium">Potentially Hallucinated / Unverified Mentions:</div>
+                      <div className="flex flex-wrap gap-1 font-mono text-[10px]">
+                        {message.groundingReport.unverifiedFiles.map((file: string, idx: number) => (
+                          <span key={idx} className="px-1.5 py-0.5 rounded-md bg-amber-500/10 text-amber-300 border border-amber-500/20">
+                            {file}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -1033,6 +1141,8 @@ export const ChatMessage = React.memo(ChatMessageComponent, (prevProps, nextProp
   if (prevProps.liveStats?.liveTps !== nextProps.liveStats?.liveTps) return false;
   if (prevProps.message.isError !== nextProps.message.isError) return false;
   if (prevProps.message.attachments?.length !== nextProps.message.attachments?.length) return false;
+  if (prevProps.message.groundingReport?.score !== nextProps.message.groundingReport?.score) return false;
+  if (prevProps.message.groundingReport?.status !== nextProps.message.groundingReport?.status) return false;
   if (prevProps.message.toolExecutions?.length !== nextProps.message.toolExecutions?.length) return false;
   if (
     prevProps.message.toolExecutions?.some(

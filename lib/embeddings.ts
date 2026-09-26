@@ -278,3 +278,25 @@ export function cosineSimilarity(a: number[], b: number[]): number {
   if (normA === 0 || normB === 0) return 0;
   return dot / (Math.sqrt(normA) * Math.sqrt(normB));
 }
+
+/**
+ * Explicitly unloads an embedding model from Ollama VRAM by sending keep_alive: 0.
+ * Frees GPU VRAM immediately for the chat model, preventing CPU layer spilling
+ * on VRAM-constrained machines (<= 8GB VRAM).
+ */
+export async function unloadEmbeddingModel(
+  ollamaUrl: string,
+  model = DEFAULT_EMBEDDING_MODEL
+): Promise<boolean> {
+  try {
+    const baseUrl = ollamaUrl.replace(/\/+$/, "");
+    const res = await fetch(`${baseUrl}/api/generate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model, keep_alive: 0 }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}

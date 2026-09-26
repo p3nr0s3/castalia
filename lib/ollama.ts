@@ -877,4 +877,35 @@ export async function resolveEffectiveNumCtx(
   return Math.min(detected, maxSafeVramCtx);
 }
 
+/**
+ * Power-of-two context window tiers (2K to 128K).
+ * Bucketing prevents Ollama/llama.cpp from reallocating the KV cache
+ * on every single turn (which would bust prefix caching), while dynamically
+ * freeing gigabytes of VRAM on turns that do not need a full 16K/32K window.
+ */
+export const CONTEXT_WINDOW_BUCKETS = [2048, 4096, 8192, 16384, 32768, 65536, 131072] as const;
+
+/**
+ * Calculates the most memory-efficient power-of-two context window bucket for an inference turn.
+ * @param estimatedInputTokens Total tokens in prompt (system prompt + history + RAG chunks + user turn)
+ * @param maxCapacity Upper bound context limit (e.g. model maximum or user explicit setting)
+ * @param expectedOutputTokens Reserved tokens for generation (default: 1024)
+ * @param minBucket Minimum context size to prevent premature truncation (default: 2048)
+ */
+export function calculateContextBucket(
+  estimatedInputTokens: number,
+  maxCapacity = 32768,
+  expectedOutputTokens = 1024,
+  minBucket = 2048
+): number {
+  const needed = Math.max(minBucket, estimatedInputTokens + expectedOutputTokens);
+  const ceiling = Math.max(minBucket, maxCapacity);
+
+  for (const bucket of CONTEXT_WINDOW_BUCKETS) {
+    if (bucket >= needed) {
+      return Math.min(bucket, ceiling);
+    }
+  }
+  return ceiling;
+}
 

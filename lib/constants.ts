@@ -90,6 +90,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   plugins: DEFAULT_PLUGINS,
   memory: DEFAULT_MEMORY_CONFIG,
   smartContextEnabled: true,
+  dynamicContextBucketing: true,
+  adaptiveSampling: true,
+  unloadEmbeddingAfterRetrieval: true,
   ollamaKeepAlive: "60m",
   customTheme: {
     name: "Custom Palette",

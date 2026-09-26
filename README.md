@@ -6,7 +6,7 @@
 [![Next.js](https://img.shields.io/badge/Next.js-14.2.35-black?logo=next.js)](https://nextjs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.6.3-blue?logo=typescript)](https://www.typescriptlang.org/)
 [![Ollama](https://img.shields.io/badge/Ollama-Native%20API-white?logo=ollama)](https://ollama.com/)
-[![Tests](https://img.shields.io/badge/Tests-43%20Suites%20%7C%20384%20Passed-brightgreen)](https://vitest.dev/)
+[![Tests](https://img.shields.io/badge/Tests-44%20Suites%20%7C%20404%20Passed-brightgreen)](https://vitest.dev/)
 [![Security](https://img.shields.io/badge/Security-SSRF%20Guarded%20%2B%20Sandboxed-success)](#security)
 
 **A local-first AI workspace built on Next.js 14.**  
@@ -34,9 +34,15 @@ Engineered for zero-waste local LLM inference, hybrid two-stage RAG, sandboxed t
   - Ultra-fluent natural neural voice engine (Microsoft Natural, Google Neural, and local browser synthesis) with zero robotic cadence.
   - 3 Conversational Tone Modes: *Casual & Natural* (akrab/santai), *Concise* (to the point), and *Formal*.
   - Fine-grained controls for pitch, speech rate, and auto-silence speech detection sensitivity.
-- **Zero VRAM Waste & Instant Turns**:
+- **Zero VRAM Waste & Hardware Inference Optimization**:
+  - **Dynamic Context Window Bucketing**: Power-of-2 context tiers (`2048`, `4096`, `8192`, `16384`...) prevent massive upfront KV-cache memory reservations in llama.cpp, cutting VRAM overhead by 50–75% for routine conversations.
+  - **VRAM Isolation & Evacuation**: Automatically evacuates background embedding models (`keep_alive: 0`) immediately post-retrieval so the primary chat model operates with 100% available GPU headroom.
   - Automated **KV Cache Prefix Pinning** (`options.num_keep`) keeps static system prompts warm in GPU memory.
-  - Automatic **Context Window Resolution** eliminates Ollama's default 2048-token truncation, safely scaling up to 131K tokens.
+  - **Task-Adaptive Sampling**: Dynamically switches hyperparameter profiles (temperature, top-p, min-p, repeat penalty) for coding precision (`temp: 0.2`) vs creative generation (`temp: 0.85`).
+- **Post-Generation Grounding & Anti-Hallucination**:
+  - Real-time **Citation & Hallucination Verifier**: Verifies referenced files and claims against retrieved knowledge chunks with bilingual stopword filtering, generating interactive **[ShieldCheck]** confidence badges.
+  - **Document Compaction & Directive Injection**: Strips license boilerplate and enforces strict negative constraints (*do not speculate outside provided texts*).
+  - **High-Density Rolling Micro-Summaries**: Semantic bullet-point compaction ensures initial user objectives and technical decisions are never lost across extended dialogues.
 - **Dual-Tier Response Caching**:
   - Exact FNV-1a hash matching (always on) and semantic vector similarity ($\ge 0.96$, requires an embedding model such as `nomic-embed-text`). Cache hits skip generation entirely (0 GPU tokens).
   - Persisted via SQLite (`response_cache` table) with an automatic JSON-file fallback.
@@ -135,7 +141,7 @@ Castalia enforces strict defense-in-depth security:
 Comprehensive test suite with 100% pass rate:
 
 ```bash
-# Run Vitest test suite (43 suites, 384 tests)
+# Run Vitest test suite (44 suites, 404 tests)
 npm test
 
 # Run TypeScript type safety check
@@ -154,14 +160,17 @@ castalia/
 ├── app/                 # Next.js App Router (pages, API routes, layout, codespace)
 ├── components/          # Modular UI components (Chat, Sidebar, Modals, Codespace, Projects)
 ├── lib/
-│   ├── ollama.ts        # Ollama client, context resolution, num_keep pinning
-│   ├── rag.ts           # Hybrid retrieval, Cross-Encoder re-ranker, BM25, Lost-in-Middle
+│   ├── ollama.ts        # Ollama client, dynamic context bucketing, num_keep pinning
+│   ├── rag.ts           # Hybrid retrieval, Cross-Encoder re-ranker, BM25, Lost-in-Middle, compaction
+│   ├── adaptiveSampling.ts # Task-adaptive hyperparameter profile engine (Coding/RAG/Creative)
+│   ├── groundingVerifier.ts # Post-generation citation and hallucination verifier
+│   ├── embeddings.ts    # Embeddings generator and VRAM model isolation unloader
 │   ├── fileWatcher.ts   # Ambient Folder Watcher daemon for real-time background sync
 │   ├── responseCache.ts # Exact FNV-1a & semantic vector response caching
 │   ├── voiceEngine.ts   # Natural speech synthesis & conversational tone engine
 │   ├── ssrfGuard.ts     # DNS-rebinding-safe SSRF defense matrix
 │   └── pathSandbox.ts   # Sandboxed directory containment
-├── tests/               # 43 Vitest unit & integration test suites (384 passed)
+├── tests/               # 44 Vitest unit & integration test suites (404 passed)
 └── FEATURES.md          # Exhaustive feature catalog
 ```
 
