@@ -186,9 +186,9 @@ describe("Post-Generation Grounding and Hallucination Verifier", () => {
     },
   ];
 
-  it("scores high and status verified when assistant cites real files and context facts", () => {
+  it("scores high and status verified when assistant cites real files and context facts", async () => {
     const response = "Berdasarkan lib/auth.ts, fungsi verifySession memvalidasi token menggunakan jwt.verify. Database port adalah 5432 di config/database.json.";
-    const report = verifyGrounding(response, mockChunks);
+    const report = await verifyGrounding(response, mockChunks);
 
     expect(report).not.toBeNull();
     expect(report!.status).toBe("verified");
@@ -198,9 +198,9 @@ describe("Post-Generation Grounding and Hallucination Verifier", () => {
     expect(report!.unverifiedFiles).toHaveLength(0);
   });
 
-  it("detects unverified hallucinated file citations and lowers score", () => {
+  it("detects unverified hallucinated file citations and lowers score", async () => {
     const response = "Fitur ini didefinisikan di imaginary/ghost_module.ts dan secret_config.yaml.";
-    const report = verifyGrounding(response, mockChunks);
+    const report = await verifyGrounding(response, mockChunks);
 
     expect(report).not.toBeNull();
     expect(report!.unverifiedFiles).toContain("ghost_module.ts");
@@ -209,9 +209,51 @@ describe("Post-Generation Grounding and Hallucination Verifier", () => {
     expect(report!.score).toBeLessThanOrEqual(50);
   });
 
-  it("handles empty context or empty response safely by returning null", () => {
-    const emptyReport = verifyGrounding("", []);
+  it("handles empty context or empty response safely by returning null", async () => {
+    const emptyReport = await verifyGrounding("", []);
     expect(emptyReport).toBeNull();
+  });
+
+  it("does not flag a correct paraphrase as unsupported (fixes the old word-overlap false negative)", async () => {
+    // Same fact as mockChunks' c1, worded differently — a pure word-overlap
+    // heuristic without IDF weighting used to under-score this.
+    const response = "Token divalidasi lewat pemanggilan jwt.verify di dalam lib/auth.ts.";
+    const report = await verifyGrounding(response, mockChunks);
+
+    expect(report).not.toBeNull();
+    expect(report!.status).not.toBe("unverified");
+  });
+
+  it("flags a fabricated number even when surrounding words overlap heavily (fixes the old false positive)", async () => {
+    // Every word here ("database", "port", "config", etc.) appears in
+    // mockChunks' c2 — only the number is wrong (5432 -> 9999). The old
+    // heuristic scored this ~80%+ "verified" purely from word overlap.
+    const response = "Database port di config/database.json diset ke 9999, bukan default biasa.";
+    const report = await verifyGrounding(response, mockChunks);
+
+    expect(report).not.toBeNull();
+    expect(report!.status).toBe("unverified");
+  });
+
+  it("still verifies a claim that correctly cites a number present in the chunks", async () => {
+    const response = "Sesuai config/database.json, port database yang dipakai adalah 5432.";
+    const report = await verifyGrounding(response, mockChunks);
+
+    expect(report).not.toBeNull();
+    expect(report!.status).not.toBe("unverified");
+  });
+
+  it("falls back to the heuristic result when llmFallback has no reachable server", async () => {
+    const response = "Token divalidasi lewat jwt.verify di lib/auth.ts.";
+    const withUnreachableFallback = await verifyGrounding(response, mockChunks, {
+      ollamaUrl: "http://127.0.0.1:1", // nothing listens here
+      timeoutMs: 300,
+    });
+
+    expect(withUnreachableFallback).not.toBeNull();
+    // Must not throw, and must still return a usable report — same shape
+    // the pure-heuristic call would produce.
+    expect(typeof withUnreachableFallback!.score).toBe("number");
   });
 });
 

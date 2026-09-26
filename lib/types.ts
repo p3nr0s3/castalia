@@ -613,6 +613,16 @@ export interface AppSettings {
    * automatically if the embedding call fails for any reason.
    */
   semanticRagEnabled?: boolean;
+  /**
+   * When true, sentences the grounding verifier's word-overlap heuristic
+   * can't confidently classify (see BORDERLINE_LOW/HIGH in
+   * lib/groundingVerifier.ts) get a second opinion from a local Ollama
+   * model. Off by default: it's an extra round-trip per RAG turn, and the
+   * heuristic-only path already fixes the two failure modes this exists to
+   * catch further (fabricated numbers, generic-word false positives) —
+   * this only helps the remaining ambiguous middle, at the cost of latency.
+   */
+  groundingLlmFallbackEnabled?: boolean;
   embeddingModel?: string;
   temperature: number;
   topP: number;

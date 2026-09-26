@@ -2221,7 +2221,13 @@ export default function HomePage() {
           }
 
           const groundingReport = retrievedChunks && retrievedChunks.length > 0
-            ? verifyGrounding(finalFullText, retrievedChunks)
+            ? await verifyGrounding(
+              finalFullText,
+              retrievedChunks,
+              settings.groundingLlmFallbackEnabled && settings.ollamaUrl
+                ? { ollamaUrl: settings.ollamaUrl, model: selectedModel }
+                : undefined
+            )
             : undefined;
 
           setConversations((prev) => {
@@ -2607,7 +2613,13 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
           const finalReasoning = fullReasoning || accumulatedReasoning || undefined;
 
           const groundingReport = retrievedChunks && retrievedChunks.length > 0
-            ? verifyGrounding(finalFullText, retrievedChunks)
+            ? await verifyGrounding(
+              finalFullText,
+              retrievedChunks,
+              settings.groundingLlmFallbackEnabled && settings.ollamaUrl
+                ? { ollamaUrl: settings.ollamaUrl, model: selectedModel }
+                : undefined
+            )
             : undefined;
 
           setConversations((prev) => {
@@ -2792,11 +2804,17 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
         if (stats) setLiveStats(stats);
         tokenThrottler.push(accumulatedText);
       },
-      onFinish: (full, metrics) => {
+      onFinish: async (full, metrics) => {
         tokenThrottler.flush();
         const finalFullText = full || accumulatedText;
         const groundingReport = retrievedChunks && retrievedChunks.length > 0
-          ? verifyGrounding(finalFullText, retrievedChunks)
+          ? await verifyGrounding(
+            finalFullText,
+            retrievedChunks,
+            settings.groundingLlmFallbackEnabled && settings.ollamaUrl
+              ? { ollamaUrl: settings.ollamaUrl, model: selectedModel }
+              : undefined
+          )
           : undefined;
 
         setConversations((prev) => {

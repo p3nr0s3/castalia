@@ -56,6 +56,7 @@ import {
 export const DEFAULT_SETTINGS: AppSettings = {
   ollamaUrl: "http://localhost:11434",
   semanticRagEnabled: false,
+  groundingLlmFallbackEnabled: false,
   embeddingModel: "nomic-embed-text",
   deepScrapeEnabled: true,
   webSearchDefault: false,
