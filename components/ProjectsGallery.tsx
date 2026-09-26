@@ -38,7 +38,7 @@ export const ProjectsGallery: React.FC<ProjectsGalleryProps> = ({
 
   return (
     <div className="flex-1 h-full overflow-y-auto bg-[var(--background)] text-[var(--foreground)] px-4 sm:px-8 py-8 sm:py-12 touch-scroll">
-      <div className="max-w-5xl mx-auto space-y-8">
+      <div className="w-full space-y-8">
         {/* Header Bar matching Claude Projects Overview */}
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-2">
           <div className="flex items-center gap-3">
@@ -111,7 +111,7 @@ export const ProjectsGallery: React.FC<ProjectsGalleryProps> = ({
             </button>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4 sm:gap-5">
             {filteredProjects.map((proj) => (
               <div
                 key={proj.id}

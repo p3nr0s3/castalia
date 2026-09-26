@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useRef, useEffect, useState } from "react";
-import { SidebarSimple as PanelLeft, CaretLineLeft as PanelLeftClose, Faders as Sliders, Download, ArrowDown, Robot as Bot, Folder, FileText, Lightning as Zap, Sparkle as Sparkles, CodeSimple as Code2, CaretDown as ChevronDown, CaretRight as ChevronRight, Check, PencilSimple as Edit2, PushPin as Pin, EnvelopeSimple as Mail, Trash as Trash2, Headphones, Gear as Settings, Warning, X } from "@phosphor-icons/react";
+import { SidebarSimple as PanelLeft, CaretLineLeft as PanelLeftClose, Faders as Sliders, Download, ArrowDown, Robot as Bot, Folder, FileText, Lightning as Zap, Sparkle as Sparkles, CodeSimple as Code2, CaretDown as ChevronDown, CaretRight as ChevronRight, Check, PencilSimple as Edit2, PushPin as Pin, EnvelopeSimple as Mail, Trash as Trash2, Headphones, Gear as Settings, Warning, X, ShieldWarning as ShieldAlert } from "@phosphor-icons/react";
 import { Conversation, OllamaModel, Attachment, Project, ApiKeysConfig, ThinkingMode, Skill } from "@/lib/types";
 import { STARTER_PROMPTS } from "@/lib/constants";
 import { processSelectedFiles } from "@/lib/fileUtils";
@@ -63,6 +63,8 @@ interface ChatAreaProps {
   thinkingMode?: ThinkingMode;
   setThinkingMode?: (mode: ThinkingMode) => void;
   onOpenCodespace?: () => void;
+  onOpenApprovals?: () => void;
+  pendingApprovalCount?: number;
   nowPlayingInfo?: { isPlaying: boolean; title: string; onOpenPlayer: () => void } | null;
   onForkConversation?: (messageId: string) => void;
   onApproveTool?: (approvalId: string) => void;
@@ -128,6 +130,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   thinkingMode = "default",
   setThinkingMode,
   onOpenCodespace,
+  onOpenApprovals,
+  pendingApprovalCount = 0,
   onOpenVoiceCall,
   contextBreakdown,
   onSelectNumCtx,
@@ -432,29 +436,34 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
           </div>
         </div>
 
-        {/* Right Action Toolbar with Compact Responsive Icons */}
+        {/* Right Action Toolbar */}
         <div className="flex items-center gap-1 sm:gap-1.5 flex-shrink-0">
-          {/* Interactive Chat Button (Indonesian Female Voice Mode) */}
-          {onOpenVoiceCall && (
+          {/* Persetujuan Agent (Agent Approval Queue) */}
+          {onOpenApprovals && (
             <button
-              onClick={onOpenVoiceCall}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/25 transition-colors cursor-pointer flex-shrink-0 shadow-xs"
-              title="Interactive Chat (Percakapan Suara Real-Time)"
+              onClick={onOpenApprovals}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium transition-colors cursor-pointer flex-shrink-0 border ${
+                pendingApprovalCount > 0
+                  ? "text-amber-300 bg-amber-500/15 border-amber-500/30 hover:bg-amber-500/25 animate-pulse"
+                  : "text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--sidebar-hover)] border-[var(--sidebar-border)]"
+              }`}
+              title={
+                pendingApprovalCount > 0
+                  ? `${pendingApprovalCount} tindakan agent butuh persetujuan`
+                  : "Persetujuan Agent"
+              }
             >
-              <Headphones className="w-3.5 h-3.5 text-emerald-400" />
-              <span className="hidden sm:inline font-semibold">Interactive Chat</span>
-            </button>
-          )}
-
-          {/* Artifacts & Share Hub Button */}
-          {onOpenArtifacts && (
-            <button
-              onClick={onOpenArtifacts}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium text-purple-400 hover:text-purple-300 hover:bg-purple-500/10 transition-colors cursor-pointer flex-shrink-0"
-              title="View Generated Artifacts & Export / Share File"
-            >
-              <Sparkles className="w-3.5 h-3.5 text-purple-400" />
-              <span className="hidden lg:inline">Artifacts</span>
+              <ShieldAlert
+                className={`w-4 h-4 transition-colors ${
+                  pendingApprovalCount > 0 ? "text-amber-400" : "text-[var(--muted)]"
+                }`}
+              />
+              <span className="hidden sm:inline font-medium">Persetujuan Agent</span>
+              {pendingApprovalCount > 0 && (
+                <span className="px-1.5 py-0.5 rounded-full bg-amber-500 text-neutral-950 text-[10px] font-bold leading-none">
+                  {pendingApprovalCount}
+                </span>
+              )}
             </button>
           )}
 
@@ -465,29 +474,6 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
               onOpenParameters={onOpenParameters}
               onSelectNumCtx={onSelectNumCtx}
             />
-          )}
-
-          {/* Parameters Drawer Toggle */}
-          {onOpenParameters && (
-            <button
-              onClick={onOpenParameters}
-              className="p-1.5 sm:p-2 rounded-xl text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--sidebar-hover)] transition-colors cursor-pointer flex-shrink-0"
-              title="Session Parameters (Temperature, Context Size, Persona)"
-            >
-              <Sliders className="w-4 h-4" />
-            </button>
-          )}
-
-          {/* Settings Button */}
-          {onOpenSettings && (
-            <button
-              onClick={() => onOpenSettings()}
-              className="px-2.5 py-1.5 rounded-xl text-xs font-medium text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--sidebar-hover)] transition-colors cursor-pointer flex items-center gap-1.5 flex-shrink-0"
-              title="Open Settings (Parameters, Disk Explorer, Themes & API Keys)"
-            >
-              <Settings className="w-3.5 h-3.5 text-[var(--muted)]" />
-              <span className="hidden lg:inline">Settings</span>
-            </button>
           )}
 
           {/* Export Chat Markdown */}
@@ -661,6 +647,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
         onOpenDiskExplorer={onOpenDiskExplorer}
         onClearChat={onNewChat}
         onOpenVoiceCall={onOpenVoiceCall}
+        onOpenCodespace={onOpenCodespace}
         skills={skills}
         isConnected={isConnected}
         ollamaUrl={ollamaUrl}

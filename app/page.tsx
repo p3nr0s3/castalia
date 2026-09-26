@@ -52,15 +52,13 @@ const ArtifactsModal = dynamic(() => import("@/components/ArtifactsModal").then(
 const DirectoryModal = dynamic(() => import("@/components/DirectoryModal").then((m) => m.DirectoryModal), { ssr: false });
 const MemoryModal = dynamic(() => import("@/components/MemoryModal").then((m) => m.MemoryModal), { ssr: false });
 const VoiceModeModal = dynamic(() => import("@/components/VoiceModeModal").then((m) => m.VoiceModeModal), { ssr: false });
-const KnowledgeGraphModal = dynamic(() => import("@/components/KnowledgeGraphModal").then((m) => m.KnowledgeGraphModal), { ssr: false });
+const CodespaceView = dynamic(() => import("@/components/CodespaceView").then((m) => m.CodespaceView), { ssr: false });
 import {
   DEFAULT_DIRECTORY_SKILLS,
   DEFAULT_CONNECTORS,
   DEFAULT_PLUGINS,
   DEFAULT_MEMORY_CONFIG,
 } from "@/lib/directoryData";
-import { CodespaceView } from "@/components/CodespaceView";
-import { JournalView } from "@/components/JournalView";
 import {
   buildOptimizedKnowledgeContextAsync,
   buildRetrievalQuery,
@@ -110,7 +108,9 @@ export default function HomePage() {
   const [queuedMessage, setQueuedMessage] = useState<string | null>(null);
   const [liveStats, setLiveStats] = useState<{ tokenCount: number; liveTps: number } | undefined>(undefined);
   const [thinkingMode, setThinkingMode] = useState<ThinkingMode>("default");
-  const [mainView, setMainView] = useState<"workspace" | "codespace" | "journal">("workspace");
+  const [mainView, setMainView] = useState<"workspace" | "codespace">("workspace");
+  const [isCodespaceOpen, setIsCodespaceOpen] = useState<boolean>(false);
+  const [isCodespaceMaximized, setIsCodespaceMaximized] = useState<boolean>(false);
   const [workspaceView, setWorkspaceView] = useState<"chat" | "projects-gallery" | "project-detail">("chat");
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -156,7 +156,6 @@ export default function HomePage() {
   const [isMemoryModalOpen, setIsMemoryModalOpen] = useState<boolean>(false);
   const [isArtifactsModalOpen, setIsArtifactsModalOpen] = useState<boolean>(false);
   const [isVoiceCallOpen, setIsVoiceCallOpen] = useState<boolean>(false);
-  const [isKnowledgeGraphOpen, setIsKnowledgeGraphOpen] = useState<boolean>(false);
   const [sidebarOpen, setSidebarOpen] = useState<boolean>(false);
   const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
     if (typeof window === "undefined") return 256;
@@ -2778,9 +2777,7 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
         onOpenApprovals={() => setIsApprovalModalOpen(true)}
         pendingApprovalCount={pendingApprovals.filter((a) => a.status === "pending").length}
         onOpenArtifacts={() => setIsArtifactsModalOpen(true)}
-        onOpenCodespace={() => setMainView("codespace")}
-        onOpenJournal={() => setMainView("journal")}
-        onOpenKnowledgeGraph={() => setIsKnowledgeGraphOpen(true)}
+        onOpenCodespace={() => setIsCodespaceOpen(true)}
         onOpenWorkspace={() => {
           setMainView("workspace");
           setWorkspaceView("chat");
@@ -2788,43 +2785,8 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
         mainView={mainView}
       />
 
-      {/* Main Viewport: Workspace (Chat) vs Projects Gallery vs Project Detail vs Codespace vs Journal */}
-      {mainView === "codespace" ? (
-        <div className="flex-1 flex flex-col h-[100dvh] overflow-hidden relative">
-          <CodespaceView
-            models={models}
-            selectedModel={selectedModel}
-            apiKeys={settings.apiKeys}
-            onSendToChat={(text) => {
-              setInput(text);
-              setMainView("workspace");
-              setWorkspaceView("chat");
-            }}
-            sidebarOpen={sidebarOpen}
-            onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
-          />
-        </div>
-      ) : mainView === "journal" ? (
-        <div className="flex-1 flex flex-col h-[100dvh] overflow-hidden relative">
-          <JournalView
-            projects={projects}
-            models={models}
-            selectedModel={selectedModel}
-            apiKeys={settings.apiKeys}
-            onBackToChat={() => {
-              setMainView("workspace");
-              setWorkspaceView("chat");
-            }}
-            onSendToChat={(text) => {
-              setInput(text);
-              setMainView("workspace");
-              setWorkspaceView("chat");
-            }}
-            sidebarOpen={sidebarOpen}
-            onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
-          />
-        </div>
-      ) : workspaceView === "projects-gallery" ? (
+      {/* Main Viewport: Workspace (Chat) vs Projects Gallery vs Project Detail */}
+      {workspaceView === "projects-gallery" ? (
         <ProjectsGallery
           projects={projects}
           onSelectProject={handleSelectProject}
@@ -2917,7 +2879,9 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
           onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
           thinkingMode={thinkingMode}
           setThinkingMode={setThinkingMode}
-          onOpenCodespace={() => setMainView("codespace")}
+          onOpenCodespace={() => setIsCodespaceOpen(true)}
+          onOpenApprovals={() => setIsApprovalModalOpen(true)}
+          pendingApprovalCount={pendingApprovals.filter((a) => a.status === "pending").length}
           onForkConversation={handleForkConversation}
           onApproveTool={(approvalId) => handleApprovalDecision(approvalId, "approved")}
           onRejectTool={(approvalId) => handleApprovalDecision(approvalId, "rejected")}
@@ -3144,21 +3108,24 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
         onSendMessage={handleVoiceCallSendMessage}
       />
 
-      {/* Visual Knowledge Graph Modal (Obsidian-Style 2D Force-Directed Canvas) */}
-      <KnowledgeGraphModal
-        isOpen={isKnowledgeGraphOpen}
-        onClose={() => setIsKnowledgeGraphOpen(false)}
-        projects={projects}
-        journalEntries={storage.getJournalEntries()}
-        onNavigateToProject={(projId) => {
-          handleSelectProject(projId);
-          setIsKnowledgeGraphOpen(false);
-        }}
-        onNavigateToJournal={(journalId) => {
-          setMainView("journal");
-          setIsKnowledgeGraphOpen(false);
-        }}
-      />
+      {/* Codespace Fullscreen Workspace */}
+      {isCodespaceOpen && (
+        <div className="fixed inset-0 z-50 w-full h-full bg-[var(--background)] overflow-hidden flex flex-col animate-in fade-in duration-150">
+          <CodespaceView
+            models={models}
+            selectedModel={selectedModel}
+            apiKeys={settings.apiKeys}
+            onSendToChat={(text) => {
+              setInput(text);
+              setIsCodespaceOpen(false);
+            }}
+            onClose={() => setIsCodespaceOpen(false)}
+            onPopout={() => {
+              window.open("/codespace", "CodespaceWindow", "width=1200,height=800,menubar=no,toolbar=no,location=no,status=no");
+            }}
+          />
+        </div>
+      )}
     </div>
   );
 }

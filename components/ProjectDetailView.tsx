@@ -230,7 +230,7 @@ export const ProjectDetailView: React.FC<ProjectDetailViewProps> = ({
         </button>
       </div>
 
-      <div className="max-w-6xl mx-auto px-4 sm:px-8 py-6 sm:py-8">
+      <div className="w-full max-w-full px-4 sm:px-8 lg:px-10 py-6 sm:py-8">
         <div className="flex flex-col lg:flex-row gap-8 lg:gap-10 items-start">
           {/* LEFT / CENTER COLUMN: Title, Chat Prompt Box, Recents */}
           <div className="flex-1 w-full space-y-8 min-w-0">

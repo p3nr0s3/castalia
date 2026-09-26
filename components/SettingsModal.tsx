@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { apiFetch } from "../lib/apiClient";
-import { X, Palette, Cloud, HardDrives as Server, Faders as Sliders, Database, Info, CaretRight as ChevronRight, CaretLeft as ChevronLeft, Sun, Moon, Sparkle as Sparkles, Laptop, CheckCircle as CheckCircle2, XCircle, ArrowsClockwise as RefreshCw, Eye, EyeSlash as EyeOff, Download, Upload, Trash as Trash2, Key, Globe, Lightning as Zap, Check, Brain, MagicWand as Wand2, Plus, MagnifyingGlass as Search, Folder, HardDrive, Headphones, SpeakerHigh as Volume2, Microphone as Mic, Play, Square, Stack as Blocks, Plug, ArrowCounterClockwise as RotateCcw, Terminal, PencilSimple as Edit2, SpinnerGap as Loader2 } from "@phosphor-icons/react";
+import { X, Palette, Cloud, HardDrives as Server, Faders as Sliders, Database, Info, CaretRight as ChevronRight, CaretLeft as ChevronLeft, CaretDown as ChevronDown, Sun, Moon, Sparkle as Sparkles, Laptop, CheckCircle as CheckCircle2, XCircle, ArrowsClockwise as RefreshCw, Eye, EyeSlash as EyeOff, Download, Upload, Trash as Trash2, Key, Globe, Lightning as Zap, Check, Brain, MagicWand as Wand2, Plus, MagnifyingGlass as Search, Folder, HardDrive, Headphones, SpeakerHigh as Volume2, Microphone as Mic, Play, Square, Stack as Blocks, Plug, ArrowCounterClockwise as RotateCcw, Terminal, PencilSimple as Edit2, SpinnerGap as Loader2, BookmarkSimple as BookMarked, FileText } from "@phosphor-icons/react";
 import {
   AppSettings,
   OllamaModel,
@@ -16,7 +16,7 @@ import {
   MemoryConfig,
   MemoryItem,
 } from "@/lib/types";
-import { checkOllamaHealth } from "@/lib/ollama";
+import { checkOllamaHealth, formatBytes } from "@/lib/ollama";
 import { storage } from "@/lib/storage";
 import { DEFAULT_SKILLS } from "@/lib/skills";
 import { DEFAULT_CONNECTORS, DEFAULT_PLUGINS, DEFAULT_MEMORY_CONFIG } from "@/lib/directoryData";
@@ -51,6 +51,7 @@ export type SettingsSection =
   | "connectors"
   | "plugins"
   | "memory"
+  | "retrieval"
   | "cloud"
   | "server"
   | "data"
@@ -185,6 +186,14 @@ const FONT_OPTIONS: { id: FontFamilyType; name: string; desc: string; sample: st
   { id: "space", name: "Space Grotesk", desc: "Futuristic Grotesque", sample: "The quick brown fox jumps" },
 ];
 
+const CUSTOM_THEME_PRESETS = [
+  { name: "Cyberpunk Pink", bg: "#0d0221", fg: "#f3f4f6", sb: "#05010e", card: "#19053b", acc: "#ff007f" },
+  { name: "Matcha Minimal", bg: "#0f1711", fg: "#e2e8f0", sb: "#080e0a", card: "#18261c", acc: "#10b981" },
+  { name: "Solarized Ember", bg: "#1a1614", fg: "#fef3c7", sb: "#110e0c", card: "#29221d", acc: "#f59e0b" },
+  { name: "Royal Purple", bg: "#0f0c20", fg: "#ede9fe", sb: "#080614", card: "#1c173b", acc: "#a855f7" },
+  { name: "Deep Ocean", bg: "#0a192f", fg: "#e6f1ff", sb: "#020c1b", card: "#112240", acc: "#64ffda" },
+];
+
 export const SettingsModal: React.FC<SettingsModalProps> = ({
   isOpen,
   onClose,
@@ -215,6 +224,25 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [testStatus, setTestStatus] = useState<"idle" | "testing" | "success" | "failed">("idle");
   const [showKeys, setShowKeys] = useState<{ [key: string]: boolean }>({});
   const [applyFeedback, setApplyFeedback] = useState(false);
+
+  // Dropdown states for personalization
+  const [isThemeDropdownOpen, setIsThemeDropdownOpen] = useState(false);
+  const [isFontDropdownOpen, setIsFontDropdownOpen] = useState(false);
+  const themeDropdownRef = useRef<HTMLDivElement>(null);
+  const fontDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (themeDropdownRef.current && !themeDropdownRef.current.contains(e.target as Node)) {
+        setIsThemeDropdownOpen(false);
+      }
+      if (fontDropdownRef.current && !fontDropdownRef.current.contains(e.target as Node)) {
+        setIsFontDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   // Skills state in settings
   const [skillSearch, setSkillSearch] = useState("");
@@ -250,6 +278,116 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [newMemCategory, setNewMemCategory] = useState<"preference" | "profile" | "topic">("topic");
   const [newMemTitle, setNewMemTitle] = useState("");
   const [newMemContent, setNewMemContent] = useState("");
+
+  // Retrieval & Knowledge Hub state in settings
+  const [retrievalWatchedPath, setRetrievalWatchedPath] = useState(settings.watchedFolderPath || "");
+  const [retrievalWatcherStatus, setRetrievalWatcherStatus] = useState<"idle" | "starting" | "stopping" | "error">("idle");
+  const [retrievalWatcherError, setRetrievalWatcherError] = useState<string | null>(null);
+  const [webDocUrl, setWebDocUrl] = useState("");
+  const [isIngestingWebDoc, setIsIngestingWebDoc] = useState(false);
+  const [webDocError, setWebDocError] = useState<string | null>(null);
+  const [webDocSuccess, setWebDocSuccess] = useState<string | null>(null);
+  const [importedDocs, setImportedDocs] = useState<Array<{ id: string; name: string; size: number; url: string; timestamp: number }>>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const saved = window.localStorage.getItem("castalia_imported_web_docs");
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const handleToggleGlobalWatcher = async () => {
+    setRetrievalWatcherError(null);
+    const targetPath = retrievalWatchedPath.trim() || formData.watchedFolderPath?.trim();
+    if (!targetPath) {
+      setRetrievalWatcherError("Masukkan folder path terlebih dahulu.");
+      return;
+    }
+
+    if (formData.watchedFolderEnabled) {
+      setRetrievalWatcherStatus("stopping");
+      try {
+        await apiFetch("/api/projects/watcher", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ projectId: "global_workspace", action: "stop" }),
+        });
+        setFormData((prev) => ({ ...prev, watchedFolderEnabled: false }));
+      } catch (err: any) {
+        setRetrievalWatcherError(err.message || "Gagal menghentikan watcher.");
+      } finally {
+        setRetrievalWatcherStatus("idle");
+      }
+      return;
+    }
+
+    setRetrievalWatcherStatus("starting");
+    try {
+      const res = await apiFetch("/api/projects/watcher", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId: "global_workspace", action: "start", folderPath: targetPath }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setRetrievalWatcherError(data.error || "Gagal mengaktifkan folder watcher.");
+        setRetrievalWatcherStatus("error");
+        return;
+      }
+      setFormData((prev) => ({ ...prev, watchedFolderPath: targetPath, watchedFolderEnabled: true }));
+      setRetrievalWatcherStatus("idle");
+    } catch (err: any) {
+      setRetrievalWatcherError(err.message || "Gagal mengaktifkan folder watcher.");
+      setRetrievalWatcherStatus("error");
+    }
+  };
+
+  const handleIngestWebDoc = async () => {
+    const trimmed = webDocUrl.trim();
+    if (!trimmed) return;
+    setIsIngestingWebDoc(true);
+    setWebDocError(null);
+    setWebDocSuccess(null);
+    try {
+      const res = await apiFetch("/api/projects/ingest-url", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: trimmed }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success || !data.file) {
+        setWebDocError(data.error || "Gagal mengimpor dokumentasi web.");
+        return;
+      }
+      const newDoc = {
+        id: data.file.id,
+        name: data.file.name,
+        size: data.file.size,
+        url: trimmed,
+        timestamp: Date.now(),
+      };
+      const updated = [newDoc, ...importedDocs];
+      setImportedDocs(updated);
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem("castalia_imported_web_docs", JSON.stringify(updated));
+      }
+      setWebDocUrl("");
+      setWebDocSuccess(`Berhasil mengimpor: ${data.file.name} (${data.file.size} bytes)`);
+    } catch (err: any) {
+      setWebDocError(err.message || "Gagal mengimpor dokumentasi web.");
+    } finally {
+      setIsIngestingWebDoc(false);
+    }
+  };
+
+  const handleDeleteImportedDoc = (id: string) => {
+    const updated = importedDocs.filter((d) => d.id !== id);
+    setImportedDocs(updated);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("castalia_imported_web_docs", JSON.stringify(updated));
+    }
+  };
 
   // Voice Preview State in Settings
   const [previewVoicePlaying, setPreviewVoicePlaying] = useState(false);
@@ -840,6 +978,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       badgeBg: "bg-purple-500/15 text-purple-400",
       group: "customize",
     },
+    {
+      id: "retrieval",
+      label: "Knowledge & Retrieval (RAG)",
+      sublabel: "Advance Tuning, Watcher, Web Docs",
+      icon: BookMarked,
+      color: "text-indigo-400",
+      badgeBg: "bg-indigo-500/15 text-indigo-400",
+      group: "customize",
+    },
   ];
 
   const SYSTEM_NAV: NavItemDef[] = [
@@ -1114,40 +1261,75 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </p>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                  {THEME_OPTIONS.map((th) => {
-                    const isSelected = formData.theme === th.id;
-                    const IconComp = th.icon;
-                    return (
-                      <button
-                        key={th.id}
-                        type="button"
-                        onClick={() => {
-                          const updated = { ...formData, theme: th.id };
-                          setFormData(updated);
-                          onSaveSettings(updated);
-                        }}
-                        className={`p-3 rounded-2xl border text-left flex flex-col justify-between transition-all cursor-pointer ${
-                          isSelected
-                            ? "border-purple-500 bg-purple-500/10 ring-2 ring-purple-500/20"
-                            : "border-[var(--card-border)] bg-[var(--sidebar-bg)] hover:border-[var(--muted)]"
-                        }`}
-                      >
-                        <div className="flex items-center justify-between mb-1.5">
-                          <div className="flex items-center gap-2">
-                            <div className={`w-4 h-4 rounded-full ${th.previewAccent} shadow-xs`} />
-                            <span className="text-xs font-bold text-[var(--foreground)]">{th.name}</span>
-                          </div>
-                          {isSelected ? (
-                            <Check className="w-4 h-4 text-purple-400" />
-                          ) : (
-                            <IconComp className="w-3.5 h-3.5 text-[var(--muted)]" />
-                          )}
+                {/* Theme Dropdown Selector */}
+                <div className="relative" ref={themeDropdownRef}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsThemeDropdownOpen(!isThemeDropdownOpen);
+                      setIsFontDropdownOpen(false);
+                    }}
+                    className="w-full p-3.5 rounded-2xl border border-[var(--card-border)] bg-[var(--sidebar-bg)] hover:border-purple-500/50 flex items-center justify-between transition-all cursor-pointer shadow-xs"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className={`w-4 h-4 rounded-full ${THEME_OPTIONS.find((t) => t.id === formData.theme)?.previewAccent || "bg-blue-500"} shadow-xs flex-shrink-0`} />
+                      <div className="text-left min-w-0">
+                        <div className="text-xs font-bold text-[var(--foreground)] truncate flex items-center gap-2">
+                          <span>{THEME_OPTIONS.find((t) => t.id === formData.theme)?.name || "Midnight Dark"}</span>
+                          <span className="text-[10px] text-purple-400 font-mono font-normal">
+                            ({THEME_OPTIONS.find((t) => t.id === formData.theme)?.id})
+                          </span>
                         </div>
-                        <p className="text-[11px] text-[var(--muted)] leading-snug">{th.desc}</p>
-                      </button>
-                    );
-                  })}
+                        <div className="text-[11px] text-[var(--muted)] truncate">
+                          {THEME_OPTIONS.find((t) => t.id === formData.theme)?.desc}
+                        </div>
+                      </div>
+                    </div>
+                    <ChevronDown
+                      className={`w-4 h-4 text-[var(--muted)] flex-shrink-0 transition-transform duration-200 ${
+                        isThemeDropdownOpen ? "rotate-180" : ""
+                      }`}
+                    />
+                  </button>
+
+                  {isThemeDropdownOpen && (
+                    <div className="absolute left-0 right-0 top-full mt-1.5 max-h-72 overflow-y-auto rounded-2xl border border-[var(--card-border)] bg-[var(--card-bg)] shadow-2xl z-50 p-1.5 space-y-1 animate-in fade-in zoom-in-95 duration-100">
+                      {THEME_OPTIONS.map((th) => {
+                        const isSelected = formData.theme === th.id;
+                        const IconComp = th.icon;
+                        return (
+                          <button
+                            key={th.id}
+                            type="button"
+                            onClick={() => {
+                              const updated = { ...formData, theme: th.id };
+                              setFormData(updated);
+                              onSaveSettings(updated);
+                              setIsThemeDropdownOpen(false);
+                            }}
+                            className={`w-full p-2.5 rounded-xl text-left flex items-center justify-between transition-all cursor-pointer ${
+                              isSelected
+                                ? "bg-purple-500/15 text-purple-300 font-semibold"
+                                : "text-[var(--foreground)] hover:bg-[var(--sidebar-hover)]"
+                            }`}
+                          >
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <div className={`w-3.5 h-3.5 rounded-full ${th.previewAccent} flex-shrink-0 shadow-xs`} />
+                              <div className="min-w-0">
+                                <div className="text-xs font-bold truncate">{th.name}</div>
+                                <div className="text-[10px] text-[var(--muted)] truncate">{th.desc}</div>
+                              </div>
+                            </div>
+                            {isSelected ? (
+                              <Check className="w-4 h-4 text-purple-400 flex-shrink-0 ml-2" />
+                            ) : (
+                              <IconComp className="w-3.5 h-3.5 text-[var(--muted)] flex-shrink-0 ml-2" />
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
 
                 {/* Custom Palette Editor (When theme is custom) */}
@@ -1168,38 +1350,34 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       <label className="text-[10px] font-semibold text-[var(--muted)] uppercase tracking-wider">
                         Quick Preset Inspirations
                       </label>
-                      <div className="flex flex-wrap gap-1.5">
-                        {[
-                          { name: "Cyberpunk Pink", bg: "#0d0221", fg: "#f3f4f6", sb: "#05010e", card: "#19053b", acc: "#ff007f" },
-                          { name: "Matcha Minimal", bg: "#0f1711", fg: "#e2e8f0", sb: "#080e0a", card: "#18261c", acc: "#10b981" },
-                          { name: "Solarized Ember", bg: "#1a1614", fg: "#fef3c7", sb: "#110e0c", card: "#29221d", acc: "#f59e0b" },
-                          { name: "Royal Purple", bg: "#0f0c20", fg: "#ede9fe", sb: "#080614", card: "#1c173b", acc: "#a855f7" },
-                          { name: "Deep Ocean", bg: "#0a192f", fg: "#e6f1ff", sb: "#020c1b", card: "#112240", acc: "#64ffda" },
-                        ].map((preset) => (
-                          <button
-                            key={preset.name}
-                            type="button"
-                            onClick={() => {
-                              setFormData({
-                                ...formData,
-                                customTheme: {
-                                  name: preset.name,
-                                  background: preset.bg,
-                                  foreground: preset.fg,
-                                  sidebarBg: preset.sb,
-                                  cardBg: preset.card,
-                                  accent: preset.acc,
-                                  muted: "#94a3b8",
-                                },
-                              });
-                            }}
-                            className="px-2.5 py-1 rounded-lg text-[11px] font-medium border border-[var(--card-border)] bg-[var(--card-bg)] hover:border-purple-400 text-[var(--foreground)] transition-colors flex items-center gap-1.5 cursor-pointer"
-                          >
-                            <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: preset.acc }} />
-                            <span>{preset.name}</span>
-                          </button>
+                      <select
+                        value={CUSTOM_THEME_PRESETS.find((p) => p.name === formData.customTheme?.name)?.name || ""}
+                        onChange={(e) => {
+                          const preset = CUSTOM_THEME_PRESETS.find((p) => p.name === e.target.value);
+                          if (preset) {
+                            setFormData({
+                              ...formData,
+                              customTheme: {
+                                name: preset.name,
+                                background: preset.bg,
+                                foreground: preset.fg,
+                                sidebarBg: preset.sb,
+                                cardBg: preset.card,
+                                accent: preset.acc,
+                                muted: "#94a3b8",
+                              },
+                            });
+                          }
+                        }}
+                        className="w-full p-2.5 text-xs rounded-xl border border-[var(--card-border)] bg-[var(--card-bg)] text-[var(--foreground)] focus:ring-1 focus:ring-purple-500 focus:outline-none cursor-pointer"
+                      >
+                        <option value="" disabled>Pilih Quick Preset Inspirasi...</option>
+                        {CUSTOM_THEME_PRESETS.map((preset) => (
+                          <option key={preset.name} value={preset.name}>
+                            {preset.name} (Accent: {preset.acc})
+                          </option>
                         ))}
-                      </div>
+                      </select>
                     </div>
 
                     {/* Color inputs grid */}
@@ -1395,35 +1573,70 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     </p>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    {FONT_OPTIONS.map((font) => {
-                      const isSelected = (formData.fontFamily || "inter") === font.id;
-                      return (
-                        <div
-                          key={font.id}
-                          onClick={() => {
-                            const updated = { ...formData, fontFamily: font.id };
-                            setFormData(updated);
-                            onSaveSettings(updated);
-                          }}
-                          className={`p-3 rounded-2xl border text-left flex items-center justify-between transition-all cursor-pointer ${
-                            isSelected
-                              ? "border-blue-500 bg-blue-500/10 ring-2 ring-blue-500/20"
-                              : "border-[var(--card-border)] bg-[var(--sidebar-bg)] hover:border-[var(--muted)]"
-                          }`}
-                        >
-                          <div className="min-w-0 pr-2">
-                            <div className="text-xs font-bold text-[var(--foreground)] truncate">
-                              {font.name}
-                            </div>
-                            <div className="text-[10px] text-blue-400 truncate mt-0.5 font-medium">
-                              {font.sample}
-                            </div>
-                          </div>
-                          {isSelected && <Check className="w-4 h-4 text-blue-400 flex-shrink-0" />}
+                  {/* Font Dropdown Selector */}
+                  <div className="relative" ref={fontDropdownRef}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsFontDropdownOpen(!isFontDropdownOpen);
+                        setIsThemeDropdownOpen(false);
+                      }}
+                      className="w-full p-3.5 rounded-2xl border border-[var(--card-border)] bg-[var(--sidebar-bg)] hover:border-blue-500/50 flex items-center justify-between transition-all cursor-pointer shadow-xs"
+                    >
+                      <div className="text-left min-w-0">
+                        <div className="text-xs font-bold text-[var(--foreground)] truncate flex items-center gap-2">
+                          <span>{FONT_OPTIONS.find((f) => f.id === (formData.fontFamily || "inter"))?.name || "Inter"}</span>
+                          <span className="text-[10px] text-blue-400 font-mono font-normal">
+                            ({FONT_OPTIONS.find((f) => f.id === (formData.fontFamily || "inter"))?.id})
+                          </span>
                         </div>
-                      );
-                    })}
+                        <div className="text-[11px] text-[var(--muted)] truncate">
+                          {FONT_OPTIONS.find((f) => f.id === (formData.fontFamily || "inter"))?.desc} —{" "}
+                          <span className="font-mono text-blue-400">
+                            {FONT_OPTIONS.find((f) => f.id === (formData.fontFamily || "inter"))?.sample}
+                          </span>
+                        </div>
+                      </div>
+                      <ChevronDown
+                        className={`w-4 h-4 text-[var(--muted)] flex-shrink-0 transition-transform duration-200 ${
+                          isFontDropdownOpen ? "rotate-180" : ""
+                        }`}
+                      />
+                    </button>
+
+                    {isFontDropdownOpen && (
+                      <div className="absolute left-0 right-0 top-full mt-1.5 max-h-72 overflow-y-auto rounded-2xl border border-[var(--card-border)] bg-[var(--card-bg)] shadow-2xl z-50 p-1.5 space-y-1 animate-in fade-in zoom-in-95 duration-100">
+                        {FONT_OPTIONS.map((font) => {
+                          const isSelected = (formData.fontFamily || "inter") === font.id;
+                          return (
+                            <button
+                              key={font.id}
+                              type="button"
+                              onClick={() => {
+                                const updated = { ...formData, fontFamily: font.id };
+                                setFormData(updated);
+                                onSaveSettings(updated);
+                                setIsFontDropdownOpen(false);
+                              }}
+                              className={`w-full p-2.5 rounded-xl text-left flex items-center justify-between transition-all cursor-pointer ${
+                                isSelected
+                                  ? "bg-blue-500/15 text-blue-300 font-semibold"
+                                  : "text-[var(--foreground)] hover:bg-[var(--sidebar-hover)]"
+                              }`}
+                            >
+                              <div className="min-w-0">
+                                <div className="text-xs font-bold truncate">{font.name}</div>
+                                <div className="text-[10px] text-[var(--muted)] truncate flex items-center gap-2">
+                                  <span>{font.desc}</span>
+                                  <span className="text-blue-400 font-mono hidden xs:inline">{font.sample}</span>
+                                </div>
+                              </div>
+                              {isSelected && <Check className="w-4 h-4 text-blue-400 flex-shrink-0 ml-2" />}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -1445,59 +1658,39 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     <Brain className="w-4 h-4 text-purple-400" />
                     <span>Default Thinking & Reasoning Mode</span>
                   </div>
-                  <div className="grid grid-cols-3 gap-2">
-                    {[
-                      { id: "think", label: "Think Mode", desc: "Step-by-step reasoning" },
-                      { id: "nothink", label: "No-Think (Fast)", desc: "Direct concise response" },
-                      { id: "default", label: "Natural Default", desc: "Standard model behavior" },
-                    ].map((mode) => (
-                      <button
-                        key={mode.id}
-                        type="button"
-                        onClick={() =>
-                          setFormData({ ...formData, thinkingMode: mode.id as ThinkingMode })
-                        }
-                        className={`p-2 rounded-xl text-left border transition-all cursor-pointer ${
-                          formData.thinkingMode === mode.id
-                            ? "border-purple-500 bg-purple-500/15 text-[var(--foreground)] font-bold ring-1 ring-purple-500"
-                            : "border-[var(--card-border)] bg-[var(--card-bg)] text-[var(--muted)] hover:text-[var(--foreground)]"
-                        }`}
-                      >
-                        <div className="text-xs">{mode.label}</div>
-                        <div className="text-[9px] opacity-75">{mode.desc}</div>
-                      </button>
-                    ))}
-                  </div>
+                  <select
+                    value={formData.thinkingMode || "default"}
+                    onChange={(e) =>
+                      setFormData({ ...formData, thinkingMode: e.target.value as ThinkingMode })
+                    }
+                    className="w-full p-2.5 text-xs rounded-xl border border-[var(--card-border)] bg-[var(--card-bg)] text-[var(--foreground)] focus:ring-1 focus:ring-purple-500 focus:outline-none cursor-pointer"
+                  >
+                    <option value="default">Natural Default — Standard model reasoning behavior</option>
+                    <option value="think">Think Mode — Forces Chain-of-Thought step-by-step reasoning</option>
+                    <option value="nothink">No-Think (Fast) — High-speed direct concise response</option>
+                  </select>
                 </div>
 
                 {/* Quick Presets */}
-                <div className="flex items-center justify-between gap-2 p-2.5 rounded-2xl bg-[var(--sidebar-bg)] border border-[var(--card-border)]">
-                  <span className="text-xs font-semibold text-[var(--muted)] flex items-center gap-1">
-                    <Wand2 className="w-3.5 h-3.5 text-amber-400" /> Presets:
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 rounded-2xl bg-[var(--sidebar-bg)] border border-[var(--card-border)]">
+                  <span className="text-xs font-semibold text-[var(--foreground)] flex items-center gap-1.5">
+                    <Wand2 className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Hyperparameter Presets</span>
                   </span>
-                  <div className="flex gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => applyParamPreset("code")}
-                      className="px-2.5 py-1 rounded-lg text-xs bg-[var(--card-bg)] hover:bg-[var(--sidebar-hover)] border border-[var(--card-border)] text-blue-400 font-medium cursor-pointer"
-                    >
-                      Precise Code (0.2)
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => applyParamPreset("balanced")}
-                      className="px-2.5 py-1 rounded-lg text-xs bg-[var(--card-bg)] hover:bg-[var(--sidebar-hover)] border border-[var(--card-border)] text-emerald-400 font-medium cursor-pointer"
-                    >
-                      Balanced (0.7)
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => applyParamPreset("creative")}
-                      className="px-2.5 py-1 rounded-lg text-xs bg-[var(--card-bg)] hover:bg-[var(--sidebar-hover)] border border-[var(--card-border)] text-pink-400 font-medium cursor-pointer"
-                    >
-                      Creative (1.2)
-                    </button>
-                  </div>
+                  <select
+                    defaultValue=""
+                    onChange={(e) => {
+                      if (e.target.value) {
+                        applyParamPreset(e.target.value as any);
+                      }
+                    }}
+                    className="w-full sm:w-72 p-2 text-xs rounded-xl border border-[var(--card-border)] bg-[var(--card-bg)] text-[var(--foreground)] focus:ring-1 focus:ring-amber-500 focus:outline-none cursor-pointer"
+                  >
+                    <option value="" disabled>Pilih Parameter Preset...</option>
+                    <option value="code">Precise Code (Temp 0.2, TopP 0.8, Pen 1.15)</option>
+                    <option value="balanced">Balanced Assistant (Temp 0.7, TopP 0.9, Pen 1.1)</option>
+                    <option value="creative">Creative Writer (Temp 1.2, TopP 0.95, Pen 1.05)</option>
+                  </select>
                 </div>
 
                 {/* Hyperparameter Sliders Grid */}
@@ -1613,85 +1806,45 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     </div>
                   </div>
 
-                  {/* Preset Cards Grid */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 pt-1">
-                    {CONTEXT_SIZE_PRESETS.map((preset) => {
-                      const isSelected = (formData.numCtx || 16384) === preset.value;
-                      return (
-                        <div
-                          key={preset.value}
-                          onClick={() => setFormData({ ...formData, numCtx: preset.value })}
-                          className={`p-3 rounded-xl border transition-all cursor-pointer flex flex-col justify-between space-y-2 select-none ${
-                            isSelected
-                              ? "bg-cyan-500/10 border-cyan-500 shadow-sm shadow-cyan-500/10 text-[var(--foreground)]"
-                              : "bg-[var(--card-bg)] border-[var(--card-border)] hover:border-[var(--muted)]/50 hover:bg-[var(--sidebar-hover)]"
-                          }`}
-                        >
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs font-bold font-mono text-[var(--foreground)] flex items-center gap-1.5">
-                              {preset.name}
-                            </span>
-                            <span
-                              className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full uppercase tracking-wider ${
-                                preset.badge === "Recommended"
-                                  ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/40"
-                                  : preset.badge === "Lightweight"
-                                  ? "bg-blue-500/15 text-blue-400"
-                                  : preset.badge === "Massive"
-                                  ? "bg-purple-500/15 text-purple-400"
-                                  : "bg-[var(--sidebar-bg)] text-[var(--muted)]"
-                              }`}
-                            >
-                              {preset.badge}
-                            </span>
-                          </div>
-
-                          <p className="text-[10px] text-[var(--muted)] leading-relaxed">
-                            {preset.desc}
-                          </p>
-
-                          <div className="flex items-center justify-between text-[10px] font-mono text-[var(--muted)] pt-1 border-t border-[var(--card-border)]/50">
-                            <span>{preset.vramEst}</span>
-                            {isSelected && (
-                              <span className="flex items-center gap-1 text-cyan-400 font-bold">
-                                <Check className="w-3 h-3" />
-                                Aktif
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-
-                    {/* Custom Value Option */}
-                    <div
-                      className={`p-3 rounded-xl border transition-all flex flex-col justify-between space-y-1.5 ${
-                        !CONTEXT_SIZE_PRESETS.some((p) => p.value === formData.numCtx)
-                          ? "bg-cyan-500/10 border-cyan-500 text-[var(--foreground)]"
-                          : "bg-[var(--card-bg)] border-[var(--card-border)]"
-                      }`}
+                  {/* Context Window Preset Dropdown Selector */}
+                  <div className="space-y-2 pt-1">
+                    <select
+                      value={CONTEXT_SIZE_PRESETS.some((p) => p.value === formData.numCtx) ? formData.numCtx : "custom"}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val !== "custom") {
+                          setFormData({ ...formData, numCtx: Number(val) });
+                        }
+                      }}
+                      className="w-full p-2.5 text-xs font-mono rounded-xl border border-[var(--card-border)] bg-[var(--card-bg)] text-[var(--foreground)] focus:ring-1 focus:ring-cyan-500 focus:outline-none cursor-pointer"
                     >
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold text-[var(--foreground)]">Custom Tokens</span>
-                        <span className="text-[9px] font-mono bg-[var(--sidebar-bg)] px-1.5 py-0.5 rounded text-[var(--muted)]">
-                          Manual
-                        </span>
+                      {CONTEXT_SIZE_PRESETS.map((preset) => (
+                        <option key={preset.value} value={preset.value}>
+                          {preset.name} ({preset.desc}) — {preset.vramEst} [{preset.badge}]
+                        </option>
+                      ))}
+                      <option value="custom">Custom Token Count (Manual)...</option>
+                    </select>
+
+                    {!CONTEXT_SIZE_PRESETS.some((p) => p.value === formData.numCtx) && (
+                      <div className="flex items-center gap-2 pt-1 animate-in fade-in">
+                        <span className="text-xs text-[var(--muted)]">Custom tokens:</span>
+                        <input
+                          type="number"
+                          min={1024}
+                          max={131072}
+                          step={1024}
+                          value={formData.numCtx || 16384}
+                          onChange={(e) => {
+                            const val = parseInt(e.target.value, 10);
+                            setFormData({ ...formData, numCtx: isNaN(val) ? 16384 : Math.max(1024, val) });
+                          }}
+                          className="px-3 py-1.5 text-xs font-mono rounded-xl border border-[var(--card-border)] bg-[var(--card-bg)] text-[var(--foreground)] focus:outline-none focus:ring-1 focus:ring-cyan-500 w-44"
+                          placeholder="e.g. 16384"
+                        />
+                        <span className="text-[10px] text-[var(--muted)]">(1,024 - 131,072)</span>
                       </div>
-                      <input
-                        type="number"
-                        min={1024}
-                        max={131072}
-                        step={1024}
-                        value={formData.numCtx || 16384}
-                        onChange={(e) => {
-                          const val = parseInt(e.target.value, 10);
-                          setFormData({ ...formData, numCtx: isNaN(val) ? 16384 : Math.max(1024, val) });
-                        }}
-                        className="w-full px-2.5 py-1 text-xs font-mono rounded-lg border border-[var(--card-border)] bg-[var(--sidebar-bg)] text-[var(--foreground)] focus:outline-none focus:ring-1 focus:ring-cyan-500"
-                        placeholder="e.g. 16384"
-                      />
-                      <span className="text-[9px] text-[var(--muted)]">1,024 - 131,072 tokens</span>
-                    </div>
+                    )}
                   </div>
 
                   {/* Persistent Sync Guarantee Banner */}
@@ -1890,54 +2043,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     </span>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 pt-1">
-                    {/* Engine 1: Natural Neural */}
-                    <button
-                      type="button"
-                      onClick={() => updateVoice({ engine: "natural" })}
-                      className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
-                        (formData.voice?.engine || "natural") === "natural"
-                          ? "border-purple-500 bg-purple-500/10 text-[var(--foreground)] shadow-sm"
-                          : "border-[var(--card-border)] bg-[var(--card-bg)] text-[var(--muted)] hover:text-[var(--foreground)]"
-                      }`}
+                  <div className="pt-1">
+                    <select
+                      value={formData.voice?.engine || "natural"}
+                      onChange={(e) => updateVoice({ engine: e.target.value as any })}
+                      className="w-full p-2.5 text-xs rounded-xl border border-[var(--card-border)] bg-[var(--card-bg)] text-[var(--foreground)] focus:ring-1 focus:ring-purple-500 focus:outline-none cursor-pointer"
                     >
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-xs font-bold text-purple-300 flex items-center gap-1.5">
-                          <Sparkles className="w-3.5 h-3.5 text-purple-400" />
-                          Natural Neural (Rekomendasi)
-                        </span>
-                        {(formData.voice?.engine || "natural") === "natural" && (
-                          <Check className="w-3.5 h-3.5 text-purple-400" />
-                        )}
-                      </div>
-                      <p className="text-[10px] leading-relaxed text-[var(--muted)]">
-                        Memprioritaskan suara modern Microsoft Online Natural & Google Neural tanpa robotik. 100% Gratis & tanpa kuota API.
-                      </p>
-                    </button>
-
-                    {/* Engine 2: Standard Browser */}
-                    <button
-                      type="button"
-                      onClick={() => updateVoice({ engine: "browser" })}
-                      className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
-                        formData.voice?.engine === "browser"
-                          ? "border-blue-500 bg-blue-500/10 text-[var(--foreground)] shadow-sm"
-                          : "border-[var(--card-border)] bg-[var(--card-bg)] text-[var(--muted)] hover:text-[var(--foreground)]"
-                      }`}
-                    >
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-xs font-bold text-blue-300 flex items-center gap-1.5">
-                          <Volume2 className="w-3.5 h-3.5 text-blue-400" />
-                          Browser Offline Default
-                        </span>
-                        {formData.voice?.engine === "browser" && (
-                          <Check className="w-3.5 h-3.5 text-blue-400" />
-                        )}
-                      </div>
-                      <p className="text-[10px] leading-relaxed text-[var(--muted)]">
-                        Menggunakan suara bawaan SpeechSynthesis OS/browser lokal secara langsung.
-                      </p>
-                    </button>
+                      <option value="natural">Natural Neural (Rekomendasi) — Microsoft Natural & Google Neural tanpa robotik (100% Gratis)</option>
+                      <option value="browser">Browser Offline Default — Suara bawaan SpeechSynthesis OS/browser lokal</option>
+                    </select>
                   </div>
                 </div>
 
@@ -1955,44 +2069,27 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     </span>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
-                    {VOICE_PRESETS.filter((p) => p.id !== "system_custom").map((preset) => {
-                      const isSelected = (formData.voice?.presetId || "female_gadis") === preset.id;
-                      return (
-                        <button
-                          key={preset.id}
-                          type="button"
-                          onClick={() =>
-                            updateVoice({
-                              presetId: preset.id,
-                              pitch: preset.defaultPitch,
-                              rate: preset.defaultRate,
-                            })
-                          }
-                          className={`p-3 rounded-xl border text-left transition-all relative overflow-hidden cursor-pointer ${
-                            isSelected
-                              ? "border-purple-500 bg-purple-500/10 shadow-sm"
-                              : "border-[var(--card-border)] bg-[var(--card-bg)] hover:border-purple-500/40"
-                          }`}
-                        >
-                          {isSelected && (
-                            <div className="absolute top-2 right-2">
-                              <Check className="w-4 h-4 text-purple-400" />
-                            </div>
-                          )}
-                          <div className="flex items-center gap-2.5 mb-2">
-                            <span className="text-2xl">{preset.icon}</span>
-                            <div>
-                              <div className="text-xs font-bold text-[var(--foreground)]">{preset.name}</div>
-                              <div className="text-[10px] text-[var(--muted)]">{preset.gender === "female" ? "Perempuan" : preset.gender === "male" ? "Laki-laki" : "Robot"}</div>
-                            </div>
-                          </div>
-                          <p className="text-[11px] text-[var(--muted)] line-clamp-2 leading-relaxed">
-                            {preset.desc}
-                          </p>
-                        </button>
-                      );
-                    })}
+                  <div className="pt-1">
+                    <select
+                      value={formData.voice?.presetId || "female_gadis"}
+                      onChange={(e) => {
+                        const preset = VOICE_PRESETS.find((p) => p.id === e.target.value);
+                        if (preset) {
+                          updateVoice({
+                            presetId: preset.id,
+                            pitch: preset.defaultPitch,
+                            rate: preset.defaultRate,
+                          });
+                        }
+                      }}
+                      className="w-full p-2.5 text-xs rounded-xl border border-[var(--card-border)] bg-[var(--card-bg)] text-[var(--foreground)] focus:ring-1 focus:ring-purple-500 focus:outline-none cursor-pointer"
+                    >
+                      {VOICE_PRESETS.filter((p) => p.id !== "system_custom").map((preset) => (
+                        <option key={preset.id} value={preset.id}>
+                          {preset.icon} {preset.name} ({preset.gender === "female" ? "Perempuan" : preset.gender === "male" ? "Laki-laki" : "Robot"}) — {preset.desc}
+                        </option>
+                      ))}
+                    </select>
                   </div>
 
                   {/* System Voice Picker Dropdown */}
@@ -2047,37 +2144,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                    {TONE_OPTIONS.map((t) => {
-                      const isSelected = (formData.voice?.tone || "casual") === t.id;
-                      return (
-                        <button
-                          key={t.id}
-                          type="button"
-                          onClick={() => updateVoice({ tone: t.id })}
-                          className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
-                            isSelected
-                              ? "border-purple-500 bg-purple-500/10 shadow-sm"
-                              : "border-[var(--card-border)] bg-[var(--card-bg)] hover:border-purple-500/30"
-                          }`}
-                        >
-                          <div className="flex items-center justify-between mb-1.5">
-                            <span className="text-base">{t.icon}</span>
-                            <span
-                              className={`text-[9px] px-2 py-0.5 rounded-full font-semibold ${
-                                isSelected
-                                  ? "bg-purple-500/20 text-purple-300"
-                                  : "bg-[var(--sidebar-bg)] text-[var(--muted)]"
-                              }`}
-                            >
-                              {t.badge}
-                            </span>
-                          </div>
-                          <div className="text-xs font-bold text-[var(--foreground)]">{t.label}</div>
-                          <p className="text-[10px] text-[var(--muted)] mt-1 leading-relaxed">{t.desc}</p>
-                        </button>
-                      );
-                    })}
+                  <div className="pt-1">
+                    <select
+                      value={formData.voice?.tone || "casual"}
+                      onChange={(e) => updateVoice({ tone: e.target.value as any })}
+                      className="w-full p-2.5 text-xs rounded-xl border border-[var(--card-border)] bg-[var(--card-bg)] text-[var(--foreground)] focus:ring-1 focus:ring-purple-500 focus:outline-none cursor-pointer"
+                    >
+                      {TONE_OPTIONS.map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {t.icon} {t.label} [{t.badge}] — {t.desc}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                 </div>
 
@@ -3117,6 +3195,378 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         ))}
                     </div>
                   )}
+                </div>
+              </div>
+            )}
+
+            {/* 6.5. KNOWLEDGE & RETRIEVAL (RAG) ARCHITECTURE */}
+            {activeSection === "retrieval" && (
+              <div className="space-y-5 animate-in fade-in duration-150">
+                <div>
+                  <h3 className="text-sm font-bold text-[var(--foreground)] flex items-center gap-2">
+                    <BookMarked className="w-4 h-4 text-indigo-400" />
+                    <span>Knowledge & Retrieval (RAG) Architecture</span>
+                  </h3>
+                  <p className="text-xs text-[var(--muted)] mt-0.5">
+                    Konfigurasi parameter RAG tingkat lanjut, pemantau folder otomatis di latar belakang (Ambient Watcher), dan pengimpor dokumentasi web langsung.
+                  </p>
+                </div>
+
+                {/* 1. Ambient Folder Watcher */}
+                <div className="p-4 rounded-2xl bg-[var(--sidebar-bg)] border border-[var(--card-border)] space-y-3.5">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <Folder className="w-4 h-4 text-amber-400" />
+                        <h4 className="text-xs font-bold text-[var(--foreground)]">
+                          Ambient Folder Watcher
+                        </h4>
+                        <span
+                          className={`text-[9px] font-mono font-bold px-2 py-0.5 rounded-full uppercase tracking-wider ${
+                            formData.watchedFolderEnabled
+                              ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30"
+                              : "bg-[var(--card-bg)] text-[var(--muted)] border border-[var(--card-border)]"
+                          }`}
+                        >
+                          {formData.watchedFolderEnabled ? "Active & Watching" : "Stopped"}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-[var(--muted)] mt-1">
+                        Memantau folder lokal di sistem kamu secara real-time. Perubahan file secara otomatis diproses dan disinkronkan ke retrieval engine.
+                      </p>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={handleToggleGlobalWatcher}
+                      disabled={retrievalWatcherStatus === "starting" || retrievalWatcherStatus === "stopping"}
+                      className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer flex-shrink-0 flex items-center gap-1.5 ${
+                        formData.watchedFolderEnabled
+                          ? "bg-rose-500/15 hover:bg-rose-500/25 text-rose-400 border border-rose-500/30"
+                          : "bg-emerald-600 hover:bg-emerald-500 text-white shadow-xs"
+                      }`}
+                    >
+                      {retrievalWatcherStatus === "starting" || retrievalWatcherStatus === "stopping" ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          <span>Memproses...</span>
+                        </>
+                      ) : formData.watchedFolderEnabled ? (
+                        "Hentikan Watcher"
+                      ) : (
+                        "Aktifkan Watcher"
+                      )}
+                    </button>
+                  </div>
+
+                  {retrievalWatcherError && (
+                    <div className="flex items-center gap-2 p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/25 text-rose-400 text-xs">
+                      <XCircle className="w-4 h-4 flex-shrink-0" />
+                      <span>{retrievalWatcherError}</span>
+                    </div>
+                  )}
+
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] font-semibold text-[var(--muted)]">
+                      Target Folder Path di Komputer Anda:
+                    </label>
+                    <input
+                      type="text"
+                      value={retrievalWatchedPath}
+                      onChange={(e) => {
+                        setRetrievalWatchedPath(e.target.value);
+                        setFormData({ ...formData, watchedFolderPath: e.target.value });
+                      }}
+                      placeholder="e.g. D:\Projects\MyCodebase atau C:\Users\Documents\Notes"
+                      className="w-full px-3 py-2 text-xs font-mono rounded-xl border border-[var(--card-border)] bg-[var(--card-bg)] text-[var(--foreground)] placeholder-[var(--muted)] focus:outline-none focus:ring-1 focus:ring-amber-500"
+                    />
+                  </div>
+                </div>
+
+                {/* 2. Import Web Documentation */}
+                <div className="p-4 rounded-2xl bg-[var(--sidebar-bg)] border border-[var(--card-border)] space-y-3.5">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <Globe className="w-4 h-4 text-sky-400" />
+                        <h4 className="text-xs font-bold text-[var(--foreground)]">
+                          Import Web Documentation & Articles
+                        </h4>
+                      </div>
+                      <p className="text-[11px] text-[var(--muted)] mt-1">
+                        Scrape dan ekstrak dokumentasi API, halaman tutorial, atau artikel teknis dari web untuk dijadikan referensi pengetahuan AI.
+                      </p>
+                    </div>
+                  </div>
+
+                  {webDocError && (
+                    <div className="flex items-center gap-2 p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/25 text-rose-400 text-xs">
+                      <XCircle className="w-4 h-4 flex-shrink-0" />
+                      <span>{webDocError}</span>
+                    </div>
+                  )}
+
+                  {webDocSuccess && (
+                    <div className="flex items-center gap-2 p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 text-xs">
+                      <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
+                      <span>{webDocSuccess}</span>
+                    </div>
+                  )}
+
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <input
+                      type="url"
+                      value={webDocUrl}
+                      onChange={(e) => setWebDocUrl(e.target.value)}
+                      placeholder="https://docs.anthropic.com/en/docs/... atau https://nextjs.org/docs"
+                      className="flex-1 px-3 py-2 text-xs rounded-xl border border-[var(--card-border)] bg-[var(--card-bg)] text-[var(--foreground)] placeholder-[var(--muted)] focus:outline-none focus:ring-1 focus:ring-sky-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleIngestWebDoc}
+                      disabled={isIngestingWebDoc || !webDocUrl.trim()}
+                      className="px-4 py-2 rounded-xl text-xs font-semibold bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white transition-all cursor-pointer flex items-center justify-center gap-1.5 flex-shrink-0"
+                    >
+                      {isIngestingWebDoc ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          <span>Scraping...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Download className="w-3.5 h-3.5" />
+                          <span>Impor Web Docs</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+
+                  {/* List of Imported Web Docs */}
+                  {importedDocs.length > 0 && (
+                    <div className="pt-2 space-y-1.5 border-t border-[var(--card-border)]/60">
+                      <div className="text-[11px] font-semibold text-[var(--muted)]">
+                        Dokumentasi Web yang Telah Diimpor ({importedDocs.length}):
+                      </div>
+                      <div className="space-y-1 max-h-48 overflow-y-auto pr-1">
+                        {importedDocs.map((doc) => (
+                          <div
+                            key={doc.id}
+                            className="flex items-center justify-between p-2 rounded-xl bg-[var(--card-bg)] border border-[var(--card-border)] text-xs"
+                          >
+                            <div className="flex items-center gap-2 min-w-0 flex-1">
+                              <FileText className="w-3.5 h-3.5 text-sky-400 flex-shrink-0" />
+                              <div className="min-w-0">
+                                <div className="font-medium text-[var(--foreground)] truncate">
+                                  {doc.name}
+                                </div>
+                                <div className="text-[10px] text-[var(--muted)] font-mono truncate">
+                                  {doc.url}
+                                </div>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2 flex-shrink-0 ml-2">
+                              <span className="text-[10px] font-mono text-[var(--muted)]">
+                                {formatBytes(doc.size)}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteImportedDoc(doc.id)}
+                                className="p-1 rounded-lg text-[var(--muted)] hover:text-rose-400 transition-colors cursor-pointer"
+                                title="Hapus dokumentasi"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* 3. Advance Retrieval Tuning */}
+                <div className="p-4 rounded-2xl bg-[var(--sidebar-bg)] border border-[var(--card-border)] space-y-4">
+                  <div>
+                    <h4 className="text-xs font-bold text-[var(--foreground)] flex items-center gap-1.5">
+                      <Sliders className="w-4 h-4 text-indigo-400" />
+                      <span>Advance Retrieval Hyperparameters</span>
+                    </h4>
+                    <p className="text-[11px] text-[var(--muted)] mt-0.5">
+                      Parameter chunking dan reranking global saat dokumen dipotong menjadi potongan semantik dan diambil oleh AI.
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {/* Chunk Size */}
+                    <div className="p-3 rounded-2xl bg-[var(--card-bg)] border border-[var(--card-border)] space-y-2">
+                      <div className="flex items-center justify-between text-xs font-bold text-[var(--foreground)]">
+                        <span>Chunk Size</span>
+                        <span className="font-mono text-cyan-400 text-xs">
+                          {(formData.ragChunkSizeChars || 1800).toLocaleString()} chars
+                        </span>
+                      </div>
+                      <input
+                        type="range"
+                        min={500}
+                        max={4000}
+                        step={100}
+                        value={formData.ragChunkSizeChars || 1800}
+                        onChange={(e) =>
+                          setFormData({ ...formData, ragChunkSizeChars: parseInt(e.target.value, 10) })
+                        }
+                        className="w-full h-1.5 rounded-lg appearance-none cursor-pointer accent-cyan-500"
+                      />
+                      <div className="flex justify-between text-[10px] text-[var(--muted)]">
+                        <span>500 (Presisi)</span>
+                        <span>4000 (Luas)</span>
+                      </div>
+                    </div>
+
+                    {/* Chunk Overlap */}
+                    <div className="p-3 rounded-2xl bg-[var(--card-bg)] border border-[var(--card-border)] space-y-2">
+                      <div className="flex items-center justify-between text-xs font-bold text-[var(--foreground)]">
+                        <span>Chunk Overlap</span>
+                        <span className="font-mono text-cyan-400 text-xs">
+                          {(formData.ragChunkOverlapChars || 200).toLocaleString()} chars
+                        </span>
+                      </div>
+                      <input
+                        type="range"
+                        min={0}
+                        max={Math.min(1000, Math.max(0, (formData.ragChunkSizeChars || 1800) - 100))}
+                        step={50}
+                        value={Math.min(
+                          formData.ragChunkOverlapChars || 200,
+                          Math.max(0, (formData.ragChunkSizeChars || 1800) - 100)
+                        )}
+                        onChange={(e) =>
+                          setFormData({ ...formData, ragChunkOverlapChars: parseInt(e.target.value, 10) })
+                        }
+                        className="w-full h-1.5 rounded-lg appearance-none cursor-pointer accent-cyan-500"
+                      />
+                      <div className="flex justify-between text-[10px] text-[var(--muted)]">
+                        <span>0 (None)</span>
+                        <span>Mencegah kehilangan konteks di perbatasan chunk</span>
+                      </div>
+                    </div>
+
+                    {/* Retrieved Chunks (topK) */}
+                    <div className="p-3 rounded-2xl bg-[var(--card-bg)] border border-[var(--card-border)] space-y-2">
+                      <div className="flex items-center justify-between text-xs font-bold text-[var(--foreground)]">
+                        <span>Chunks Retrieved (topK)</span>
+                        <span className="font-mono text-purple-400 text-xs">
+                          {formData.ragTopK || 8}
+                        </span>
+                      </div>
+                      <input
+                        type="range"
+                        min={2}
+                        max={20}
+                        step={1}
+                        value={formData.ragTopK || 8}
+                        onChange={(e) =>
+                          setFormData({ ...formData, ragTopK: parseInt(e.target.value, 10) })
+                        }
+                        className="w-full h-1.5 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                      />
+                      <div className="flex justify-between text-[10px] text-[var(--muted)]">
+                        <span>2 (Fokus)</span>
+                        <span>20 (Komprehensif)</span>
+                      </div>
+                    </div>
+
+                    {/* Semantic vs Keyword Blend */}
+                    <div className="p-3 rounded-2xl bg-[var(--card-bg)] border border-[var(--card-border)] space-y-2">
+                      <div className="flex items-center justify-between text-xs font-bold text-[var(--foreground)]">
+                        <span>Semantic / Keyword Blend</span>
+                        <span className="font-mono text-emerald-400 text-xs">
+                          {Math.round((formData.ragSemanticWeight ?? 0.55) * 100)}% /{" "}
+                          {Math.round((1 - (formData.ragSemanticWeight ?? 0.55)) * 100)}%
+                        </span>
+                      </div>
+                      <input
+                        type="range"
+                        min={0}
+                        max={1}
+                        step={0.05}
+                        value={formData.ragSemanticWeight ?? 0.55}
+                        onChange={(e) =>
+                          setFormData({ ...formData, ragSemanticWeight: parseFloat(e.target.value) })
+                        }
+                        className="w-full h-1.5 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                      />
+                      <div className="flex justify-between text-[10px] text-[var(--muted)]">
+                        <span>Keyword (BM25)</span>
+                        <span>Semantic (Vector)</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Adjacent Chunk Stitching */}
+                  <div className="pt-2 border-t border-[var(--card-border)] space-y-2">
+                    <label className="flex items-center justify-between cursor-pointer">
+                      <div className="pr-4">
+                        <span className="text-xs font-medium text-[var(--foreground)]">
+                          Stitch Adjacent Chunks
+                        </span>
+                        <p className="text-[10px] text-[var(--muted)]">
+                          Menggabungkan kembali potongan chunk yang berurutan menjadi satu blok utuh jika keduanya relevan.
+                        </p>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={formData.ragStitchChunks ?? true}
+                        onChange={(e) =>
+                          setFormData({ ...formData, ragStitchChunks: e.target.checked })
+                        }
+                        className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                      />
+                    </label>
+                  </div>
+
+                  {/* HyDE Option */}
+                  <div className="pt-2 border-t border-[var(--card-border)] space-y-2">
+                    <label className="flex items-center justify-between cursor-pointer">
+                      <div className="pr-4">
+                        <span className="text-xs font-medium text-[var(--foreground)]">
+                          HyDE (Hypothetical Document Embeddings)
+                        </span>
+                        <p className="text-[10px] text-[var(--muted)]">
+                          Menghasilkan hipotesis jawaban sebelum pencarian untuk meningkatkan akurasi retrieval pada pertanyaan konseptual.
+                        </p>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={Boolean(formData.ragHydeEnabled)}
+                        onChange={(e) =>
+                          setFormData({ ...formData, ragHydeEnabled: e.target.checked })
+                        }
+                        className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                      />
+                    </label>
+                  </div>
+
+                  {/* Reranker Option */}
+                  <div className="pt-2 border-t border-[var(--card-border)] space-y-2">
+                    <label className="flex items-center justify-between cursor-pointer">
+                      <div className="pr-4">
+                        <span className="text-xs font-medium text-[var(--foreground)]">
+                          Cross-Encoder Reranker
+                        </span>
+                        <p className="text-[10px] text-[var(--muted)]">
+                          Mengurutkan ulang peringkat potongan dokumen yang diambil menggunakan model cross-encoder lokal untuk relevansi optimal.
+                        </p>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={Boolean(formData.ragRerankEnabled ?? true)}
+                        onChange={(e) =>
+                          setFormData({ ...formData, ragRerankEnabled: e.target.checked })
+                        }
+                        className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                      />
+                    </label>
+                  </div>
                 </div>
               </div>
             )}

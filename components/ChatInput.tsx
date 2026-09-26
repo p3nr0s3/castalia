@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useRef, useEffect, useState } from "react";
-import { ArrowUp, Square, Sparkle as Sparkles, Paperclip, Plus, CaretDown as ChevronDown, X, FileText, Globe, Microphone as Mic, MicrophoneSlash as MicOff, CodeSimple as Code2, Brain, Lightning as Zap, Folder, Trash as Trash2, Terminal, Translate as Languages, TextAlignLeft as AlignLeft, Lightbulb, Wrench, GitBranch, Headphones, PhoneCall, Warning as AlertTriangle, ShieldCheck, Clock } from "@phosphor-icons/react";
+import { ArrowUp, Square, Sparkle as Sparkles, Paperclip, Plus, CaretDown as ChevronDown, X, FileText, Globe, Microphone as Mic, MicrophoneSlash as MicOff, CodeSimple as Code2, Brain, Lightning as Zap, Folder, Trash as Trash2, Terminal, Translate as Languages, TextAlignLeft as AlignLeft, Lightbulb, Wrench, GitBranch, Headphones, PhoneCall, Warning as AlertTriangle, ShieldCheck, Clock, BookmarkSimple as BookMarked } from "@phosphor-icons/react";
 import { Attachment, ThinkingMode, OllamaModel, ApiKeysConfig, Skill } from "@/lib/types";
 import { formatBytes, detectModelProvider, getApiKeyForProvider } from "@/lib/ollama";
 import { processSelectedFiles } from "@/lib/fileUtils";
@@ -47,6 +47,7 @@ interface ChatInputProps {
   onOpenDiskExplorer?: () => void;
   onClearChat?: () => void;
   onOpenVoiceCall?: () => void;
+  onOpenCodespace?: () => void;
   skills?: Skill[];
   isConnected?: boolean;
   ollamaUrl?: string;
@@ -84,6 +85,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   onOpenDiskExplorer,
   onClearChat,
   onOpenVoiceCall,
+  onOpenCodespace,
   skills = [],
   isConnected,
   ollamaUrl,
@@ -705,11 +707,11 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                 type="button"
                 onClick={onOpenVoiceCall}
                 disabled={disabled || isStreaming}
-                className="flex items-center gap-1 px-2 py-1 sm:px-2.5 sm:py-1.5 rounded-xl text-xs font-medium text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 shadow-2xs transition-all cursor-pointer flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-emerald-500/10"
+                className="flex items-center gap-1 px-2 py-1 sm:px-2.5 sm:py-1.5 rounded-xl text-xs font-medium text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--sidebar-hover)] transition-all cursor-pointer flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
                 title="Interactive Chat (Percakapan Suara Real-Time)"
               >
-                <Headphones className="w-3.5 h-3.5 text-emerald-400" />
-                <span className="hidden sm:inline text-[11px] font-semibold">Interactive Chat</span>
+                <Headphones className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline text-[11px]">Interactive Chat</span>
               </button>
             )}
 
@@ -790,6 +792,9 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                 )}
               </button>
             )}
+
+
+
           </div>
 
           <div className="flex items-center gap-1.5 flex-shrink-0">

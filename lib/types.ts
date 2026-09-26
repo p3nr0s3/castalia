@@ -640,6 +640,20 @@ export interface AppSettings {
   ollamaKeepAlive?: string;
   customTheme?: CustomThemePalette;
   voice?: VoiceSettingsConfig;
+  // Advance Retrieval Tuning (Global defaults)
+  ragChunkSizeChars?: number;
+  ragChunkOverlapChars?: number;
+  ragTopK?: number;
+  ragSemanticWeight?: number;
+  ragStitchChunks?: boolean;
+  ragHydeEnabled?: boolean;
+  ragHydeModel?: string;
+  ragRerankEnabled?: boolean;
+  ragRerankModel?: string;
+  ragRerankMinScore?: number;
+  // Ambient Folder Watcher (Global default)
+  watchedFolderPath?: string;
+  watchedFolderEnabled?: boolean;
 }
 
 // ============================================================================

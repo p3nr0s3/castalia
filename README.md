@@ -10,7 +10,7 @@
 [![Security](https://img.shields.io/badge/Security-SSRF%20Guarded%20%2B%20Sandboxed-success)](#security)
 
 **A local-first AI workspace built on Next.js 14.**  
-Engineered for zero-waste local LLM inference, hybrid two-stage RAG, sandboxed tool execution, and prompt caching.
+Engineered for zero-waste local LLM inference, hybrid two-stage RAG, sandboxed tool execution, in-browser Codespace IDE, and persistent prompt caching.
 
 [Quick Start](#quick-start) • [Key Highlights](#key-highlights) • [Architecture](#architecture) • [Security](#security) • [Testing](#testing) • [Features Catalog](FEATURES.md)
 
@@ -20,16 +20,31 @@ Engineered for zero-waste local LLM inference, hybrid two-stage RAG, sandboxed t
 
 ## Key Highlights
 
-- **Two-Stage RAG**:
+- **Two-Stage RAG & Ambient Knowledge**:
   - *Stage 1 (Coarse Search)*: BM25 lexical keyword matching + Dense Semantic vector search blended via **Reciprocal Rank Fusion (RRF)**.
-  - *Stage 2 (Reranker, on by default per project)*: In-memory lexical cross-scorer (keyword coverage, n-gram proximity, AST symbol affinity; no GPU cost). When semantic RAG is enabled it can also score candidates with a local LLM batch JSON prompt (`temperature: 0.0`). This is a cross-attention proxy, not a trained cross-encoder.
-  - *Context Optimization*: U-shaped *Lost-in-the-Middle* perimeter reordering, adjacent chunk stitching, and **HyDE** semantic expansion.
+  - *Stage 2 (Reranker)*: In-memory lexical cross-scorer (keyword coverage, n-gram proximity, AST symbol affinity; no GPU cost). When semantic RAG is enabled, it can also score candidates with a local LLM batch JSON proxy (`temperature: 0.0`).
+  - *Ambient Folder Watcher*: Real-time background filesystem monitoring synchronizes local directory changes directly into the retrieval engine without manual re-indexing.
+  - *Web Documentation Ingestion*: Scrapes and extracts full web articles, tutorials, and API documentation for immediate AI context.
+  - *Context Optimization*: U-shaped *Lost-in-the-Middle* perimeter reordering, adjacent chunk stitching, and **HyDE** (Hypothetical Document Embeddings) expansion.
+- **Fullscreen Codespace IDE**:
+  - Full-screen local web IDE powered by **Pyodide WebAssembly (Python 3.12)** and **Node.js** backend runners.
+  - VS Code-style layout: File explorer on the left, code editor on top, and a **resizable horizontal bottom terminal** with execution telemetry, copy output, and clear logs.
+  - Staff AI Copilot with 1-click code review, bug fix, optimization, unit test generation, and live HTML/CSS preview sandbox.
+- **Voice & Speech Synthesis Studio**:
+  - Ultra-fluent natural neural voice engine (Microsoft Natural, Google Neural, and local browser synthesis) with zero robotic cadence.
+  - 3 Conversational Tone Modes: *Casual & Natural* (akrab/santai), *Concise* (to the point), and *Formal*.
+  - Fine-grained controls for pitch, speech rate, and auto-silence speech detection sensitivity.
 - **Zero VRAM Waste & Instant Turns**:
   - Automated **KV Cache Prefix Pinning** (`options.num_keep`) keeps static system prompts warm in GPU memory.
   - Automatic **Context Window Resolution** eliminates Ollama's default 2048-token truncation, safely scaling up to 131K tokens.
-- **Dual-Tier Response Caching** (in-memory Map first, persisted server-side so entries survive a reload):
-  - Exact FNV-1a hash matching (always on) and semantic vector similarity ($\ge 0.96$, requires `Settings > Semantic RAG` and an embedding model such as `nomic-embed-text`). A cache hit skips generation entirely (no GPU tokens). Cache is bypassed when web-search context is attached.
-  - Persisted via SQLite (`response_cache` table) with an automatic JSON-file fallback if `better-sqlite3`'s native module isn't available — same backend selection as the rest of the app's storage.
+- **Dual-Tier Response Caching**:
+  - Exact FNV-1a hash matching (always on) and semantic vector similarity ($\ge 0.96$, requires an embedding model such as `nomic-embed-text`). Cache hits skip generation entirely (0 GPU tokens).
+  - Persisted via SQLite (`response_cache` table) with an automatic JSON-file fallback.
+- **Modern Clean Workspace & Controls**:
+  - Fluid full-width Projects Gallery & Project Detail View that adapts to viewport expansions.
+  - Clean `<select>` dropdown controls for theme palettes, typography fonts, thinking modes, context capacities, and model keep-alive presets.
+  - Auto-hiding responsive sidebar with a collapsible drag slider.
+  - Dynamic code-splitting (`next/dynamic`) for instant cold-start and reduced initial bundle footprint.
 - **Sandboxed Agentic Tools & Safety**:
   - Server-verified **single-use approval records** (5-minute expiry, tool and argument matching, replay protection) with one-click revert for mutating disk actions (`write_file`, `delete_file`).
   - DNS-rebinding-safe SSRF guard matrix (`lib/ssrfGuard.ts`) and filesystem path sandboxing.
@@ -65,7 +80,7 @@ cp .env.example .env.local
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) in your browser.
+Open [http://localhost:3000](http://localhost:3000) (or [http://127.0.0.1:3000](http://127.0.0.1:3000)) in your browser.
 
 ---
 
@@ -82,7 +97,8 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
     ┌──────────────────────┐          ┌──────────────────────┐
     │  Dual-Tier Cache     │          │  Two-Stage RAG       │
     │  - FNV-1a Hash       │          │  - BM25 + Embeddings │
-    │  - Semantic Vector   │          │  - Cross-Encoder     │
+    │  - Semantic Vector   │          │  - Ambient Watcher   │
+    │  - SQLite / JSON     │          │  - Cross-Encoder     │
     └──────────┬───────────┘          └──────────┬───────────┘
                │                                 │
                └────────────────┬────────────────┘
@@ -119,7 +135,7 @@ Castalia enforces strict defense-in-depth security:
 Comprehensive test suite with 100% pass rate:
 
 ```bash
-# Run Vitest test suite (41 suites, 371 tests)
+# Run Vitest test suite (43 suites, 384 tests)
 npm test
 
 # Run TypeScript type safety check
@@ -135,15 +151,17 @@ npm run build
 
 ```
 castalia/
-├── app/                 # Next.js App Router (pages, API routes, layout)
-├── components/          # Modular UI components (Chat, Sidebar, Modals, Codespace, Journal)
+├── app/                 # Next.js App Router (pages, API routes, layout, codespace)
+├── components/          # Modular UI components (Chat, Sidebar, Modals, Codespace, Projects)
 ├── lib/
 │   ├── ollama.ts        # Ollama client, context resolution, num_keep pinning
 │   ├── rag.ts           # Hybrid retrieval, Cross-Encoder re-ranker, BM25, Lost-in-Middle
+│   ├── fileWatcher.ts   # Ambient Folder Watcher daemon for real-time background sync
 │   ├── responseCache.ts # Exact FNV-1a & semantic vector response caching
+│   ├── voiceEngine.ts   # Natural speech synthesis & conversational tone engine
 │   ├── ssrfGuard.ts     # DNS-rebinding-safe SSRF defense matrix
 │   └── pathSandbox.ts   # Sandboxed directory containment
-├── tests/               # 41 Vitest unit & integration test suites
+├── tests/               # 43 Vitest unit & integration test suites (384 passed)
 └── FEATURES.md          # Exhaustive feature catalog
 ```
 

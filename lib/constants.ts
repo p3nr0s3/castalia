@@ -109,6 +109,18 @@ export const DEFAULT_SETTINGS: AppSettings = {
     engine: "natural",
     autoSilenceMs: 1400,
   },
+  ragChunkSizeChars: 1800,
+  ragChunkOverlapChars: 200,
+  ragTopK: 8,
+  ragSemanticWeight: 0.55,
+  ragStitchChunks: true,
+  ragHydeEnabled: false,
+  ragHydeModel: "",
+  ragRerankEnabled: true,
+  ragRerankModel: "",
+  ragRerankMinScore: 0.0,
+  watchedFolderPath: "",
+  watchedFolderEnabled: false,
 };
 
 export const DEFAULT_CUSTOM_THEME = {

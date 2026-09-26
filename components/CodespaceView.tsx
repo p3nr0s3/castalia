@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { apiFetch } from "../lib/apiClient";
-import { CodeSimple as Code2, Play, Copy, Check, Download, Sparkle as Sparkles, Bug, Lightning as Zap, FileText, FileCode, Plus, Trash as Trash2, Terminal, Eye, ArrowsClockwise as RefreshCw, Faders as Sliders, PaperPlaneTilt as Send, SidebarSimple as PanelLeft, CaretLineLeft as PanelLeftClose, SidebarSimple as PanelRight, CaretLineRight as PanelRightClose, MagnifyingGlass as Search, X, CaretRight as ChevronRight, PencilSimple as Edit2, FilePlus, DotsSixVertical as GripVertical, ArrowCounterClockwise as RotateCcw, Clock, CheckCircle as CheckCircle2, WarningCircle as AlertCircle, FolderSimple as FolderCode, FileZip as FileArchive, ArrowsOut as Maximize2, ArrowsIn as Minimize2, Question as HelpCircle, Cpu } from "@phosphor-icons/react";
+import { CodeSimple as Code2, Play, Copy, Check, Download, Sparkle as Sparkles, Bug, Lightning as Zap, FileText, FileCode, Plus, Trash as Trash2, Terminal, Eye, ArrowsClockwise as RefreshCw, Faders as Sliders, PaperPlaneTilt as Send, SidebarSimple as PanelLeft, CaretLineLeft as PanelLeftClose, SidebarSimple as PanelRight, CaretLineRight as PanelRightClose, MagnifyingGlass as Search, X, CaretRight as ChevronRight, PencilSimple as Edit2, FilePlus, DotsSixVertical as GripVertical, ArrowCounterClockwise as RotateCcw, Clock, CheckCircle as CheckCircle2, WarningCircle as AlertCircle, FolderSimple as FolderCode, FileZip as FileArchive, ArrowsOut as Maximize2, ArrowsIn as Minimize2, Question as HelpCircle, Cpu, ArrowSquareOut as ExternalLink } from "@phosphor-icons/react";
 import { OllamaModel, ApiKeysConfig } from "@/lib/types";
 
 export interface CodeSnippet {
@@ -127,6 +127,10 @@ interface CodespaceViewProps {
   onSendToChat?: (text: string) => void;
   sidebarOpen?: boolean;
   onToggleSidebar?: () => void;
+  onClose?: () => void;
+  onPopout?: () => void;
+  isMaximized?: boolean;
+  onToggleMaximize?: () => void;
 }
 
 interface LogEntry {
@@ -190,6 +194,10 @@ export const CodespaceView: React.FC<CodespaceViewProps> = ({
   onSendToChat,
   sidebarOpen,
   onToggleSidebar,
+  onClose,
+  onPopout,
+  isMaximized = false,
+  onToggleMaximize,
 }) => {
   // Load snippets from localStorage or fallback
   const [snippets, setSnippets] = useState<CodeSnippet[]>(() => {
@@ -230,18 +238,18 @@ export const CodespaceView: React.FC<CodespaceViewProps> = ({
     return 240;
   });
 
-  const [rightWidth, setRightWidth] = useState<number>(() => {
+  const [bottomHeight, setBottomHeight] = useState<number>(() => {
     if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("codespace_right_width");
-      if (saved) return Math.min(Math.max(parseInt(saved, 10), 280), 750);
+      const saved = localStorage.getItem("codespace_bottom_height");
+      if (saved) return Math.min(Math.max(parseInt(saved, 10), 120), 800);
     }
-    return 420;
+    return 280;
   });
 
   const [isLeftCollapsed, setIsLeftCollapsed] = useState(false);
-  const [isRightCollapsed, setIsRightCollapsed] = useState(false);
+  const [isBottomCollapsed, setIsBottomCollapsed] = useState(false);
   const [isDraggingLeft, setIsDraggingLeft] = useState(false);
-  const [isDraggingRight, setIsDraggingRight] = useState(false);
+  const [isDraggingBottom, setIsDraggingBottom] = useState(false);
 
   // Editor states
   const [copied, setCopied] = useState(false);
@@ -380,7 +388,7 @@ export const CodespaceView: React.FC<CodespaceViewProps> = ({
     }
   };
 
-  // Resizing Logic: Pointer drag for Left and Right sidebars
+  // Resizing Logic: Pointer drag for Left sidebar (width) and Bottom terminal (height)
   useEffect(() => {
     const handlePointerMove = (e: PointerEvent) => {
       if (!containerRef.current) return;
@@ -392,21 +400,21 @@ export const CodespaceView: React.FC<CodespaceViewProps> = ({
         try {
           localStorage.setItem("codespace_left_width", String(newW));
         } catch {}
-      } else if (isDraggingRight) {
-        const newW = Math.min(Math.max(rect.right - e.clientX, 280), 750);
-        setRightWidth(newW);
+      } else if (isDraggingBottom) {
+        const newH = Math.min(Math.max(rect.bottom - e.clientY, 100), Math.round(rect.height * 0.75));
+        setBottomHeight(newH);
         try {
-          localStorage.setItem("codespace_right_width", String(newW));
+          localStorage.setItem("codespace_bottom_height", String(newH));
         } catch {}
       }
     };
 
     const handlePointerUp = () => {
       setIsDraggingLeft(false);
-      setIsDraggingRight(false);
+      setIsDraggingBottom(false);
     };
 
-    if (isDraggingLeft || isDraggingRight) {
+    if (isDraggingLeft || isDraggingBottom) {
       window.addEventListener("pointermove", handlePointerMove);
       window.addEventListener("pointerup", handlePointerUp);
     }
@@ -415,7 +423,7 @@ export const CodespaceView: React.FC<CodespaceViewProps> = ({
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("pointerup", handlePointerUp);
     };
-  }, [isDraggingLeft, isDraggingRight]);
+  }, [isDraggingLeft, isDraggingBottom]);
 
   // Sandboxed Iframe Runner for Pyodide & JS
   const runnerIframeRef = useRef<HTMLIFrameElement>(null);
@@ -596,6 +604,7 @@ export const CodespaceView: React.FC<CodespaceViewProps> = ({
 
   // Run Code logic (Smart fallback: Native server runner -> Pyodide WASM / Client sandbox)
   const handleRunCode = async () => {
+    setIsBottomCollapsed(false);
     setOutputTab("console");
     const timestamp = new Date().toLocaleTimeString();
     const runHeader = `> Running ${activeSnippet.name} (${activeSnippet.language.toUpperCase()})...`;
@@ -766,6 +775,7 @@ export const CodespaceView: React.FC<CodespaceViewProps> = ({
 
   // AI Copilot Actions
   const handleAiAction = async (actionType: "review" | "fix" | "optimize" | "docs" | "tests" | "explain") => {
+    setIsBottomCollapsed(false);
     setIsAiLoading(true);
     setOutputTab("ai");
     setAiReviewOutput(`Asking AI (${selectedModel || "Local AI"}) to analyze ${activeSnippet.name}...`);
@@ -800,6 +810,7 @@ export const CodespaceView: React.FC<CodespaceViewProps> = ({
     const userQuery = aiPromptInput.trim();
     setAiPromptInput("");
     setIsAiLoading(true);
+    setIsBottomCollapsed(false);
     setOutputTab("ai");
 
     const prompt = `Context: Active file '${activeSnippet.name}' (${activeSnippet.language}):\n\`\`\`${activeSnippet.language}\n${activeSnippet.content}\n\`\`\`\n\nUser Question: ${userQuery}\n\nPlease provide precise, actionable code advice and answers.`;
@@ -1004,11 +1015,15 @@ export const CodespaceView: React.FC<CodespaceViewProps> = ({
   return (
     <div
       ref={containerRef}
-      className="flex-1 flex flex-col h-[100dvh] w-full overflow-hidden bg-[var(--background)] text-[var(--foreground)] select-none"
+      className="flex-1 flex flex-col h-full w-full overflow-hidden bg-[var(--background)] text-[var(--foreground)] select-none"
     >
       {/* Invisible overlay while dragging to prevent iframe mouse trapping */}
-      {(isDraggingLeft || isDraggingRight) && (
-        <div className="fixed inset-0 z-50 cursor-col-resize select-none bg-transparent" />
+      {(isDraggingLeft || isDraggingBottom) && (
+        <div
+          className={`fixed inset-0 z-50 select-none bg-transparent ${
+            isDraggingLeft ? "cursor-col-resize" : "cursor-row-resize"
+          }`}
+        />
       )}
 
       {/* Hidden runner iframe for Pyodide and JS */}
@@ -1121,7 +1136,7 @@ export const CodespaceView: React.FC<CodespaceViewProps> = ({
           </button>
 
           {/* Panel Toggle Shortcuts */}
-          <div className="hidden lg:flex items-center border-l border-[var(--sidebar-border)] pl-1.5 ml-1 gap-1">
+          <div className="flex items-center border-l border-[var(--sidebar-border)] pl-1.5 ml-1 gap-1">
             <button
               onClick={() => setIsLeftCollapsed(!isLeftCollapsed)}
               className={`p-1.5 rounded-xl text-xs transition-colors cursor-pointer ${
@@ -1134,17 +1149,53 @@ export const CodespaceView: React.FC<CodespaceViewProps> = ({
               <PanelLeft className="w-4 h-4" />
             </button>
             <button
-              onClick={() => setIsRightCollapsed(!isRightCollapsed)}
+              onClick={() => setIsBottomCollapsed(!isBottomCollapsed)}
               className={`p-1.5 rounded-xl text-xs transition-colors cursor-pointer ${
-                isRightCollapsed
-                  ? "text-purple-400 bg-purple-500/10"
+                !isBottomCollapsed
+                  ? "text-emerald-400 bg-emerald-500/10"
                   : "text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--sidebar-hover)]"
               }`}
-              title={isRightCollapsed ? "Show AI & Output Panel" : "Hide AI & Output Panel"}
+              title={isBottomCollapsed ? "Show Terminal & Output Panel" : "Hide Terminal & Output Panel"}
             >
-              <PanelRight className="w-4 h-4" />
+              <Terminal className="w-4 h-4" />
             </button>
           </div>
+
+          {/* Window Controls (Popout, Maximize, Close) */}
+          {(onPopout || onToggleMaximize || onClose) && (
+            <div className="flex items-center border-l border-[var(--sidebar-border)] pl-1.5 ml-1 gap-1">
+              {onPopout && (
+                <button
+                  type="button"
+                  onClick={onPopout}
+                  className="p-1.5 rounded-xl text-xs text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--sidebar-hover)] transition-colors cursor-pointer"
+                  title="Buka di Jendela Baru (Pop out)"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                </button>
+              )}
+              {onToggleMaximize && (
+                <button
+                  type="button"
+                  onClick={onToggleMaximize}
+                  className="p-1.5 rounded-xl text-xs text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--sidebar-hover)] transition-colors cursor-pointer"
+                  title={isMaximized ? "Perkecil Jendela" : "Maksimalkan Jendela"}
+                >
+                  {isMaximized ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+                </button>
+              )}
+              {onClose && (
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="p-1.5 rounded-xl text-xs text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 transition-colors cursor-pointer"
+                  title="Tutup Jendela"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </header>
 
@@ -1205,13 +1256,13 @@ export const CodespaceView: React.FC<CodespaceViewProps> = ({
         </div>
       )}
 
-      {/* Main IDE Layout: Left File Explorer -> Center Editor -> Right AI & Output Panel */}
-      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden relative">
+      {/* Main IDE Layout: Left File Explorer -> Right Workspace (Editor Top + Terminal Bottom) */}
+      <div className="flex-1 flex flex-row overflow-hidden relative">
         {/* ================= LEFT FILE EXPLORER ================= */}
         {!isLeftCollapsed && (
           <div
             style={{ width: `${leftWidth}px` }}
-            className="flex-shrink-0 flex flex-col border-b lg:border-b-0 bg-[var(--sidebar-bg)]/60 select-none overflow-hidden"
+            className="flex-shrink-0 flex flex-col border-r border-[var(--sidebar-border)] bg-[var(--sidebar-bg)]/60 select-none overflow-hidden"
           >
             {/* Explorer Header */}
             <div className="h-9 px-3 border-b border-[var(--sidebar-border)] flex items-center justify-between bg-[var(--card-bg)]/60">
@@ -1375,15 +1426,17 @@ export const CodespaceView: React.FC<CodespaceViewProps> = ({
               setIsDraggingLeft(true);
             }}
             onDoubleClick={() => setLeftWidth(240)}
-            className="hidden lg:flex w-1.5 hover:w-2 hover:bg-blue-500/60 active:bg-blue-500 cursor-col-resize transition-all items-center justify-center bg-[var(--sidebar-border)]/50 group select-none relative z-10"
+            className="flex w-1.5 hover:w-2 hover:bg-blue-500/60 active:bg-blue-500 cursor-col-resize transition-all items-center justify-center bg-[var(--sidebar-border)]/50 group select-none relative z-10"
             title="Drag to resize file sidebar (Double click to reset)"
           >
             <div className="w-0.5 h-6 rounded-full bg-[var(--muted)] group-hover:bg-blue-300 opacity-50 group-hover:opacity-100" />
           </div>
         )}
 
-        {/* ================= CENTER CODE EDITOR ================= */}
-        <div className="flex-1 flex flex-col min-w-0 bg-[var(--card-bg)]/10 overflow-hidden">
+        {/* ================= RIGHT WORKSPACE COLUMN (EDITOR + TERMINAL) ================= */}
+        <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
+          {/* ================= TOP CODE EDITOR ================= */}
+          <div className="flex-1 flex flex-col min-w-0 min-h-[140px] bg-[var(--card-bg)]/10 overflow-hidden">
           {/* Top Multi-File Tab Bar */}
           <div className="h-9 border-b border-[var(--sidebar-border)] bg-[var(--sidebar-bg)]/80 flex items-center justify-between overflow-x-auto touch-scroll px-1.5 gap-2">
             <div className="flex items-center gap-1 min-w-0">
@@ -1538,33 +1591,33 @@ export const CodespaceView: React.FC<CodespaceViewProps> = ({
           </footer>
         </div>
 
-        {/* RIGHT RESIZER DRAG HANDLE */}
-        {!isRightCollapsed && (
+        {/* BOTTOM RESIZER DRAG HANDLE */}
+        {!isBottomCollapsed && (
           <div
             onPointerDown={(e) => {
               e.preventDefault();
-              setIsDraggingRight(true);
+              setIsDraggingBottom(true);
             }}
-            onDoubleClick={() => setRightWidth(420)}
-            className="hidden lg:flex w-1.5 hover:w-2 hover:bg-purple-500/60 active:bg-purple-500 cursor-col-resize transition-all items-center justify-center bg-[var(--sidebar-border)]/50 group select-none relative z-10"
-            title="Drag to resize AI & Console panel (Double click to reset)"
+            onDoubleClick={() => setBottomHeight(280)}
+            className="h-1.5 hover:h-2 hover:bg-emerald-500/60 active:bg-emerald-500 cursor-row-resize transition-all flex items-center justify-center bg-[var(--sidebar-border)]/50 group select-none relative z-10 border-t border-[var(--sidebar-border)]/40"
+            title="Drag to resize Terminal panel (Double click to reset)"
           >
-            <div className="w-0.5 h-6 rounded-full bg-[var(--muted)] group-hover:bg-purple-300 opacity-50 group-hover:opacity-100" />
+            <div className="h-0.5 w-10 rounded-full bg-[var(--muted)] group-hover:bg-emerald-300 opacity-50 group-hover:opacity-100" />
           </div>
         )}
 
-        {/* ================= RIGHT AI & OUTPUT PANEL ================= */}
-        {!isRightCollapsed && (
+        {/* ================= BOTTOM TERMINAL & OUTPUT PANEL ================= */}
+        {!isBottomCollapsed && (
           <div
-            style={{ width: `${rightWidth}px` }}
-            className="flex-shrink-0 flex flex-col bg-[var(--sidebar-bg)]/50 border-t lg:border-t-0 select-none overflow-hidden"
+            style={{ height: `${bottomHeight}px` }}
+            className="flex-shrink-0 flex flex-col bg-[var(--sidebar-bg)]/50 border-t border-[var(--sidebar-border)] select-none overflow-hidden"
           >
             {/* Tab Switcher Header */}
-            <div className="h-9 px-2 border-b border-[var(--sidebar-border)] bg-[var(--card-bg)]/60 flex items-center justify-between gap-1 flex-shrink-0">
-              <div className="flex items-center gap-1 flex-1">
+            <div className="h-9 px-3 border-b border-[var(--sidebar-border)] bg-[var(--card-bg)]/60 flex items-center justify-between gap-2 flex-shrink-0">
+              <div className="flex items-center gap-1">
                 <button
                   onClick={() => setOutputTab("console")}
-                  className={`flex-1 py-1 px-2 rounded-lg text-xs font-semibold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                  className={`py-1 px-3 rounded-lg text-xs font-semibold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
                     outputTab === "console"
                       ? "bg-[var(--card-bg)] text-emerald-400 shadow-xs border border-[var(--card-border)]"
                       : "text-[var(--muted)] hover:text-[var(--foreground)]"
@@ -1576,7 +1629,7 @@ export const CodespaceView: React.FC<CodespaceViewProps> = ({
 
                 <button
                   onClick={() => setOutputTab("ai")}
-                  className={`flex-1 py-1 px-2 rounded-lg text-xs font-semibold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                  className={`py-1 px-3 rounded-lg text-xs font-semibold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
                     outputTab === "ai"
                       ? "bg-[var(--card-bg)] text-purple-400 shadow-xs border border-[var(--card-border)]"
                       : "text-[var(--muted)] hover:text-[var(--foreground)]"
@@ -1588,7 +1641,7 @@ export const CodespaceView: React.FC<CodespaceViewProps> = ({
 
                 <button
                   onClick={() => setOutputTab("preview")}
-                  className={`flex-1 py-1 px-2 rounded-lg text-xs font-semibold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                  className={`py-1 px-3 rounded-lg text-xs font-semibold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
                     outputTab === "preview"
                       ? "bg-[var(--card-bg)] text-blue-400 shadow-xs border border-[var(--card-border)]"
                       : "text-[var(--muted)] hover:text-[var(--foreground)]"
@@ -1599,13 +1652,15 @@ export const CodespaceView: React.FC<CodespaceViewProps> = ({
                 </button>
               </div>
 
-              <button
-                onClick={() => setIsRightCollapsed(true)}
-                className="p-1 rounded text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--sidebar-hover)] transition-colors cursor-pointer hidden lg:block"
-                title="Collapse panel"
-              >
-                <PanelRightClose className="w-3.5 h-3.5" />
-              </button>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setIsBottomCollapsed(true)}
+                  className="p-1 rounded text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--sidebar-hover)] transition-colors cursor-pointer"
+                  title="Hide Terminal panel"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
             </div>
 
             {/* TAB 1: CONSOLE / TERMINAL OUTPUT */}
@@ -1862,6 +1917,7 @@ export const CodespaceView: React.FC<CodespaceViewProps> = ({
             )}
           </div>
         )}
+        </div>
       </div>
     </div>
   );

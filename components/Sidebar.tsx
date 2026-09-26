@@ -31,10 +31,8 @@ interface SidebarProps {
   workspaceView?: "chat" | "projects-gallery" | "project-detail";
   onOpenArtifacts?: () => void;
   onOpenCodespace?: () => void;
-  onOpenJournal?: () => void;
-  onOpenKnowledgeGraph?: () => void;
   onOpenWorkspace?: () => void;
-  mainView?: "workspace" | "codespace" | "journal";
+  mainView?: "workspace" | "codespace";
   agents?: AgentTask[];
   onOpenNewAgentModal?: () => void;
   onOpenAgentLogs?: (agent: AgentTask) => void;
@@ -77,8 +75,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   workspaceView = "chat",
   onOpenArtifacts,
   onOpenCodespace,
-  onOpenJournal,
-  onOpenKnowledgeGraph,
   onOpenWorkspace,
   mainView = "workspace",
   agents = [],
@@ -224,15 +220,26 @@ export const Sidebar: React.FC<SidebarProps> = ({
             const prevUserSelect = document.body.style.userSelect;
             document.body.style.cursor = "col-resize";
             document.body.style.userSelect = "none";
-            const handleMouseMove = (moveEvent: MouseEvent) => {
-              const next = Math.min(480, Math.max(200, startWidth + (moveEvent.clientX - startX)));
-              onWidthChange?.(next);
-            };
-            const handleMouseUp = () => {
+            const cleanup = () => {
               document.body.style.cursor = prevCursor;
               document.body.style.userSelect = prevUserSelect;
               window.removeEventListener("mousemove", handleMouseMove);
               window.removeEventListener("mouseup", handleMouseUp);
+            };
+            const handleMouseMove = (moveEvent: MouseEvent) => {
+              const currentW = startWidth + (moveEvent.clientX - startX);
+              if (currentW < 140) {
+                // Slipped past minimum / mentok ke kiri -> auto hide!
+                cleanup();
+                setIsOpen(false);
+                onWidthChange?.(260);
+                return;
+              }
+              const next = Math.min(480, Math.max(160, currentW));
+              onWidthChange?.(next);
+            };
+            const handleMouseUp = () => {
+              cleanup();
             };
             window.addEventListener("mousemove", handleMouseMove);
             window.addEventListener("mouseup", handleMouseUp);
@@ -339,75 +346,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 onOpenCodespace();
                 if (typeof window !== "undefined" && window.innerWidth < 768) setIsOpen(false);
               }}
-              className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs transition-colors cursor-pointer ${
-                mainView === "codespace"
-                  ? "bg-[var(--sidebar-hover)] text-[var(--foreground)] font-medium"
-                  : "text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--sidebar-hover)]"
-              }`}
+              className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--sidebar-hover)] transition-colors cursor-pointer"
+              title="Buka Codespace IDE"
             >
               <Code2 className="w-4 h-4 text-[var(--muted)]" />
               <span>Code</span>
-            </button>
-          )}
-
-          {/* Journal (Notion-style Workspace Notebook) */}
-          {onOpenJournal && (
-            <button
-              onClick={() => {
-                onOpenJournal();
-                if (typeof window !== "undefined" && window.innerWidth < 768) setIsOpen(false);
-              }}
-              className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs transition-colors cursor-pointer ${
-                mainView === "journal"
-                  ? "bg-[var(--sidebar-hover)] text-[var(--foreground)] font-medium"
-                  : "text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--sidebar-hover)]"
-              }`}
-              title="Workspace Journal & Catatan Kerja"
-            >
-              <BookMarked className="w-4 h-4 text-[var(--muted)]" />
-              <span>Journal</span>
-            </button>
-          )}
-
-          {/* Knowledge Graph (Obsidian 2D Force-Directed Canvas) */}
-          {onOpenKnowledgeGraph && (
-            <button
-              onClick={() => {
-                onOpenKnowledgeGraph();
-                if (typeof window !== "undefined" && window.innerWidth < 768) setIsOpen(false);
-              }}
-              className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs transition-colors cursor-pointer text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--sidebar-hover)]"
-              title="Visual Knowledge Graph (Obsidian-Style 2D Canvas)"
-            >
-              <Share2 className="w-4 h-4 text-purple-400" />
-              <span>Knowledge Graph</span>
-            </button>
-          )}
-
-          {/* Agent Approval Queue — badge stays visible until each item is decided */}
-          {onOpenApprovals && (
-            <button
-              onClick={() => {
-                onOpenApprovals();
-                if (typeof window !== "undefined" && window.innerWidth < 768) setIsOpen(false);
-              }}
-              className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs transition-colors cursor-pointer group ${
-                pendingApprovalCount > 0
-                  ? "text-amber-300 hover:bg-amber-500/10"
-                  : "text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--sidebar-hover)]"
-              }`}
-            >
-              <ShieldAlert
-                className={`w-4 h-4 transition-colors ${
-                  pendingApprovalCount > 0 ? "text-amber-400" : "text-[var(--muted)] group-hover:text-[var(--foreground)]"
-                }`}
-              />
-              <span className="flex-1 text-left">Persetujuan Agent</span>
-              {pendingApprovalCount > 0 && (
-                <span className="px-1.5 py-0.5 rounded-full bg-amber-500 text-neutral-950 text-[10px] font-bold leading-none">
-                  {pendingApprovalCount}
-                </span>
-              )}
             </button>
           )}
         </div>

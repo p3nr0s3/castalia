@@ -353,7 +353,7 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
         onClick={onClose}
       />
 
-      <div className="relative w-full max-w-2xl bg-[var(--card-bg)] text-[var(--foreground)] rounded-t-3xl sm:rounded-2xl border-t sm:border border-[var(--card-border)] shadow-2xl overflow-hidden flex flex-col z-10 max-h-[92dvh] sm:max-h-[88vh] animate-in slide-in-from-bottom sm:zoom-in-95 duration-200">
+      <div className="relative w-full sm:w-[98vw] md:w-[94vw] max-w-6xl bg-[var(--card-bg)] text-[var(--foreground)] rounded-t-3xl sm:rounded-2xl border-t sm:border border-[var(--card-border)] shadow-2xl overflow-hidden flex flex-col z-10 h-[95dvh] sm:h-[90vh] animate-in slide-in-from-bottom sm:zoom-in-95 duration-200">
         {/* Header */}
         <div className="px-5 py-4 border-b border-[var(--sidebar-border)] flex items-center justify-between flex-shrink-0">
           <div className="flex items-center gap-2">
@@ -412,11 +412,11 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
         </div>
 
         {/* Tab Content */}
-        <div className="p-5 space-y-4 sm:space-y-5 flex-1 overflow-y-auto touch-scroll">
+        <div className="p-5 flex-1 overflow-y-auto touch-scroll flex flex-col min-h-0">
           {activeTab === "general" && (
-            <>
+            <div className="flex-1 flex flex-col min-h-0 space-y-4">
               {/* Project Name & Color */}
-              <div>
+              <div className="flex-shrink-0">
                 <label className="block text-xs font-semibold uppercase tracking-wider text-[var(--muted)] mb-1.5">
                   Project Name *
                 </label>
@@ -429,27 +429,25 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
                     className="flex-1 px-3.5 py-2 text-xs sm:text-sm rounded-xl border border-[var(--card-border)] bg-[var(--card-bg)] text-[var(--foreground)] placeholder-[var(--muted)] focus:ring-2 focus:ring-blue-500 focus:outline-none font-medium"
                     autoFocus
                   />
-                  {/* Color Selector */}
-                  <div className="flex items-center gap-1.5 bg-[var(--sidebar-bg)] p-1 rounded-xl border border-[var(--card-border)] flex-shrink-0">
-                    {PROJECT_COLORS.map((c) => (
-                      <button
-                        key={c.id}
-                        type="button"
-                        onClick={() => setColor(c.id)}
-                        className={`w-5 h-5 rounded-full ${c.bg} transition-all cursor-pointer flex items-center justify-center ${
-                          color === c.id ? "ring-2 ring-white scale-110" : "opacity-70 hover:opacity-100"
-                        }`}
-                        title={`Color: ${c.id}`}
-                      >
-                        {color === c.id && <Check className="w-3 h-3 text-white" />}
-                      </button>
-                    ))}
+                  {/* Color Selector Dropdown */}
+                  <div className="flex items-center gap-1.5 flex-shrink-0">
+                    <select
+                      value={color}
+                      onChange={(e) => setColor(e.target.value)}
+                      className="px-3 py-2 text-xs sm:text-sm rounded-xl border border-[var(--card-border)] bg-[var(--sidebar-bg)] text-[var(--foreground)] focus:ring-2 focus:ring-blue-500 focus:outline-none cursor-pointer font-medium"
+                    >
+                      {PROJECT_COLORS.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          Color: {c.id.charAt(0).toUpperCase() + c.id.slice(1)}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                 </div>
               </div>
 
               {/* Description */}
-              <div>
+              <div className="flex-shrink-0">
                 <label className="block text-xs font-semibold uppercase tracking-wider text-[var(--muted)] mb-1.5">
                   Short Description
                 </label>
@@ -463,25 +461,27 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
               </div>
 
               {/* Custom Instructions / System Prompt */}
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
+              <div className="flex-1 flex flex-col min-h-0">
+                <div className="flex items-center justify-between mb-1.5 flex-shrink-0">
                   <label className="text-xs font-semibold uppercase tracking-wider text-[var(--muted)] flex items-center gap-1.5">
                     <Sparkles className="w-3.5 h-3.5 text-blue-500" />
                     Custom Instructions for this Project
                   </label>
+                  <span className="text-[10px] text-[var(--muted)] font-mono">
+                    {systemPrompt.length.toLocaleString()} chars
+                  </span>
                 </div>
                 <textarea
                   value={systemPrompt}
                   onChange={(e) => setSystemPrompt(e.target.value)}
-                  rows={6}
                   placeholder="Define specific rules, coding conventions, tone, persona, or project goals that will apply to every chat inside this project..."
-                  className="w-full p-3 text-xs sm:text-sm rounded-xl border border-[var(--card-border)] bg-[var(--card-bg)] text-[var(--foreground)] placeholder-[var(--muted)] focus:ring-2 focus:ring-blue-500 focus:outline-none leading-relaxed"
+                  className="flex-1 w-full p-3.5 text-xs sm:text-sm rounded-xl border border-[var(--card-border)] bg-[var(--card-bg)] text-[var(--foreground)] placeholder-[var(--muted)] focus:ring-2 focus:ring-blue-500 focus:outline-none leading-relaxed resize-none font-sans min-h-[220px]"
                 />
-                <p className="text-[11px] text-[var(--muted)] mt-1">
+                <p className="text-[11px] text-[var(--muted)] mt-1.5 flex-shrink-0">
                   These instructions guide the LLM on every message sent within this project.
                 </p>
               </div>
-            </>
+            </div>
           )}
 
           {/* AGENT PARAMETERS TAB */}
@@ -496,23 +496,23 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
                   </span>
                   <span className="text-[10px] text-[var(--muted)]">Click to autofill parameters</span>
                 </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {[
-                    { id: "architect", label: "Code Architect", color: "text-blue-400" },
-                    { id: "reasoner", label: "Deep Reasoner", color: "text-purple-400" },
-                    { id: "creative", label: "Creative Writer", color: "text-pink-400" },
-                    { id: "balanced", label: "Balanced Assistant", color: "text-emerald-400" },
-                    { id: "analyst", label: "Precise Analyst", color: "text-amber-400" },
-                  ].map((p) => (
-                    <button
-                      key={p.id}
-                      type="button"
-                      onClick={() => applyPreset(p.id as any)}
-                      className="px-2.5 py-1 rounded-xl text-xs bg-[var(--card-bg)] hover:bg-[var(--sidebar-hover)] border border-[var(--card-border)] text-[var(--foreground)] transition-colors cursor-pointer"
-                    >
-                      <span className={p.color}>{p.label}</span>
-                    </button>
-                  ))}
+                <div className="pt-1">
+                  <select
+                    defaultValue=""
+                    onChange={(e) => {
+                      if (e.target.value) {
+                        applyPreset(e.target.value as any);
+                      }
+                    }}
+                    className="w-full px-3 py-2 text-xs sm:text-sm rounded-xl border border-[var(--card-border)] bg-[var(--card-bg)] text-[var(--foreground)] focus:ring-1 focus:ring-blue-500 focus:outline-none cursor-pointer"
+                  >
+                    <option value="" disabled>Pilih Preset Konfigurasi Agent...</option>
+                    <option value="architect">Code Architect (Precise, low temp, fast responses)</option>
+                    <option value="reasoner">Deep Reasoner (High context, Chain-of-Thought)</option>
+                    <option value="creative">Creative Writer (Higher temperature, diverse vocabulary)</option>
+                    <option value="balanced">Balanced Assistant (Standard all-around defaults)</option>
+                    <option value="analyst">Precise Analyst (Strict deterministic data reasoning)</option>
+                  </select>
                 </div>
               </div>
 
@@ -555,26 +555,15 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
                     <Brain className="w-3.5 h-3.5 text-purple-400" />
                     <span>Deep Reasoning (Thinking Mode)</span>
                   </label>
-                  <div className="grid grid-cols-3 gap-1.5 pt-0.5">
-                    {[
-                      { id: "default", label: "Default", icon: Sparkles },
-                      { id: "think", label: "Think ON", icon: Brain },
-                      { id: "nothink", label: "Fast", icon: Zap },
-                    ].map((mode) => (
-                      <button
-                        key={mode.id}
-                        type="button"
-                        onClick={() => setThinkingMode(mode.id as ThinkingMode)}
-                        className={`py-1.5 px-2 rounded-xl text-xs font-medium border text-center transition-all cursor-pointer ${
-                          thinkingMode === mode.id
-                            ? "bg-purple-600 text-white border-purple-500 shadow-xs"
-                            : "bg-[var(--card-bg)] text-[var(--muted)] border-[var(--card-border)] hover:text-[var(--foreground)]"
-                        }`}
-                      >
-                        {mode.label}
-                      </button>
-                    ))}
-                  </div>
+                  <select
+                    value={thinkingMode}
+                    onChange={(e) => setThinkingMode(e.target.value as ThinkingMode)}
+                    className="w-full p-2 text-xs rounded-xl border border-[var(--card-border)] bg-[var(--card-bg)] text-[var(--foreground)] focus:ring-1 focus:ring-purple-500 focus:outline-none cursor-pointer"
+                  >
+                    <option value="default">Default (Model Default Reasoning)</option>
+                    <option value="think">Think ON (Forces Chain-of-Thought Analysis)</option>
+                    <option value="nothink">Fast / No-Think (High-speed concise answers)</option>
+                  </select>
                   <p className="text-[10px] text-[var(--muted)]">
                     Forces chain-of-thought analysis or high-speed concise answers.
                   </p>
@@ -684,22 +673,18 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
                     <span>Context Window (num_ctx)</span>
                     <span className="font-mono text-cyan-400 text-xs">{numCtx.toLocaleString()} tokens</span>
                   </div>
-                  <div className="flex flex-wrap gap-1">
-                    {[2048, 4096, 8192, 16384, 32768, 65536].map((ctx) => (
-                      <button
-                        key={ctx}
-                        type="button"
-                        onClick={() => setNumCtx(ctx)}
-                        className={`px-2 py-0.5 rounded-lg text-[10px] font-mono transition-colors cursor-pointer ${
-                          numCtx === ctx
-                            ? "bg-cyan-500 text-white font-bold"
-                            : "bg-[var(--card-bg)] text-[var(--muted)] hover:text-[var(--foreground)] border border-[var(--card-border)]"
-                        }`}
-                      >
-                        {ctx >= 1024 ? `${ctx / 1024}K` : ctx}
-                      </button>
-                    ))}
-                  </div>
+                  <select
+                    value={numCtx}
+                    onChange={(e) => setNumCtx(Number(e.target.value))}
+                    className="w-full p-2 text-xs rounded-xl border border-[var(--card-border)] bg-[var(--card-bg)] text-[var(--foreground)] focus:ring-1 focus:ring-blue-500 focus:outline-none cursor-pointer font-mono"
+                  >
+                    <option value={2048}>2K Tokens (2,048) - Ultra Lightweight</option>
+                    <option value={4096}>4K Tokens (4,096) - Fast Chat</option>
+                    <option value={8192}>8K Tokens (8,192) - Standard Balanced</option>
+                    <option value={16384}>16K Tokens (16,384) - Recommended Workhorse</option>
+                    <option value={32768}>32K Tokens (32,768) - Large Docs & Coding</option>
+                    <option value={65536}>64K Tokens (65,536) - Massive Knowledge</option>
+                  </select>
                 </div>
 
                 {/* Max Predict Tokens */}
@@ -710,22 +695,17 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
                       {numPredict === -1 ? "Auto (Infinite)" : `${numPredict.toLocaleString()}`}
                     </span>
                   </div>
-                  <div className="flex flex-wrap gap-1">
-                    {[-1, 1024, 2048, 4096, 8192].map((tok) => (
-                      <button
-                        key={tok}
-                        type="button"
-                        onClick={() => setNumPredict(tok)}
-                        className={`px-2 py-0.5 rounded-lg text-[10px] font-mono transition-colors cursor-pointer ${
-                          numPredict === tok
-                            ? "bg-emerald-500 text-white font-bold"
-                            : "bg-[var(--card-bg)] text-[var(--muted)] hover:text-[var(--foreground)] border border-[var(--card-border)]"
-                        }`}
-                      >
-                        {tok === -1 ? "Auto" : `${tok >= 1024 ? `${tok / 1024}K` : tok}`}
-                      </button>
-                    ))}
-                  </div>
+                  <select
+                    value={numPredict}
+                    onChange={(e) => setNumPredict(Number(e.target.value))}
+                    className="w-full p-2 text-xs rounded-xl border border-[var(--card-border)] bg-[var(--card-bg)] text-[var(--foreground)] focus:ring-1 focus:ring-blue-500 focus:outline-none cursor-pointer font-mono"
+                  >
+                    <option value={-1}>Auto / Unlimited (-1)</option>
+                    <option value={1024}>1K Tokens (1,024)</option>
+                    <option value={2048}>2K Tokens (2,048) - Standard</option>
+                    <option value={4096}>4K Tokens (4,096) - Long-form</option>
+                    <option value={8192}>8K Tokens (8,192) - Deep Output</option>
+                  </select>
                 </div>
               </div>
 

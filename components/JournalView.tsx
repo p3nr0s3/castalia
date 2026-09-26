@@ -26,6 +26,10 @@ interface JournalViewProps {
   onSendToChat?: (text: string) => void;
   sidebarOpen?: boolean;
   onToggleSidebar?: () => void;
+  onClose?: () => void;
+  onPopout?: () => void;
+  isMaximized?: boolean;
+  onToggleMaximize?: () => void;
 }
 
 const CATEGORY_CONFIG: Record<
@@ -108,6 +112,10 @@ export const JournalView: React.FC<JournalViewProps> = ({
   onSendToChat,
   sidebarOpen,
   onToggleSidebar,
+  onClose,
+  onPopout,
+  isMaximized = false,
+  onToggleMaximize,
 }) => {
   const [entries, setEntries] = useState<JournalEntry[]>([]);
   const [activeEntryId, setActiveEntryId] = useState<string | null>(null);
@@ -584,7 +592,7 @@ Dst. Berikan hanya daftar tugas actionable.`;
   }, [activeEntry]);
 
   return (
-    <div className="flex-1 flex flex-col h-[100dvh] w-full bg-[var(--background)] text-[var(--foreground)] overflow-hidden select-text">
+    <div className="flex-1 flex flex-col h-full w-full bg-[var(--background)] text-[var(--foreground)] overflow-hidden select-text">
       {/* Top Header Bar */}
       <header className="h-14 flex-shrink-0 flex items-center justify-between px-4 border-b border-[var(--sidebar-border)] bg-[var(--sidebar-bg)]/80 backdrop-blur-md z-10">
         <div className="flex items-center gap-2">
@@ -754,6 +762,42 @@ Dst. Berikan hanya daftar tugas actionable.`;
             <Plus className="w-4 h-4" />
             <span>Catatan Baru</span>
           </button>
+
+          {/* Window Controls (Popout, Maximize, Close) */}
+          {(onPopout || onToggleMaximize || onClose) && (
+            <div className="flex items-center border-l border-[var(--sidebar-border)] pl-1.5 ml-1 gap-1">
+              {onPopout && (
+                <button
+                  type="button"
+                  onClick={onPopout}
+                  className="p-1.5 rounded-xl text-xs text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--sidebar-hover)] transition-colors cursor-pointer"
+                  title="Buka di Jendela Baru (Pop out)"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                </button>
+              )}
+              {onToggleMaximize && (
+                <button
+                  type="button"
+                  onClick={onToggleMaximize}
+                  className="p-1.5 rounded-xl text-xs text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--sidebar-hover)] transition-colors cursor-pointer"
+                  title={isMaximized ? "Perkecil Jendela" : "Maksimalkan Jendela"}
+                >
+                  {isMaximized ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+                </button>
+              )}
+              {onClose && (
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="p-1.5 rounded-xl text-xs text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 transition-colors cursor-pointer"
+                  title="Tutup Jendela"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </header>
 

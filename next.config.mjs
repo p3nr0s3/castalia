@@ -54,7 +54,13 @@ const nextConfig = {
     // for @phosphor-icons/react (139 icons imported across the app, only a
     // handful used per page) and keeps lucide-react covered too in case it
     // ever comes back.
-    optimizePackageImports: ["@phosphor-icons/react", "lucide-react"],
+    optimizePackageImports: [
+      "@phosphor-icons/react",
+      "lucide-react",
+      "katex",
+      "clsx",
+      "tailwind-merge",
+    ],
     // Next.js 14.2 requires this flag for instrumentation.ts's register()
     // to be called at all (stable/no-flag-needed as of Next 15+, but this
     // project is pinned to 14.2.x — see the CVE note above). Used to
