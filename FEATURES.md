@@ -34,7 +34,7 @@ Model bisa manggil tool lewat directive `[TOOL_CALL:nama:{json}]` di teks output
 
 ## RAG / pencarian di knowledge base project
 
-- **Stage-2 Cross-Encoder Re-Ranking (Local LLM & In-Memory Cross-Scorer)**: Arsitektur two-stage retrieval mutakhir (SOTA). Tahap 1 melakukan coarse filtering cepat (BM25 + Dense Semantic via RRF) untuk menyaring kandidat awal, lalu Tahap 2 mengevaluasi relasi mendalam query-passage menggunakan cross-attention: single-batch prompt JSON via Ollama model lokal (`temperature: 0.0`) atau instant deterministic in-memory cross-scorer (< 0.1ms; phrase proximity, query term coverage, AST definition affinity). Dilengkapi score blending dinamis ($\alpha \cdot S_{\text{rerank}} + (1-\alpha) \cdot S_{\text{stage1}}$) serta pemangkasan threshold relevansi minimum (`minScore`) agar passage tidak relevan (false positive) langsung dibuang.
+- **Stage-2 reranking (LLM proxy atau in-memory lexical scorer)**: Tahap 1 melakukan coarse filtering cepat (BM25 + Dense Semantic via RRF) untuk menyaring kandidat awal, lalu Tahap 2 (default aktif per project, bisa dimatikan) menilai ulang relevansi query-passage lewat salah satu dari dua cara: single-batch prompt JSON via Ollama model lokal (`temperature: 0.0`), atau — kalau semantic RAG nggak diaktifkan — scorer leksikal in-memory (< 0.1ms; phrase proximity, query term coverage, AST definition affinity). **Catatan penamaan**: di kode ini disebut cross-attention proxy, bukan cross-encoder beneran (nggak ada model yang di-training khusus buat re-ranking; jalur LLM cuma nyuruh model chat biasa nge-skor lewat prompt, dan jalur lexical sama sekali nggak pakai model). Dilengkapi score blending dinamis ($\alpha \cdot S_{\text{rerank}} + (1-\alpha) \cdot S_{\text{stage1}}$) serta pemangkasan threshold relevansi minimum (`minScore`) agar passage tidak relevan langsung dibuang.
 - **One-Click URL & Documentation Ingestion**: Ingest dokumentasi web atau artikel teknis langsung ke konteks chat dan knowledge base project via slash command `/url <url> [pertanyaan]` atau tombol "Import Web Documentation" di modal Project Knowledge. Dilengkapi proteksi SSRF berbasis DNS lookup (`assertPublicUrl`), fallback scraper Jina Reader untuk SPA/JavaScript, ekstraksi judul semantik, dan konversi otomatis menjadi file `.md` project.
 - **Adjacent Chunk Stitching (Boundary Optimization)**: Menggabungkan beberapa chunk berurutan dari file yang sama (misal Part 1 dan Part 2) menjadi satu blok teks utuh dengan deduplikasi overlap perbatasan. Mencegah fungsi/syntax terpotong di tengah jalan dan menghemat token dari duplikasi header dokumen.
 - **Hypothetical Document Embeddings (HyDE)**: Opsi generate jawaban sintesis teknis singkat via model lokal untuk di-embed ke ruang vektor, menjembatani jarak semantik antara pertanyaan pendek pengguna dengan deklarasi kode/dokumentasi.
@@ -68,7 +68,7 @@ Kalau di-enable (`Settings > Memory > Generate from chats`), sistem otomatis eks
 
 ## Codespace — sandbox eksekusi kode
 
-Jalanin Python, Node, PowerShell, atau bash langsung dari browser (`/api/codespace/run`) — proses child async, env di-strip dari secret sebelum diteruskan, temp file dibersihin otomatis abis selesai (sukses maupun gagal).
+Jalanin Python, Node, PowerShell, atau bash langsung dari browser (`/api/codespace/run`) — proses child async, env di-strip dari secret sebelum diteruskan, temp file dibersihin otomatis abis selesai (sukses maupun gagal). Ada juga sebagai halaman standalone fullscreen (`/codespace`, terpisah dari chat), layout mirip VS Code dengan file sidebar dan bottom terminal yang bisa di-resize drag (kedua splitter punya double-click buat reset ke ukuran default).
 
 ## Journal
 
@@ -106,6 +106,20 @@ Satu flat store (`lib/serverDb.ts`, SQLite kalau ada native binding, fallback JS
 
 8 tema warna (Midnight, OLED, Light, Cyberpunk, Forest, Sunset, Nord, System Auto).
 
+## Inference tuning (per-turn)
+
+- **Context window bucketing** (`lib/ollama.ts`): sebelum tiap request ke Ollama, hitung token yang dibutuhkan (system prompt + history + RAG chunks + reserved output), lalu bulatkan ke atas ke tier power-of-2 terdekat (`2048, 4096, 8192, 16384, 32768, 65536, 131072`) alih-alih selalu minta context window penuh. Tujuannya dua: hindari realokasi KV cache tiap turn yang beda dikit (yang bisa nge-bust prefix caching), dan nggak reserve VRAM buat context 32K kalau yang kepake cuma 3K. **Catatan**: belum ada angka pengurangan VRAM yang diverifikasi/diukur — ini soal menghindari over-allocation, bukan klaim persentase penghematan tertentu.
+- **Task-adaptive sampling** (`lib/adaptiveSampling.ts`): deteksi keyword di prompt (blok kode, kata kunci teknis vs kata kunci kreatif) buat milih salah satu dari 4 profil hyperparameter — `coding` (temp 0.2, presisi tinggi), `rag` (temp 0.3, nempel ke fakta), `creative` (temp 0.85, variatif), atau `general` (temp 0.7, baseline). Override eksplisit dari user (temperature manual di conversation settings) selalu menang di atas deteksi otomatis ini.
+- **KV cache prefix pinning** (`options.num_keep`): system prompt yang statis di-pin biar nggak keluar dari KV cache pas history makin panjang.
+
+## Post-generation grounding check
+
+Setelah model selesai generate (khusus turn yang pakai RAG/project knowledge), `lib/groundingVerifier.ts` jalan buat ngecek dua hal:
+1. **Nama file yang disebut di jawaban** — dicocokin ke nama file yang beneran ada di chunk yang di-retrieve. File yang disebut tapi nggak ada di chunk manapun dianggap "unverified" dan turunin skor.
+2. **Klaim per-kalimat** — tiap kalimat di jawaban dipecah jadi token (stopword Indonesia+Inggris dibuang), dicek berapa persen token-nya muncul literal di teks chunk yang di-retrieve. Kalimat dianggap "verified" kalau overlap-nya ≥25%.
+
+**Penting soal keakuratan metode ini**: ini bukan verifikasi semantik (nggak pakai LLM atau embedding buat cek klaim) — murni word-overlap. Kalimat yang benar secara makna tapi ditulis pakai kata berbeda dari chunk asli bisa keliru ditandai unverified (false negative). Sebaliknya, kalimat yang salah tapi kebetulan banyak pakai kata-kata umum yang juga ada di chunk bisa lolos jadi verified (false positive). Anggap ini heuristik kasar buat nangkep kasus ekstrem (model ngarang nama file yang nggak ada, atau jawaban yang sama sekali nggak nyerempet ke chunk manapun), bukan fact-checker yang bisa diandalkan buat nuansa. Hasilnya ditampilin sebagai badge **[ShieldCheck]** collapsible di UI chat, dengan skor 0-100% dan daftar file yang unverified.
+
 ---
 
-*Dokumen ini per commit `349b699`. Kalau ada fitur baru ditambah, update di sini juga — jangan biarin basi kayak section fitur di `DOCUMENTATION.md`.*
+*Dokumen ini per commit `3bb4acd`. Kalau ada fitur baru ditambah, update di sini juga — jangan biarin basi kayak section fitur di `DOCUMENTATION.md`.*
