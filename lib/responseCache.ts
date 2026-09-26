@@ -1,4 +1,5 @@
 import { GenerationMetrics, SearchSource, RetrievedChunkInfo, ToolCallExecution } from "./types";
+import { apiFetch } from "./apiClient";
 
 export interface CachedResponse {
   key: string;
@@ -67,9 +68,12 @@ export function computePromptCacheKey(params: PromptCacheKeyParams): string {
 }
 
 /**
- * Retrieves a cached response if present and unexpired.
+ * Retrieves a cached response if present and unexpired — in-memory only,
+ * synchronous. This is the fast path: a hit costs a Map lookup, no
+ * network round-trip. Use this when a synchronous answer is acceptable
+ * (e.g. the entry was almost certainly just written by this same tab).
  */
-export function getCachedPromptResponse(key: string): CachedResponse | null {
+export function getCachedPromptResponseSync(key: string): CachedResponse | null {
   const entry = memoryCache.get(key);
   if (!entry) return null;
 
@@ -80,6 +84,37 @@ export function getCachedPromptResponse(key: string): CachedResponse | null {
   }
 
   return entry;
+}
+
+/**
+ * Retrieves a cached response, checking the in-memory Map first (instant)
+ * and falling back to the server-persisted cache (lib/serverDb.ts's
+ * response_cache table/file) on a miss. The in-memory Map alone loses
+ * every entry on page reload or a new tab — this fallback is what lets a
+ * cache hit survive that. A server hit repopulates the in-memory Map so
+ * the *next* lookup for the same key is instant again.
+ *
+ * Network failures (server down, offline) degrade to a cache miss rather
+ * than throwing — this is a performance optimization, never something a
+ * caller should have to handle as an error.
+ */
+export async function getCachedPromptResponse(key: string): Promise<CachedResponse | null> {
+  const local = getCachedPromptResponseSync(key);
+  if (local) return local;
+
+  try {
+    const res = await apiFetch(`/api/cache?key=${encodeURIComponent(key)}`);
+    if (!res.ok) return null;
+    const { entry } = await res.json();
+    if (!entry?.data) return null;
+    if (Date.now() - entry.timestamp > CACHE_TTL_MS) return null;
+
+    const cached: CachedResponse = { ...entry.data, key, timestamp: entry.timestamp };
+    memoryCache.set(key, cached);
+    return cached;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -100,10 +135,11 @@ export function cosineSimilarity(a: number[], b: number[]): number {
 }
 
 /**
- * Searches for a semantically similar cached response for the same model.
- * Returns the best cached response if cosine similarity >= threshold (default 0.96).
+ * Searches for a semantically similar cached response for the same model,
+ * in-memory only, synchronous. See getCachedPromptResponseSync for why a
+ * sync variant exists alongside the async one below.
  */
-export function findSemanticCachedResponse(params: {
+export function findSemanticCachedResponseSync(params: {
   model: string;
   queryEmbedding: number[];
   similarityThreshold?: number;
@@ -132,6 +168,38 @@ export function findSemanticCachedResponse(params: {
 }
 
 /**
+ * Semantic cache lookup with the same in-memory-first, server-fallback
+ * shape as getCachedPromptResponse — see its comment for the rationale.
+ */
+export async function findSemanticCachedResponse(params: {
+  model: string;
+  queryEmbedding: number[];
+  similarityThreshold?: number;
+}): Promise<CachedResponse | null> {
+  const local = findSemanticCachedResponseSync(params);
+  if (local) return local;
+
+  try {
+    const qs = new URLSearchParams({
+      model: params.model,
+      embedding: JSON.stringify(params.queryEmbedding),
+      ...(params.similarityThreshold !== undefined ? { threshold: String(params.similarityThreshold) } : {}),
+    });
+    const res = await apiFetch(`/api/cache?${qs.toString()}`);
+    if (!res.ok) return null;
+    const { entry } = await res.json();
+    if (!entry?.data) return null;
+    if (Date.now() - entry.timestamp > CACHE_TTL_MS) return null;
+
+    const cached: CachedResponse = { ...entry.data, key: entry.key, timestamp: entry.timestamp };
+    memoryCache.set(cached.key, cached);
+    return cached;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Saves a completed generation response to prompt cache.
  */
 export function setCachedPromptResponse(
@@ -153,7 +221,8 @@ export function setCachedPromptResponse(
     if (firstKey) memoryCache.delete(firstKey);
   }
 
-  memoryCache.set(key, {
+  const timestamp = Date.now();
+  const entry: CachedResponse = {
     key,
     content: data.content,
     reasoning: data.reasoning,
@@ -165,14 +234,67 @@ export function setCachedPromptResponse(
     queryEmbedding: data.embedding,
     embedding: data.embedding,
     servedFromCache: true,
-    timestamp: Date.now(),
-  });
+    timestamp,
+  };
+  memoryCache.set(key, entry);
+
+  // Fire-and-forget persist to the server so this entry survives a reload.
+  // Never awaited by callers — a slow/offline write here must not delay
+  // the response the user is already looking at. Failures are swallowed:
+  // worst case the entry only lives as long as this tab's in-memory Map,
+  // same behavior as before this persistence layer existed.
+  persistCacheEntryToServer(entry).catch(() => {});
+}
+
+async function persistCacheEntryToServer(entry: CachedResponse): Promise<void> {
+  try {
+    await apiFetch("/api/cache", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        key: entry.key,
+        model: entry.model,
+        timestamp: entry.timestamp,
+        embedding: entry.embedding,
+        data: {
+          content: entry.content,
+          reasoning: entry.reasoning,
+          sources: entry.sources,
+          retrievedChunks: entry.retrievedChunks,
+          toolExecutions: entry.toolExecutions,
+          metrics: entry.metrics,
+          model: entry.model,
+          servedFromCache: true,
+        },
+      }),
+    });
+  } catch {
+    // Offline or server unavailable — the in-memory cache still works for
+    // this tab's lifetime; only cross-reload persistence is lost.
+  }
 }
 
 /**
- * Clears the prompt response cache.
+ * Clears the prompt response cache (in-memory only — the current tab).
  */
 export function clearPromptCache(): void {
   memoryCache.clear();
+}
+
+/**
+ * Clears the persisted server-side cache in addition to the in-memory one.
+ * Use this for an explicit user-facing "Clear cache" action; clearPromptCache
+ * alone (unchanged, still synchronous) is enough for internal/test use where
+ * only this tab's state matters.
+ */
+export async function clearPromptCacheEverywhere(): Promise<void> {
+  clearPromptCache();
+  try {
+    await apiFetch("/api/cache", { method: "DELETE" });
+  } catch {
+    // Server unreachable — in-memory cache is still cleared, which is the
+    // part the user can observe immediately; the persisted copy will
+    // simply age out via CACHE_TTL_MS on its own.
+  }
 }
 

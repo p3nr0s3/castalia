@@ -167,6 +167,11 @@ function getSqliteDb(): BetterSqlite3.Database {
     CREATE TABLE IF NOT EXISTS journal_entries (
       id TEXT PRIMARY KEY, updatedAt INTEGER NOT NULL DEFAULT 0, data TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS response_cache (
+      key TEXT PRIMARY KEY, model TEXT, timestamp INTEGER NOT NULL DEFAULT 0,
+      embedding TEXT, data TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_response_cache_model_ts ON response_cache (model, timestamp);
     CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT NOT NULL);
   `);
 
@@ -507,4 +512,191 @@ export async function getPendingApprovalById(id: string): Promise<PendingApprova
 
   const db = await readServerDbJson();
   return db.pendingApprovals.find((a) => a.id === id) || null;
+}
+
+// =====================================================================
+// Response cache — persists lib/responseCache.ts entries server-side so
+// they survive a page reload / dev-server restart, instead of living only
+// in an in-memory Map in the browser tab. Deliberately NOT part of
+// ServerDatabase/readServerDb: cache entries are best-effort (safe to
+// lose, never migrated from data/db.json, never included in the full-DB
+// GET/POST that /api/db and the multi-device sync path use) and can be
+// numerous/large (each entry stores a full response + optional embedding
+// vector), so folding them into the main record would bloat every read
+// of conversations/projects/etc. Same SQLite-with-JSON-fallback split as
+// the rest of this file; the JSON fallback is its own small file (NOT
+// data/db.json) so it doesn't grow the file every read/write of the main
+// database already parses.
+// =====================================================================
+
+const CACHE_JSON_FILE = path.join(DATA_DIR, "response-cache.json");
+const CACHE_TTL_MS = 2 * 60 * 60 * 1000; // 2 hours — matches lib/responseCache.ts's in-memory TTL
+const CACHE_MAX_ENTRIES = 500; // server-side cap is higher than the in-memory Map's 60: disk is cheap,
+// and the point of persisting is to outlive a single tab's short-lived Map.
+
+export interface PersistedCacheEntry {
+  key: string;
+  model?: string;
+  timestamp: number;
+  embedding?: number[];
+  data: unknown; // matches lib/responseCache.ts's CachedResponse shape; stored opaque here
+}
+
+interface CacheJsonFile {
+  entries: PersistedCacheEntry[];
+}
+
+let cacheJsonState: CacheJsonFile | null = null;
+let cacheJsonSaving = false;
+let cacheJsonPendingSave = false;
+
+async function persistCacheJsonToDisk() {
+  if (!cacheJsonState) return;
+  if (cacheJsonSaving) {
+    cacheJsonPendingSave = true;
+    return;
+  }
+  cacheJsonSaving = true;
+  try {
+    await fs.promises.mkdir(DATA_DIR, { recursive: true });
+    await fs.promises.writeFile(CACHE_JSON_FILE, JSON.stringify(cacheJsonState), "utf-8");
+  } catch (err) {
+    console.error("[serverDb] Failed to persist data/response-cache.json:", err);
+  } finally {
+    cacheJsonSaving = false;
+    if (cacheJsonPendingSave) {
+      cacheJsonPendingSave = false;
+      persistCacheJsonToDisk();
+    }
+  }
+}
+
+async function loadCacheJsonState(): Promise<CacheJsonFile> {
+  if (cacheJsonState) return cacheJsonState;
+  try {
+    const content = await fs.promises.readFile(CACHE_JSON_FILE, "utf-8");
+    cacheJsonState = JSON.parse(content);
+    if (!cacheJsonState || !Array.isArray(cacheJsonState.entries)) cacheJsonState = { entries: [] };
+  } catch {
+    cacheJsonState = { entries: [] };
+  }
+  return cacheJsonState;
+}
+
+function isExpired(timestamp: number): boolean {
+  return Date.now() - timestamp > CACHE_TTL_MS;
+}
+
+/** Exact-key lookup — mirrors lib/responseCache.ts's getCachedPromptResponse. */
+export async function getPersistedCacheEntry(key: string): Promise<PersistedCacheEntry | null> {
+  if (usingSqlite()) {
+    const row = getSqliteDb()
+      .prepare(`SELECT timestamp, data FROM response_cache WHERE key = ?`)
+      .get(key) as { timestamp: number; data: string } | undefined;
+    if (!row) return null;
+    if (isExpired(row.timestamp)) {
+      getSqliteDb().prepare(`DELETE FROM response_cache WHERE key = ?`).run(key);
+      return null;
+    }
+    return { key, timestamp: row.timestamp, data: JSON.parse(row.data) };
+  }
+
+  const state = await loadCacheJsonState();
+  const entry = state.entries.find((e) => e.key === key);
+  if (!entry) return null;
+  if (isExpired(entry.timestamp)) {
+    state.entries = state.entries.filter((e) => e.key !== key);
+    persistCacheJsonToDisk();
+    return null;
+  }
+  return entry;
+}
+
+/**
+ * Semantic lookup — mirrors lib/responseCache.ts's findSemanticCachedResponse.
+ * Cosine similarity is computed in JS either way (SQLite has no native
+ * vector index here); the SQLite path only saves the JSON.parse of entries
+ * that don't match the model filter, which matters once there are
+ * hundreds of entries across many models.
+ */
+export async function findPersistedSemanticCacheEntry(params: {
+  model: string;
+  queryEmbedding: number[];
+  similarityThreshold?: number;
+}): Promise<PersistedCacheEntry | null> {
+  const threshold = params.similarityThreshold ?? 0.96;
+  let candidates: PersistedCacheEntry[];
+
+  if (usingSqlite()) {
+    const rows = getSqliteDb()
+      .prepare(`SELECT key, timestamp, embedding, data FROM response_cache WHERE model = ? AND embedding IS NOT NULL`)
+      .all(params.model) as { key: string; timestamp: number; embedding: string; data: string }[];
+    candidates = rows
+      .filter((r) => !isExpired(r.timestamp))
+      .map((r) => ({ key: r.key, model: params.model, timestamp: r.timestamp, embedding: JSON.parse(r.embedding), data: JSON.parse(r.data) }));
+  } else {
+    const state = await loadCacheJsonState();
+    candidates = state.entries.filter((e) => e.model === params.model && e.embedding && !isExpired(e.timestamp));
+  }
+
+  let best: PersistedCacheEntry | null = null;
+  let bestScore = -1;
+  for (const entry of candidates) {
+    if (!entry.embedding) continue;
+    const score = cosineSimilaritySql(params.queryEmbedding, entry.embedding);
+    if (score >= threshold && score > bestScore) {
+      bestScore = score;
+      best = entry;
+    }
+  }
+  return best;
+}
+
+function cosineSimilaritySql(a: number[], b: number[]): number {
+  if (!a || !b || a.length !== b.length || a.length === 0) return 0;
+  let dot = 0, normA = 0, normB = 0;
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i] * b[i];
+    normA += a[i] * a[i];
+    normB += b[i] * b[i];
+  }
+  if (normA === 0 || normB === 0) return 0;
+  return dot / (Math.sqrt(normA) * Math.sqrt(normB));
+}
+
+/** Upserts one entry, evicting the oldest when over CACHE_MAX_ENTRIES. */
+export async function setPersistedCacheEntry(entry: PersistedCacheEntry): Promise<void> {
+  if (usingSqlite()) {
+    const db = getSqliteDb();
+    db.prepare(
+      `INSERT OR REPLACE INTO response_cache (key, model, timestamp, embedding, data) VALUES (?, ?, ?, ?, ?)`
+    ).run(entry.key, entry.model || null, entry.timestamp, entry.embedding ? JSON.stringify(entry.embedding) : null, JSON.stringify(entry.data));
+
+    const { count } = db.prepare(`SELECT COUNT(*) as count FROM response_cache`).get() as { count: number };
+    if (count > CACHE_MAX_ENTRIES) {
+      db.prepare(
+        `DELETE FROM response_cache WHERE key IN (SELECT key FROM response_cache ORDER BY timestamp ASC LIMIT ?)`
+      ).run(count - CACHE_MAX_ENTRIES);
+    }
+    return;
+  }
+
+  const state = await loadCacheJsonState();
+  state.entries = state.entries.filter((e) => e.key !== entry.key);
+  state.entries.push(entry);
+  state.entries.sort((a, b) => a.timestamp - b.timestamp);
+  if (state.entries.length > CACHE_MAX_ENTRIES) {
+    state.entries = state.entries.slice(state.entries.length - CACHE_MAX_ENTRIES);
+  }
+  persistCacheJsonToDisk();
+}
+
+/** Clears the entire persisted cache — used by the "Clear cache" UI action. */
+export async function clearPersistedCache(): Promise<void> {
+  if (usingSqlite()) {
+    getSqliteDb().prepare(`DELETE FROM response_cache`).run();
+    return;
+  }
+  cacheJsonState = { entries: [] };
+  persistCacheJsonToDisk();
 }

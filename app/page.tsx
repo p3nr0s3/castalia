@@ -1889,7 +1889,7 @@ export default function HomePage() {
       // Skip re-generation if exact or semantically identical response is cached
       let queryEmbedding: number[] | undefined = undefined;
       if (!searchContextText) {
-        let cached = getCachedPromptResponse(cacheKey);
+        let cached = await getCachedPromptResponse(cacheKey);
 
         // Try semantic response cache if exact hash missed and embeddings are enabled
         if (!cached && settings.semanticRagEnabled && settings.ollamaUrl) {
@@ -1901,7 +1901,7 @@ export default function HomePage() {
             });
             if (emb) {
               queryEmbedding = emb;
-              cached = findSemanticCachedResponse({
+              cached = await findSemanticCachedResponse({
                 model: selectedModel,
                 queryEmbedding: emb,
                 similarityThreshold: 0.96,

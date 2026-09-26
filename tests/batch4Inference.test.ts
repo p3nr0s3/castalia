@@ -6,7 +6,7 @@ import {
 } from "../lib/ollama";
 import {
   cosineSimilarity,
-  findSemanticCachedResponse,
+  findSemanticCachedResponseSync,
   setCachedPromptResponse,
   clearPromptCache,
 } from "../lib/responseCache";
@@ -62,7 +62,7 @@ describe("Batch 4: Semantic Response Caching", () => {
     });
 
     // Query with nearly identical embedding (similarity > 0.99)
-    const match = findSemanticCachedResponse({
+    const match = findSemanticCachedResponseSync({
       model: "llama3.1:8b",
       queryEmbedding: [0.94, 0.06, 0.11],
       similarityThreshold: 0.96,
@@ -80,7 +80,7 @@ describe("Batch 4: Semantic Response Caching", () => {
     });
 
     // Orthogonal query (similarity ~ 0)
-    const lowSimMatch = findSemanticCachedResponse({
+    const lowSimMatch = findSemanticCachedResponseSync({
       model: "llama3.1:8b",
       queryEmbedding: [0, 1, 0],
       similarityThreshold: 0.96,
@@ -88,7 +88,7 @@ describe("Batch 4: Semantic Response Caching", () => {
     expect(lowSimMatch).toBeNull();
 
     // Matching embedding but different model
-    const diffModelMatch = findSemanticCachedResponse({
+    const diffModelMatch = findSemanticCachedResponseSync({
       model: "qwen2.5:7b",
       queryEmbedding: [1, 0, 0],
       similarityThreshold: 0.96,

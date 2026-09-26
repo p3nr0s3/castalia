@@ -6,7 +6,7 @@
 [![Next.js](https://img.shields.io/badge/Next.js-14.2.35-black?logo=next.js)](https://nextjs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.6.3-blue?logo=typescript)](https://www.typescriptlang.org/)
 [![Ollama](https://img.shields.io/badge/Ollama-Native%20API-white?logo=ollama)](https://ollama.com/)
-[![Tests](https://img.shields.io/badge/Tests-42%20Suites%20%7C%20374%20Passed-brightgreen)](https://vitest.dev/)
+[![Tests](https://img.shields.io/badge/Tests-43%20Suites%20%7C%20384%20Passed-brightgreen)](https://vitest.dev/)
 [![Security](https://img.shields.io/badge/Security-SSRF%20Guarded%20%2B%20Sandboxed-success)](#security)
 
 **A local-first AI workspace built on Next.js 14.**  
@@ -27,8 +27,9 @@ Engineered for zero-waste local LLM inference, hybrid two-stage RAG, sandboxed t
 - **Zero VRAM Waste & Instant Turns**:
   - Automated **KV Cache Prefix Pinning** (`options.num_keep`) keeps static system prompts warm in GPU memory.
   - Automatic **Context Window Resolution** eliminates Ollama's default 2048-token truncation, safely scaling up to 131K tokens.
-- **Dual-Tier Response Caching** (in-memory, 60 entries, cleared on reload):
+- **Dual-Tier Response Caching** (in-memory Map first, persisted server-side so entries survive a reload):
   - Exact FNV-1a hash matching (always on) and semantic vector similarity ($\ge 0.96$, requires `Settings > Semantic RAG` and an embedding model such as `nomic-embed-text`). A cache hit skips generation entirely (no GPU tokens). Cache is bypassed when web-search context is attached.
+  - Persisted via SQLite (`response_cache` table) with an automatic JSON-file fallback if `better-sqlite3`'s native module isn't available — same backend selection as the rest of the app's storage.
 - **Sandboxed Agentic Tools & Safety**:
   - Server-verified **single-use approval records** (5-minute expiry, tool and argument matching, replay protection) with one-click revert for mutating disk actions (`write_file`, `delete_file`).
   - DNS-rebinding-safe SSRF guard matrix (`lib/ssrfGuard.ts`) and filesystem path sandboxing.
