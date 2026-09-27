@@ -1,6 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  outputFileTracing: false,
   // SECURITY NOTE (verified 2026-09-16, extended 2026-09-18, re-verified
   // 2026-09-25): this project is pinned to next@^14.2.35. There is no
   // patched 14.x release to move to yet — the latest published 14.x is
