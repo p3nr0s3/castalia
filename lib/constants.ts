@@ -94,6 +94,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   dynamicContextBucketing: true,
   adaptiveSampling: true,
   unloadEmbeddingAfterRetrieval: true,
+  layaEnabled: typeof process !== "undefined" && process.env.NEXT_PUBLIC_AUTO_LAYA === "true",
+  layaEndpoint: "http://127.0.0.1:8000",
+  layaTimeoutMs: 1500,
   ollamaKeepAlive: "60m",
   customTheme: {
     name: "Custom Palette",

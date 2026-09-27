@@ -30,6 +30,7 @@ import {
   speakUniversal,
   stopSpeaking,
 } from "@/lib/voiceEngine";
+import { checkLayaHealth } from "@/lib/layaClient";
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -270,6 +271,23 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [connEndpoint, setConnEndpoint] = useState("");
   const [isTestingConn, setIsTestingConn] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  // Laya System-1 state in settings
+  const [isTestingLaya, setIsTestingLaya] = useState(false);
+  const [layaStatus, setLayaStatus] = useState<{ online: boolean; latencyMs?: number; error?: string } | null>(null);
+
+  const handleTestLayaConnection = async () => {
+    setIsTestingLaya(true);
+    setLayaStatus(null);
+    try {
+      const res = await checkLayaHealth(formData.layaEndpoint || "http://127.0.0.1:8000", formData.layaTimeoutMs || 1500);
+      setLayaStatus(res);
+    } catch (err: any) {
+      setLayaStatus({ online: false, error: err.message || "Failed to reach Laya server" });
+    } finally {
+      setIsTestingLaya(false);
+    }
+  };
 
   // Plugins state in settings
   const [pluginSearch, setPluginSearch] = useState("");
@@ -1729,6 +1747,112 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       className="w-4 h-4 rounded border-[var(--card-border)] text-cyan-500 focus:ring-cyan-500 bg-[var(--card-bg)] cursor-pointer"
                     />
                   </div>
+                </div>
+
+                {/* Laya System-1 Decision Engine Card */}
+                <div className={`p-3.5 rounded-2xl border transition-all space-y-3 ${
+                  formData.layaEnabled
+                    ? "bg-[var(--sidebar-bg)] border-cyan-500/40 shadow-xs"
+                    : "bg-[var(--sidebar-bg)] border-[var(--card-border)] opacity-90"
+                }`}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="p-1.5 rounded-lg bg-cyan-500/15 text-cyan-400">
+                        <Brain className="w-4 h-4" />
+                      </div>
+                      <div className="pr-4">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold text-[var(--foreground)]">
+                            Laya System-1 Decision Engine
+                          </span>
+                          <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 font-mono">
+                            ~30ms CPU • ModernBERT
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-[var(--muted)] leading-relaxed mt-0.5">
+                          Mesin keputusan non-autoregresif multi-bahasa (Indonesia/Inggris). Mengklasifikasikan intent, profil sampling, dan kebutuhan penalaran secara instan di CPU tanpa menghabiskan VRAM GPU.
+                        </p>
+                      </div>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={formData.layaEnabled ?? false}
+                      onChange={(e) => setFormData({ ...formData, layaEnabled: e.target.checked })}
+                      className="w-4 h-4 rounded border-[var(--card-border)] text-cyan-500 focus:ring-cyan-500 bg-[var(--card-bg)] cursor-pointer"
+                    />
+                  </div>
+
+                  {formData.layaEnabled && (
+                    <div className="pt-2 border-t border-[var(--card-border)] space-y-2.5">
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between text-[11px] font-medium text-[var(--foreground)]">
+                          <span>Laya Server Endpoint (FastAPI)</span>
+                          <span className="text-[10px] text-[var(--muted)]">Default: http://127.0.0.1:8000</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="text"
+                            value={formData.layaEndpoint || "http://127.0.0.1:8000"}
+                            onChange={(e) => setFormData({ ...formData, layaEndpoint: e.target.value })}
+                            placeholder="http://127.0.0.1:8000"
+                            className="flex-1 px-3 py-1.5 text-xs font-mono rounded-xl border border-[var(--card-border)] bg-[var(--card-bg)] text-[var(--foreground)] focus:outline-none focus:ring-1 focus:ring-cyan-500"
+                          />
+                          <button
+                            type="button"
+                            onClick={handleTestLayaConnection}
+                            disabled={isTestingLaya}
+                            className="px-3 py-1.5 text-xs font-medium rounded-xl bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/30 transition-colors cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+                          >
+                            {isTestingLaya ? (
+                              <>
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                <span>Testing...</span>
+                              </>
+                            ) : (
+                              <span>Test Ping</span>
+                            )}
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Connection Test Result */}
+                      {layaStatus && (
+                        <div className={`p-2 rounded-xl text-[11px] font-mono flex items-center justify-between border ${
+                          layaStatus.online
+                            ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/20"
+                            : "bg-rose-500/10 text-rose-300 border-rose-500/20"
+                        }`}>
+                          <div className="flex items-center gap-1.5">
+                            {layaStatus.online ? (
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                            ) : (
+                              <XCircle className="w-3.5 h-3.5 text-rose-400" />
+                            )}
+                            <span>{layaStatus.online ? `Laya Online & Responsive (${layaStatus.latencyMs}ms)` : `Offline: ${layaStatus.error}`}</span>
+                          </div>
+                          {layaStatus.online && (
+                            <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-sans">
+                              Active System-1
+                            </span>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Quick Command Guide */}
+                      <div className="p-2 rounded-xl bg-black/30 border border-[var(--card-border)] text-[10px] text-[var(--muted)] space-y-1">
+                        <div className="font-semibold text-cyan-400 flex items-center gap-1">
+                          <Terminal className="w-3 h-3" />
+                          <span>Cara menjalankan Laya di terminal lokal:</span>
+                        </div>
+                        <div className="font-mono text-[10px] bg-black/40 p-1.5 rounded text-slate-300 select-all">
+                          pip install &quot;laya[serve]&quot; &amp;&amp; python -m laya.serve --port 8000
+                        </div>
+                        <p className="text-[9px] text-[var(--muted)]">
+                          Jika Laya offline atau belum dijalankan, Castalia otomatis fallback ke mode heuristik bawaan tanpa jeda.
+                        </p>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* Hyperparameter Sliders Grid */}

@@ -419,6 +419,9 @@ export interface PendingApproval {
    */
   reverted?: boolean;
   revertedAt?: number;
+  /** Laya System-1 safety evaluation risk score (0.0 to 1.0) and explanatory warning */
+  riskScore?: number;
+  safetyWarning?: string;
 }
 
 // ============================================================================
@@ -670,6 +673,13 @@ export interface AppSettings {
    * guaranteeing maximum free VRAM for the main LLM on <= 8GB GPUs.
    */
   unloadEmbeddingAfterRetrieval?: boolean;
+  /**
+   * Non-autoregressive System 1 decision engine (Laya - NandhaKishorM/laya).
+   * Fast ~30ms intent routing and security guardrails on CPU without GPU overhead.
+   */
+  layaEnabled?: boolean;
+  layaEndpoint?: string;
+  layaTimeoutMs?: number;
   /**
    * Keep-alive duration for models in Ollama VRAM/RAM (e.g. "30m", "60m", "24h", "-1" for indefinite).
    * Prevents model unloading and KV-cache flushing during pauses in chat.

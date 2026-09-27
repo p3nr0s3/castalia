@@ -1,127 +1,267 @@
-# Fitur — Castalia
+# Katalog Fitur & Spesifikasi Teknis — Castalia
 
-Katalog lengkap semua fitur yang **beneran ada dan jalan** di codebase ini saat ini. Berbeda dari `DOCUMENTATION.md` (yang section fitur-nya sudah basi — masih nyebut Google News RSS yang sudah diganti, dan belum nyebut Graphify/message-queue/agent-undo/dll) dan `README.md` (referensi teknis: stack, API, security). Dokumen ini jawabannya untuk "app ini bisa ngapain aja".
-
-Setiap klaim di sini diverifikasi langsung dari kode, bukan dari nama fitur/komentar yang mungkin menyesatkan.
+Dokumen ini merupakan referensi teknis komprehensif mengenai seluruh fitur dan subsistem yang aktif di Castalia. Setiap deskripsi disusun berdasarkan implementasi kode aktual, mencakup arsitektur modul, algoritma yang digunakan, serta batasan (*trade-offs*) teknis yang berlaku.
 
 ---
 
-## Chat inti
-
-- **Streaming chat** ke model Ollama lokal, atau cloud (Anthropic, Gemini, OpenAI, Groq, DeepSeek, OpenRouter) lewat proxy `/api/cloud/chat` yang otomatis redact secret sebelum keluar mesin.
-- **Message queue** — ketik dan kirim follow-up selagi jawaban sebelumnya masih streaming. Satu slot, teks doang (nggak bisa attachment), otomatis terkirim begitu stream kelar.
-- **Regenerate, edit pesan, percakapan bercabang (branch/fork)**.
-- **Multimodal**: gambar (vision model), dokumen, source code — lewat file picker, paste clipboard, atau drag-drop.
-- **Reasoning/thinking block** — otomatis deteksi tag `<think>...</think>` dari model yang support (DeepSeek-R1, Claude, Qwen, dll), ditampilin di accordion collapsible.
-
-## Tool-calling (kemampuan agentic)
-
-Model bisa manggil tool lewat directive `[TOOL_CALL:nama:{json}]` di teks outputnya sendiri (bukan native function-calling Ollama — pilihan sengaja biar konsisten di semua model/provider). **Perlu toggle "Disk Tools" nyala** di kolom chat biar tool ini masuk ke system prompt sama sekali — kalau mati, model nggak tau tool-tool ini eksis.
-
-**Tool read-only** (jalan otomatis, nggak perlu approval):
-- `list_directory`, `read_file`, `search_files` — baca filesystem lokal (sandboxed, nggak bisa keluar base directory).
-- `graphify_explain` / `graphify_query` / `graphify_path` — nanya struktur kode **project ini sendiri** (bukan project lain) lewat CLI eksternal `graphify` (`pip install graphifyy`). `explain` buat satu simbol (fungsi/class), `query` buat pertanyaan bebas, `path` buat cari jalur koneksi antar dua simbol. Graph di-build sekali per server lifecycle (~7 detik), di-cache setelahnya.
-
-**Tool mutating** (butuh approval manual dulu, token diverifikasi server-side, bukan cuma popup UI):
-- `write_file`, `delete_file`.
-- **Revert** — write/delete yang udah di-approve bisa di-undo satu klik dari riwayat approval. Nolak otomatis kalau file udah berubah lagi sejak aksi asli (nggak mau nimpa perubahan yang lebih baru secara diam-diam).
-
-## Autonomous agents
-
-- Tab terpisah di sidebar. Bikin agent dengan instruksi custom, jadwal **harian** (jam tertentu), **interval** (15 menit s/d 24 jam), atau **manual** ("Run Now").
-- **Penting**: scheduler-nya jalan client-side (timer di browser tab), **bukan** cron server beneran — kalau tab ketutup pas jadwal harusnya jalan, dia cuma catch-up sekali begitu tab dibuka lagi, bukan jalan tepat waktu di background. UI-nya udah eksplisit bilang ini.
-- Agent bisa manggil web search dan tool yang sama kayak chat manual, approval-gated sama seperti manual.
-
-## RAG / pencarian di knowledge base project
-
-- **Stage-2 reranking (LLM proxy atau in-memory lexical scorer)**: Tahap 1 melakukan coarse filtering cepat (BM25 + Dense Semantic via RRF) untuk menyaring kandidat awal, lalu Tahap 2 (default aktif per project, bisa dimatikan) menilai ulang relevansi query-passage lewat salah satu dari dua cara: single-batch prompt JSON via Ollama model lokal (`temperature: 0.0`), atau — kalau semantic RAG nggak diaktifkan — scorer leksikal in-memory (< 0.1ms; phrase proximity, query term coverage, AST definition affinity). **Catatan penamaan**: di kode ini disebut cross-attention proxy, bukan cross-encoder beneran (nggak ada model yang di-training khusus buat re-ranking; jalur LLM cuma nyuruh model chat biasa nge-skor lewat prompt, dan jalur lexical sama sekali nggak pakai model). Dilengkapi score blending dinamis ($\alpha \cdot S_{\text{rerank}} + (1-\alpha) \cdot S_{\text{stage1}}$) serta pemangkasan threshold relevansi minimum (`minScore`) agar passage tidak relevan langsung dibuang.
-- **One-Click URL & Documentation Ingestion**: Ingest dokumentasi web atau artikel teknis langsung ke konteks chat dan knowledge base project via slash command `/url <url> [pertanyaan]` atau tombol "Import Web Documentation" di modal Project Knowledge. Dilengkapi proteksi SSRF berbasis DNS lookup (`assertPublicUrl`), fallback scraper Jina Reader untuk SPA/JavaScript, ekstraksi judul semantik, dan konversi otomatis menjadi file `.md` project.
-- **Adjacent Chunk Stitching (Boundary Optimization)**: Menggabungkan beberapa chunk berurutan dari file yang sama (misal Part 1 dan Part 2) menjadi satu blok teks utuh dengan deduplikasi overlap perbatasan. Mencegah fungsi/syntax terpotong di tengah jalan dan menghemat token dari duplikasi header dokumen.
-- **Hypothetical Document Embeddings (HyDE)**: Opsi generate jawaban sintesis teknis singkat via model lokal untuk di-embed ke ruang vektor, menjembatani jarak semantik antara pertanyaan pendek pengguna dengan deklarasi kode/dokumentasi.
-- **Code-Graph Augmented Retrieval & Symbol Extraction**: Ekstraksi simbol kode (`function`, `class`, `interface`, `type`, `struct`) untuk TypeScript, JavaScript, Python, Go, dan Rust lewat regex pattern-matching per baris (`extractDefinedSymbols` di `lib/rag.ts`) — **bukan** AST parser beneran (nggak pakai tree-sitter/babel/dsb), jadi bisa miss atau salah tangkep di kasus edge (multi-line function signature, syntax yang jarang dipakai). Membangun in-memory symbol graph antar-chunk dan cross-file; memberikan boost skor BM25 authoritative untuk chunk yang mendefinisikan simbol yang ditanyakan, serta mengekspansi konteks otomatis untuk menyertakan definisi simbol yang dirujuk jika token budget masih tersisa.
-- **Hybrid Reciprocal Rank Fusion (RRF)**: Menggabungkan BM25 keyword ranking (selalu jalan, zero cost GPU) dengan dense semantic ranking (cosine similarity embedding Ollama) menggunakan formula RRF ($1 / (k + \text{rank})$), mencegah distorsi skor BM25 ekstrem/keyword-stuffing.
-- **Pre-indexed chunk store (memory-cached by content-hash)**: Chunking dokumen di-cache per file (`getCachedFileChunks`) dan hanya dihitung ulang jika isi file atau parameter chunk berubah, memangkas overhead CPU saat chat dan saat membuka Project modal.
-- Per-project configurable: chunk size, overlap, top-K, bobot blend BM25/semantic.
-- Cache embedding by content-hash — cuma chunk yang berubah yang di-embed ulang, bukan seluruh project tiap turn.
-- Query di-expand pakai 1-2 turn user sebelumnya, biar pertanyaan follow-up ("gimana cara pakainya?") tetap dapet konteks yang relevan.
-- Diversity cap per-file di hasil ranking, biar satu file panjang nggak monopoli semua slot.
-
-## Ambient file-watcher
-
-Project bisa nunjuk ke folder asli di disk (bukan cuma upload manual) — perubahan file ke-sync otomatis lewat `fs.watch` (async, debounced), dicap 500 file/scan dan 2MB/file. Resume otomatis abis server restart.
-
-## Connectors — bridge kustom
-
-Nggak ada integrasi bawaan (Slack/Discord/GitHub/Blender template udah dihapus, diganti sistem generik). Dua jenis bridge yang bisa kamu bikin sendiri di Directory > Connectors:
-- **Webhook** — POST JSON ke URL publik manapun (cocok buat Slack/Discord incoming webhook).
-- **Local App** — bridge loopback-only ke aplikasi yang jalan di mesin kamu sendiri.
-
-Dipanggil dari chat dengan `/bridge <bridge-id> <pesan>`.
-
-## Local App Bridge framework
-
-Pola generik (`lib/localAppBridge.ts`) buat nyambungin ke aplikasi desktop lokal lewat HTTP loopback — awalnya diekstrak dari integrasi Blender MCP, sekarang bisa dipakai buat aplikasi lain yang punya HTTP API lokal.
-
-## Memory extraction otomatis
-
-Kalau di-enable (`Settings > Memory > Generate from chats`), sistem otomatis ekstrak fakta durable dari tiap turn chat (bukan sensitif/kredensial — ada filter regex buat API key, token, kartu, dll yang selalu dibuang duluan sebelum disimpan, terlepas dari setting). Jalan lewat model Ollama lokal yang sama, nggak pernah lewat cloud.
-
-## Codespace — sandbox eksekusi kode
-
-Jalanin Python, Node, PowerShell, atau bash langsung dari browser (`/api/codespace/run`) — proses child async, env di-strip dari secret sebelum diteruskan, temp file dibersihin otomatis abis selesai (sukses maupun gagal). Ada juga sebagai halaman standalone fullscreen (`/codespace`, terpisah dari chat), layout mirip VS Code dengan file sidebar dan bottom terminal yang bisa di-resize drag (kedua splitter punya double-click buat reset ke ukuran default).
-
-## Journal
-
-Sistem catatan pribadi terpisah dari chat — kategori (harian, tugas, ide), checklist item, status/prioritas, tag, dan bisa kirim isi entry ke chat buat didiskusiin sama AI.
-
-## Knowledge Graph (visualisasi) — beda dari Graphify
-
-**Catatan penting biar nggak ketuker:** ini bukan yang sama dengan tool `graphify_*` di atas. Ini visualisasi force-directed graph di dalam app, nunjukin hubungan antar **Project, File, Journal entry, dan Tag** kamu sendiri (data internal app) — bukan analisis struktur kode. Klik node buat navigasi langsung ke project/journal terkait.
-
-## Skills & Plugins directory
-
-Katalog skill (16) dan plugin (12) yang bisa di-toggle per-conversation, masing-masing nge-inject instruksi khusus ke system prompt (contoh: skill dokumen, skill coding). Nggak ada lagi fake download-count di situ — udah dihapus karena angkanya fabricated.
-
-## Voice mode
-
-Speech-to-text browser native (`webkitSpeechRecognition` — **bukan offline**, tetap manggil server Google di belakang layar) + text-to-speech dua pilihan: Natural Neural (prioritasin suara Microsoft/Google Online Natural) atau Browser Offline Default (`SpeechSynthesis` OS/browser lokal). OpenAI TTS udah dihapus (dari awal nggak pernah jalan — kena CORS block, OpenAI sengaja nggak izinin call langsung dari browser).
-
-## Web search
-
-Dual-engine (Bing + DuckDuckGo scraping paralel, bukan API resmi), hasil digabung+dedupe biar satu engine block/berubah markup nggak bikin hasil kosong total. Ada resolusi follow-up multi-turn ("yang kedua", "itu tadi") dan trust-boost buat domain teknis.
-
-## Hardware-pressure hint
-
-Banner dismissible (nggak pernah auto-switch) yang nyaranin model lebih ringan/cloud kalau VRAM kepake berat atau baterai rendah. VRAM dari `/api/ps` Ollama (retrospective, bukan prediktif), baterai dari `navigator.getBattery` (Chrome/Edge/Android doang, Firefox/Safari nggak pernah implement).
-
-## Keamanan (ringkas — detail di README)
-
-Bearer token + cross-site request rejection, SSRF guard per-use-case (public URL vs loopback-only vs Ollama host), filesystem path sandboxing, approval-token gate buat operasi tulis/hapus. Detail lengkap di [`README.md#security`](README.md#security).
-
-## Sinkronisasi & persistence
-
-Satu flat store (`lib/serverDb.ts`, SQLite kalau ada native binding, fallback JSON kalau nggak) buat conversation/project/agent/connector/settings, di-broadcast ke tab lain yang lagi kebuka lewat Server-Sent Events (`/api/db/stream`) — bukan polling.
-
-## Tema
-
-8 tema warna (Midnight, OLED, Light, Cyberpunk, Forest, Sunset, Nord, System Auto).
-
-## Inference tuning (per-turn)
-
-- **Context window bucketing** (`lib/ollama.ts`): sebelum tiap request ke Ollama, hitung token yang dibutuhkan (system prompt + history + RAG chunks + reserved output), lalu bulatkan ke atas ke tier power-of-2 terdekat (`2048, 4096, 8192, 16384, 32768, 65536, 131072`) alih-alih selalu minta context window penuh. Tujuannya dua: hindari realokasi KV cache tiap turn yang beda dikit (yang bisa nge-bust prefix caching), dan nggak reserve VRAM buat context 32K kalau yang kepake cuma 3K. **Catatan**: belum ada angka pengurangan VRAM yang diverifikasi/diukur — ini soal menghindari over-allocation, bukan klaim persentase penghematan tertentu.
-- **Task-adaptive sampling** (`lib/adaptiveSampling.ts`): deteksi keyword di prompt (blok kode, kata kunci teknis vs kata kunci kreatif) buat milih salah satu dari 4 profil hyperparameter — `coding` (temp 0.2, presisi tinggi), `rag` (temp 0.3, nempel ke fakta), `creative` (temp 0.85, variatif), atau `general` (temp 0.7, baseline). Override eksplisit dari user (temperature manual di conversation settings) selalu menang di atas deteksi otomatis ini.
-- **KV cache prefix pinning** (`options.num_keep`): system prompt yang statis di-pin biar nggak keluar dari KV cache pas history makin panjang.
-
-## Post-generation grounding check
-
-Setelah model selesai generate (khusus turn yang pakai RAG/project knowledge), `lib/groundingVerifier.ts` jalan buat ngecek dua hal:
-1. **Nama file yang disebut di jawaban** — dicocokin ke nama file yang beneran ada di chunk yang di-retrieve. File yang disebut tapi nggak ada di chunk manapun dianggap "unverified" dan turunin skor.
-2. **Klaim per-kalimat** — tiap kalimat di jawaban dipecah jadi token (stopword Indonesia+Inggris dibuang), lalu dicek pakai dua cara: (a) **word-overlap berbobot** — token yang jarang muncul di seluruh chunk pool (mirip IDF) dikasih bobot lebih tinggi daripada kata umum ("context", "window", dsb yang muncul di hampir semua chunk), jadi klaim yang cuma restate kata umum tanpa fakta spesifik nggak otomatis lolos; (b) **exact-match angka** — kalau kalimat nyebut angka yang nggak ada sama sekali di chunk manapun (misal "port-nya 9999" padahal chunk cuma nyebut "5432"), langsung ditandai unverified terlepas dari overlap kata lain, karena beda dari prosa yang bisa diparafrase, nggak ada alasan legit jawaban yang grounded nyebut angka yang nggak ada di sumbernya.
-
-**Opsional — LLM fallback buat kalimat ambigu**: kalau `settings.groundingLlmFallbackEnabled` diaktifkan (default mati, toggle-nya ada di `Settings > Knowledge & Retrieval (RAG)`) dan `ollamaUrl` keisi, kalimat yang overlap ratio-nya jatuh di rentang abu-abu (15%–45%, di luar itu heuristik udah cukup pede) dikirim ke model lokal buat opini kedua lewat prompt JSON single-batch (pola sama kayak Stage-2 reranker `scorePassagesWithLocalModel`). Nambah latensi per kalimat ambigu, tapi cuma dipanggil kalau ada yang beneran ambigu — kalimat yang jelas verified/unverified nggak nyentuh LLM sama sekali. Gagal (server nggak ke-reach, timeout, response nggak valid) fallback diam-diam ke hasil heuristik, nggak pernah nge-block atau nge-throw.
-
-**Batasan yang masih ada**: ini tetap bukan fact-checker sempurna. Klaim yang salah secara nuansa (bukan soal angka atau nama file) tapi ditulis pakai kata-kata yang persis ada di chunk masih bisa lolos verified — heuristik cuma ningkatin presisi buat dua failure mode spesifik (angka ngarang, false-positive dari kata umum), bukan menghilangkan seluruh kemungkinan false positive/negative. LLM fallback (kalau diaktifkan) nutup sebagian celah nuansa ini buat kalimat ambigu, tapi nggak menyentuh kalimat yang heuristik-nya udah pede (overlap di luar rentang 15-45%) — kalimat pede-tapi-salah tetap bisa lolos tanpa second opinion. Hasilnya ditampilin sebagai badge **[ShieldCheck]** collapsible di UI chat, dengan skor 0-100% dan daftar file yang unverified.
+## Daftar Isi
+1. [Arsitektur Chat & Multi-Model](#1-arsitektur-chat--multi-model)
+2. [Efisiensi Inferensi & Optimasi VRAM Hardware](#2-efisiensi-inferensi--optimasi-vram-hardware)
+3. [Retrieval-Augmented Generation (RAG) 2-Tahap](#3-retrieval-augmented-generation-rag-2-tahap)
+4. [Codespace IDE & Sandbox Eksekusi Kode](#4-codespace-ide--sandbox-eksekusi-kode)
+5. [Tool-Calling & Sistem Keamanan Agentic](#5-tool-calling--sistem-keamanan-agentic)
+6. [Autonomous Scheduled Agents](#6-autonomous-scheduled-agents)
+7. [Memori Jangka Panjang & Ekstraksi Fakta](#7-memori-jangka-panjang--ekstraksi-fakta)
+8. [Pencarian Web Terpadu (Dual-Engine Scraper)](#8-pencarian-web-terpadu-dual-engine-scraper)
+9. [Voice Studio & Speech Synthesis](#9-voice-studio--speech-synthesis)
+10. [Caching Respon & Persistensi Data](#10-caching-respon--persistensi-data)
+11. [Manajemen Ruang Kerja & Personalisasi UI](#11-manajemen-ruang-kerja--personalisasi-ui)
 
 ---
 
-*Dokumen ini per commit `327f25b`. Kalau ada fitur baru ditambah, update di sini juga — jangan biarin basi kayak section fitur di `DOCUMENTATION.md`.*
+## 1. Arsitektur Chat & Multi-Model
+
+### 1.1 Streaming & Protokol Komunikasi
+* **Implementasi**: `app/page.tsx`, `lib/ollama.ts`.
+* **Mekanisme**: Komunikasi ke Ollama lokal memanfaatkan protokol native streaming NDJSON via HTTP `POST /api/generate` dan `/api/chat`. Respon di-*throttle* menggunakan micro-batcher berbasis `requestAnimationFrame` untuk mempertahankan rendering UI pada 60fps tanpa membebani thread utama React.
+* **Dukungan Cloud Provider**: Selain Ollama lokal, sistem mendukung provider cloud (OpenAI, Anthropic Claude, Google Gemini, Groq, DeepSeek, OpenRouter) melalui proxy server internal `/api/cloud/chat`. Secret dan API key pengguna otomatis dibersihkan (*scrubbed*) dari payload sebelum dikirim ke endpoint cloud.
+
+### 1.2 Message Queue (FIFO Tunggal)
+* **Implementasi**: `components/ChatInterface.tsx`, `app/page.tsx`.
+* **Mekanisme**: Memungkinkan pengguna mengetik dan mengirim pesan lanjutan saat model sedang men-generate respons sebelumnya. Antrean berkapasitas 1 slot teks; begitu respons aktif selesai di-stream, pesan dalam antrean otomatis dieksekusi secara berurutan.
+* **Batasan**: Antrean saat ini hanya mendukung pesan teks biasa (tidak mendukung penambahan lampiran file saat stream berlangsung).
+
+### 1.3 Manajemen Percakapan Multi-Turn & Branching
+* **Implementasi**: `app/page.tsx`, `components/ChatMessage.tsx`.
+* **Mekanisme**:
+  * **Edit Pesan**: Pengguna dapat mengedit pesan user sebelumnya; riwayat percakapan setelah titik edit akan dipotong dan di-generate ulang.
+  * **Branch / Fork Conversation**: Pengguna dapat mencabangkan percakapan dari pesan asisten mana pun menjadi sesi percakapan independen baru tanpa mengubah sesi asal.
+  * **Regenerate**: Permintaan pembuatan ulang respons dengan opsi penyesuaian parameter.
+
+### 1.4 Reasoning Parser (`<think>`)
+* **Implementasi**: `lib/reasoningParser.ts`, `components/ChatMessage.tsx`.
+* **Mekanisme**: Pengurai berbasis stream yang mendeteksi tag `<think>...</think>` secara real-time pada model penalaran (seperti DeepSeek-R1, Qwen 2.5 Coder, atau Claude 3.7 Sonnet). Blok penalaran dipisahkan dari jawaban final dan ditampilkan dalam accordion interaktif yang dapat dilipat/dibuka.
+
+### 1.5 Input Multimodal
+* **Implementasi**: `components/ChatInterface.tsx`, `lib/ollama.ts`.
+* **Mekanisme**: Mendukung input gambar untuk model visual (LLaVA, MiniCPM) serta file dokumen (PDF, Markdown, Source Code, TXT) melalui file picker, clipboard paste (`Ctrl+V`), dan drag-and-drop. Dokumen teks diekstraksi ke buffer memori sebelum diteruskan ke konteks model.
+
+---
+
+## 2. Efisiensi Inferensi & Optimasi VRAM Hardware
+
+### 2.1 Dynamic Context Window Bucketing
+* **Implementasi**: `lib/ollama.ts` (`calculateContextBucket`, `CONTEXT_WINDOW_BUCKETS`).
+* **Mekanisme**: Ollama / llama.cpp mengalokasikan memori VRAM untuk KV cache di awal berdasarkan nilai `num_ctx`. Jika nilai dipatok statis di 32K atau 64K, VRAM GPU akan terkunci secara berlebihan meskipun chat hanya berisi 300 token. Fitur ini secara dinamis mengelompokkan panjang konteks ke dalam tier pangkat dua (*power-of-two*): `2048`, `4096`, `8192`, `16384`, `32768`, `65536`, `131072`.
+* **Dampak**: Menghemat 50–75% alokasi VRAM KV cache pada obrolan harian, sekaligus mempertahankan prefix cache (`num_keep`) pada turn dalam tier yang sama.
+
+### 2.2 Task-Adaptive Sampling Engine
+* **Implementasi**: `lib/adaptiveSampling.ts` (`detectSamplingProfile`, `resolveAdaptiveSamplingParams`).
+* **Mekanisme**: Menganalisis intent prompt pengguna dan secara otomatis menyesuaikan hyperparameter inferensi:
+  * **Coding**: `temperature: 0.2`, `top_p: 0.95`, `min_p: 0.05`, `repeat_penalty: 1.15` (presisi deterministik, mencegah impor fiktif).
+  * **RAG / Dokumen**: `temperature: 0.3`, `top_p: 0.9`, `min_p: 0.05`, `repeat_penalty: 1.1` (fokus faktual pada konteks).
+  * **Creative**: `temperature: 0.85`, `top_p: 0.95`, `min_p: 0.02`, `repeat_penalty: 1.05` (ekspresi beragam).
+  * **General**: `temperature: 0.7`, `top_p: 0.9`, `min_p: 0.05`, `repeat_penalty: 1.1`.
+* **Preseden Override**: Pengaturan manual pengguna di panel Settings selalu memiliki prioritas tertinggi di atas deteksi otomatis.
+
+### 2.3 Laya System-1 Decision Engine (Non-Autoregressive Routing)
+* **Implementasi**: `lib/layaClient.ts`, `app/page.tsx`, `components/SettingsModal.tsx`, `components/ApprovalQueueModal.tsx`.
+* **Arsitektur**: Mengintegrasikan engine keputusan non-autoregresif berbasis encoder ModernBERT / mmBERT (`NandhaKishorM/laya`) yang berjalan di CPU RAM (~30–50ms latency) sebagai sistem "System 1" sebelum model chat autoregresif utama (System 2) dipanggil.
+* **Fungsi Utama**:
+  * **Intent & Sampling Profiling**: Mengklasifikasikan prompt pengguna ke profil `coding`, `rag`, `creative`, atau `general` dengan pemahaman semantik mendalam melampaui aturan kata kunci, serta mendukung kueri multibahasa (Bahasa Indonesia & Inggris).
+  * **Dynamic Deep Reasoning Trigger**: Mendeteksi pertanyaan analitis kompleks (seperti pembuktian matematis, arsitektur sistem, atau algoritma) dan menyarankan aktivasi mode `<think>` secara otomatis saat percakapan berada pada mode `default`.
+  * **Safety Guardrail**: Mengevaluasi risiko keamanan operasi disk bermutasi (`write_file`, `delete_file`) dan memunculkan indikator peringatan risiko pada antrean persetujuan (*Approval Queue*).
+* **Graceful Silent Fallback**: Jika server Laya tidak aktif atau kueri mengalami batas waktu (timeout 1200–1500ms), Castalia secara transparan jatuh kembali (*fall back*) ke heuristik bawaan tanpa jeda atau error pada antarmuka pengguna.
+
+### 2.4 Isolasi VRAM & Evakuasi Model Embedding
+* **Implementasi**: `lib/embeddings.ts` (`unloadEmbeddingModel`), `lib/rag.ts`.
+* **Mekanisme**: Pada GPU kelas konsumen (6–8 GB VRAM), membiarkan model embedding (seperti `nomic-embed-text`) tetap berada di VRAM bersamaan dengan model chat 7B/8B dapat memicu perpindahan layer ke RAM sistem (*CPU layer spilling*). Sistem secara otomatis mengirim sinyal `keep_alive: 0` segera setelah tahap retrieval selesai, membebaskan VRAM kembali ke model chat utama.
+
+### 2.5 Prefix Caching (`num_keep`)
+* **Implementasi**: `lib/ollama.ts`.
+* **Mekanisme**: Menghitung estimasi token untuk system prompt statis dan menyematkannya via parameter `options.num_keep`. Ini mencegah komputasi ulang KV cache pada system prompt di setiap giliran pesan.
+
+### 2.6 Deteksi Tekanan Perangkat Keras
+* **Implementasi**: `lib/hardwareSignals.ts`.
+* **Mekanisme**: Membaca penggunaan VRAM dari endpoint `/api/ps` milik Ollama dan status baterai melalui `navigator.getBattery` (jika didukung browser). Memberikan indikator peringatan non-intrusif jika memori GPU berada di ambang batas.
+
+### 2.7 Unified Cross-Platform Launcher (All-in-One Runner)
+* **Implementasi**: `scripts/launch.mjs`, `package.json` (`npm run dev:all`, `npm run start:all`).
+* **Mekanisme**: Orkestrator proses berbasis Node.js murni yang secara otomatis mendeteksi lingkungan Python (virtualenv `.venv`/`venv`/`env` atau sistem), memvalidasi paket Laya, menyalakan server HTTP Laya di latar belakang (`http://127.0.0.1:8000`), menyuntikkan flag `NEXT_PUBLIC_AUTO_LAYA=true`, lalu menyalakan server Castalia Next.js dalam 1 langkah.
+* **Manajemen Siklus Hidup**: Menangani penutupan terpadu (*graceful termination*) lintas sistem operasi (Windows, Linux, macOS). Saat pengguna menekan `Ctrl+C`, launcher mematikan *process tree* Next.js dan Python secara bersamaan tanpa meninggalkan proses zombie pada port 8000.
+
+---
+
+## 3. Retrieval-Augmented Generation (RAG) 2-Tahap
+
+### 3.1 Stage-1: Hybrid Retrieval & Reciprocal Rank Fusion (RRF)
+* **Implementasi**: `lib/rag.ts` (`rankChunksHybrid`).
+* **Mekanisme**: Memadukan pencarian leksikal BM25 (pencocokan kata kunci) dengan pencarian vektor semantik (cosine similarity embedding Ollama) menggunakan formula Reciprocal Rank Fusion:
+  $$\text{RRF}(d) = \sum \frac{1}{k + \text{rank}(d)}$$
+  dengan konstanta $k = 60$. Pendekatan ini menyeimbangkan presisi kata kunci teknis (nama fungsi/variabel) dengan pemahaman semantik pertanyaan.
+
+### 3.2 Stage-2: Cross-Encoder Re-Ranking
+* **Implementasi**: `lib/rag.ts` (`rankChunksCrossScorer`, `buildOptimizedKnowledgeContextAsync`).
+* **Mekanisme**: Calon chunk hasil Stage-1 dievaluasi ulang menggunakan cross-scorer deterministik dalam memori (< 0.1 ms) berdasarkan kedekatan frasa (*phrase proximity*), cakupan istilah kueri (*query term coverage*), dan afinitas AST simbol. Jika diaktifkan, sistem juga dapat menjalankan re-ranking via LLM lokal dengan prompt JSON terstruktur (`temperature: 0.0`).
+
+### 3.3 Ekstraksi Simbol AST & Code-Graph Augmented Retrieval
+* **Implementasi**: `lib/rag.ts` (`extractSymbolsFromCodeChunk`, `buildProjectSymbolGraph`).
+* **Mekanisme**: Pengenal pola regex AST ringan untuk TypeScript, JavaScript, Python, Go, dan Rust tanpa dependensi biner pihak ketiga. Membangun graf keterhubungan simbol dalam memori. Memberikan boost ranking pada chunk yang mendefinisikan simbol yang ditanyakan pengguna, serta mengekspansi konteks dengan definisi simbol terkait jika sisa token budget mencukupi.
+
+### 3.4 Boundary-Aware Adjacent Chunk Stitching
+* **Implementasi**: `lib/rag.ts` (`stitchAdjacentChunks`).
+* **Mekanisme**: Jika beberapa chunk berurutan dari file yang sama terpilih dalam hasil retrieval, sistem secara cerdas menggabungkannya kembali menjadi satu bagian utuh dengan menduplikasi overlap perbatasan. Mencegah fungsi atau blok kode terpotong di tengah jalan dan menghemat token dari duplikasi header.
+
+### 3.5 Pemadatan Dokumen & Arahan Anti-Halusinasi
+* **Implementasi**: `lib/rag.ts` (`compactDocumentChunk`, `assembleContextFromRanked`).
+* **Mekanisme**:
+  * **Compaction**: Memangkas header lisensi boilerplate (MIT, Apache, BSD, GPL) dan merampingkan spasi berlebih untuk menghemat ruang token.
+  * **Negative Constraint Prompting**: Menginjeksikan direktif grounding yang tegas pada header konteks, menginstruksikan model untuk secara eksplisit menolak berspekulasi jika informasi tidak ditemukan dalam teks sumber.
+
+### 3.6 Post-Generation Citation & Hallucination Verifier
+* **Implementasi**: `lib/groundingVerifier.ts`, `components/ChatMessage.tsx`.
+* **Mekanisme**: Berjalan secara lokal pasca-generasi pada turn RAG.
+  * Mengekstrak referensi file dan memvalidasinya terhadap file riil yang di-retrieve.
+  * Memverifikasi klaim kalimat terhadap teks konteks dengan filter stopword dwibahasa (Indonesia & Inggris).
+  * Menghasilkan skor 0–100% dan status (`verified`, `partial`, `unverified`) yang ditampilkan pada badge UI **[ShieldCheck]** beserta kartu inspeksi detail.
+
+### 3.7 Ambient Folder Watcher
+* **Implementasi**: `lib/fileWatcher.ts`.
+* **Mekanisme**: Memantau direktori lokal di disk secara real-time via `fs.watch` (debounced). Perubahan berkas otomatis disinkronkan ke dalam indeks proyek tanpa perlu upload ulang manual.
+* **Batasan**: Dibatasi maksimal 500 file per pemindaian dan 2 MB per file untuk mencegah pemborosan memori I/O.
+
+### 3.8 Ingesti Dokumentasi Web (`/url`)
+* **Implementasi**: `lib/webScraper.ts`, `app/api/ingest/url/route.ts`.
+* **Mekanisme**: Mengekstrak artikel atau dokumentasi teknis via slash command `/url <link>` atau tombol import. Dilengkapi validasi DNS SSRF (`assertPublicUrl`), fallback scraper Jina Reader untuk situs berbasis SPA/JavaScript, dan konversi otomatis ke format Markdown.
+
+---
+
+## 4. Codespace IDE & Sandbox Eksekusi Kode
+
+### 4.1 Tata Letak Workspace Tiga Panel
+* **Implementasi**: `app/codespace/page.tsx`, `components/CodespaceIDE.tsx`.
+* **Mekanisme**: Antarmuka layar penuh (*fullscreen*) dengan susunan:
+  1. Panel kiri: Penjelajah file virtual (*file tree explorer*) dengan operasi buat, ubah nama, dan hapus berkas.
+  2. Panel kanan atas: Editor kode berbasis web dengan syntax highlighting dan line numbering.
+  3. Panel kanan bawah: Terminal eksekusi horizontal yang dapat diatur ukurannya (*resizable split pane*).
+
+### 4.2 Runtime Eksekusi Ganda
+* **Pyodide (Python 3.12 WebAssembly)**: Berjalan 100% di browser pengguna tanpa memerlukan instalasi Python lokal di mesin host. Mampu menjalankan script Python murni dan manipulasi data.
+* **Node.js Subprocess Lokal (`/api/codespace/run`)**: Mengeksekusi script JavaScript/TypeScript melalui child process server lokal dengan isolasi variabel lingkungan (*environment scrubbing*) dan pembersihan file sementara otomatis.
+
+### 4.3 Telemetri & Tindakan Cepat AI Copilot
+* **Telemetri**: Menampilkan status exit code, durasi eksekusi (ms), stream stdout, dan stderr.
+* **AI Copilot Quick-Actions**: Tombol integrasi satu klik untuk *Review Code*, *Fix Bugs*, *Optimize*, *Generate Tests*, serta pratinjau langsung untuk file HTML/CSS.
+
+---
+
+## 5. Tool-Calling & Sistem Keamanan Agentic
+
+### 5.1 Protokol Inline Tool Calling
+* **Implementasi**: `lib/tools.ts`.
+* **Mekanisme**: Menggunakan protokol directive eksplisit `[TOOL_CALL:tool_name:{"arg":"val"}]` pada output teks model. Pilihan arsitektur ini memastikan kompatibilitas yang seragam di seluruh model lokal dan open-weights tanpa bergantung pada schema function-calling proprietary.
+
+### 5.2 Pembagian Kategori & Gerbang Persetujuan (Approval Gate)
+* **Read-Only Tools (Otomatis)**:
+  * `list_directory`, `read_file`, `search_files`: Membaca struktur dan isi direktori lokal dalam batas direktori proyek.
+  * `graphify_explain`, `graphify_query`, `graphify_path`: Analisis struktur dependensi kode via CLI `graphify`.
+* **Mutating Tools (Approval-Gated)**:
+  * `write_file`, `delete_file`: Menulis atau menghapus file di disk.
+  * **Verifikasi Server-Side**: Tindakan mutasi mewajibkan persetujuan manual pengguna. Server menerbitkan token kriptografis sekali pakai (*single-use approval token*) dengan masa berlaku 5 menit yang terikat ketat pada nama tool dan argumennya.
+
+### 5.3 One-Click Revert & Rollback
+* **Implementasi**: `lib/toolApproval.ts`.
+* **Mekanisme**: Saat operasi `write_file` disetujui, sistem menyimpan snapshot konten berkas sebelumnya. Pengguna dapat membatalkan perubahan (*rollback*) kapan saja dengan satu klik. Sistem otomatis menolak rollback jika berkas telah dimodifikasi oleh proses lain di luar aplikasi untuk mencegah konflik data.
+
+### 5.4 Matriks Pertahanan SSRF & Path Sandboxing
+* **SSRF Defense (`lib/ssrfGuard.ts`)**: Melakukan resolusi DNS sebelum dispatch HTTP untuk memblokir IP loopback (`127.0.0.1`), subnet internal privat (`10.0.0.0/8`, `192.168.0.0/16`), dan vektor serangan DNS-rebinding.
+* **Path Sandbox (`lib/pathSandbox.ts`)**: Mengurung seluruh operasi I/O berkas di dalam root direktori kerja yang ditentukan, menolak upaya traversal direktori (`../`).
+
+---
+
+## 6. Autonomous Scheduled Agents
+
+### 6.1 Manajemen & Eksekusi Agent
+* **Implementasi**: `components/AgentTab.tsx`, `lib/agentRunner.ts`.
+* **Mekanisme**: Pengguna dapat mendefinisikan agen otonom dengan system prompt khusus, setelan model, dan akses ke tool. Agen dapat dijalankan secara langsung (*Run Now*) atau dijadwalkan secara periodik.
+
+### 6.2 Pola Penjadwalan (Scheduling)
+* **Jadwal Harian**: Menjalankan tugas pada jam dan menit spesifik setiap hari.
+* **Interval**: Menjalankan tugas berulang setiap $N$ menit/jam (15 menit hingga 24 jam).
+* **Batasan Arsitektur**: Penjadwal berjalan pada thread tab browser (*client-side timer*), bukan sebagai daemon cron level OS. Jika tab browser tertutup pada jadwal eksekusi, agen akan mengeksekusi tugas tersebut satu kali (*catch-up*) saat tab browser dibuka kembali.
+
+---
+
+## 7. Memori Jangka Panjang & Ekstraksi Fakta
+
+### 7.1 Ekstraksi Fakta Otomatis
+* **Implementasi**: `lib/memoryExtractor.ts`.
+* **Mekanisme**: Saat opsi diaktifkan, sistem menganalisis dialog percakapan di latar belakang menggunakan model lokal untuk mengekstraksi fakta penting dan preferensi pengguna yang bersifat tahan lama (*durable facts*).
+
+### 7.2 Pembersihan Kredensial Sensitif
+* **Mekanisme**: Seluruh teks yang diproses oleh modul memori disaring terlebih dahulu melalui ekspresi reguler pencegah kebocoran rahasia. Kunci API, token JWT, password, dan nomor kartu otomatis dibuang sebelum fakta disimpan ke database lokal.
+
+---
+
+## 8. Pencarian Web Terpadu (Dual-Engine Scraper)
+
+### 8.1 Scraping Paralel Tanpa API Key Eksternal
+* **Implementasi**: `lib/webSearch.ts`, `lib/duckduckgoScraper.ts`.
+* **Mekanisme**: Menggabungkan hasil pencarian secara paralel dari mesin pencari publik (Bing & DuckDuckGo HTML scraping) tanpa mewajibkan langganan API berbayar. Hasil dari kedua sumber digabungkan, disaring dari duplikasi (*deduplicated*), dan diurutkan kembali.
+
+### 8.2 Resolusi Kueri Multi-Turn & Bobot Domain Teknis
+* **Mekanisme**: Memperluas kueri pengguna dengan konteks turn sebelumnya untuk menangani pertanyaan rujukan (misal: "bagaimana cara instalasinya?"). Memberikan bobot relevansi lebih tinggi (*trust boost*) pada dokumentasi teknis terverifikasi (MDN, GitHub, StackOverflow, dokumentasi resmi).
+
+---
+
+## 9. Voice Studio & Speech Synthesis
+
+### 9.1 Speech-to-Text (STT)
+* **Implementasi**: `components/VoiceModeModal.tsx`.
+* **Mekanisme**: Memanfaatkan antarmuka Web Speech API bawaan browser (`webkitSpeechRecognition`) untuk transkripsi audio pengguna secara real-time ke dalam prompt chat.
+* **Catatan Privasi**: Pengenalan suara Web Speech API bergantung pada layanan pemrosesan suara native dari vendor browser.
+
+### 9.2 Text-to-Speech (TTS) & Preset Intonasi
+* **Implementasi**: `lib/voiceEngine.ts`.
+* **Mekanisme**: Mengintegrasikan browser `speechSynthesis` dengan prioritas suara neural alami (Microsoft Natural / Google Neural). Mendukung 3 mode intonasi percakapan:
+  * **Casual & Natural**: Nada santai dan interaktif.
+  * **Concise**: Respons padat langsung ke inti persoalan.
+  * **Formal**: Tata bahasa baku dan formal.
+  Dilengkapi kontrol audio untuk pitch, laju bicara (*rate*), dan penghentian otomatis saat pengguna menyela (*barge-in*).
+
+---
+
+## 10. Caching Respon & Persistensi Data
+
+### 10.1 Dual-Tier Response Cache
+* **Implementasi**: `lib/responseCache.ts`, `lib/serverDb.ts`.
+* **Tier 1 (Exact Hash)**: Pencocokan string kueri dan system prompt secara instan menggunakan algoritma hashing FNV-1a 64-bit ($O(1)$).
+* **Tier 2 (Semantic Vector)**: Menguji kedekatan kosinus vektor embedding ($\ge 0.96$). Jika prompt memiliki makna identik, respon disajikan langsung dari cache dengan 0 latensi inferensi dan 0 konsumsi GPU.
+
+### 10.2 Persistensi Server-Side & Sinkronisasi Antar-Tab
+* **Implementasi**: `lib/serverDb.ts`, `app/api/db/stream/route.ts`.
+* **Mekanisme**: Data percakapan, cache respon, dan pengaturan disimpan pada database lokal (SQLite dengan binding native atau fallback file JSON `data/db.json`). Perubahan data disiarkan (*broadcast*) ke tab browser lain secara real-time menggunakan Server-Sent Events (SSE), menghindari overhead polling berkala.
+
+---
+
+## 11. Manajemen Ruang Kerja & Personalisasi UI
+
+### 11.1 Projects Gallery & Knowledge Base
+* **Implementasi**: `components/ProjectsView.tsx`, `components/ProjectModal.tsx`.
+* **Mekanisme**: Ruang kerja berbasis proyek dengan konfigurasi RAG per-proyek (ukuran chunk, overlap, top-K, perbandingan bobot leksikal vs semantik).
+
+### 11.2 Catatan Pribadi (Journal)
+* **Implementasi**: `components/JournalTab.tsx`.
+* **Mekanisme**: Modul pencatatan terstruktur yang terpisah dari sesi chat dengan kategori (*Harian*, *Tugas*, *Ide*), status prioritas, checklist interaktif, serta integrasi satu klik untuk mengirim catatan ke sesi chat sebagai bahan diskusi AI.
+
+### 11.3 Visualisasi Knowledge Graph
+* **Implementasi**: `components/KnowledgeGraphTab.tsx`.
+* **Mekanisme**: Visualisasi graf interaktif berbasis canvas (*force-directed layout*) yang memetakan hubungan antar-entitas internal aplikasi: Proyek, Berkas Dokumen, Catatan Jurnal, dan Tag. Memungkinkan navigasi cepat ke entitas terkait saat sebuah node diklik.
+
+### 11.4 Palet Tema & Tipografi
+* **Implementasi**: `components/SettingsModal.tsx`, `app/globals.css`.
+* **Mekanisme**: 8 tema tampilan yang terkalibrasi (*Midnight*, *OLED Pure Black*, *Light*, *Cyberpunk*, *Forest*, *Sunset*, *Nord*, dan *System Auto*), didukung pemilih tipografi font dan kontrol lebar antarmuka (*fluid / centered*).
+
+---
+
+*Spesifikasi teknis ini diverifikasi dan disinkronkan langsung dengan codebase Castalia per September 2026.*

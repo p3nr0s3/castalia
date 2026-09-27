@@ -6,7 +6,7 @@
 [![Next.js](https://img.shields.io/badge/Next.js-14.2.35-black?logo=next.js)](https://nextjs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.6.3-blue?logo=typescript)](https://www.typescriptlang.org/)
 [![Ollama](https://img.shields.io/badge/Ollama-Native%20API-white?logo=ollama)](https://ollama.com/)
-[![Tests](https://img.shields.io/badge/Tests-44%20Suites%20%7C%20408%20Passed-brightgreen)](https://vitest.dev/)
+[![Tests](https://img.shields.io/badge/Tests-45%20Suites%20%7C%20423%20Passed-brightgreen)](https://vitest.dev/)
 
 A local-first AI workspace built on Next.js 14, for chatting with locally-hosted Ollama models (or an OpenAI/Anthropic/Gemini-compatible cloud API) with retrieval-augmented context from your own project files.
 
@@ -28,9 +28,49 @@ This is a short orientation, not a feature list — see **[FEATURES.md](FEATURES
 - **A sandboxed Codespace** for running Python (via Pyodide/WASM), Node, PowerShell, or bash from the browser.
 - **A response cache** (exact-hash and, optionally, semantic-similarity) that skips regeneration for repeat prompts, persisted server-side so it survives a reload.
 - **Inference-side tuning**: context-window bucketing to avoid over-allocating KV cache, per-task sampling profiles, and KV prefix pinning for static system prompts.
+- **System-1 Decision Engine (optional Laya integration)**: Fast non-autoregressive encoder pass (~30ms on CPU) for intent routing, deep reasoning recommendation, and tool safety scoring, with transparent fallback to local heuristics.
 - **A post-generation grounding check** that flags claims/citations not backed by the retrieved context.
 
 None of this has been benchmarked against other tools — the claims above describe what the code does, not how well it performs relative to alternatives.
+
+---
+
+## System Architecture
+
+```
+                  ┌────────────────────────────────────────┐
+                  │       Next.js 14 Web Frontend          │
+                  │   (Chat, Codespace, Projects, UI)      │
+                  └───────────────────┬────────────────────┘
+                                      │
+                   ┌──────────────────┴──────────────────┐
+                   ▼                                     ▼
+        ┌──────────────────────┐              ┌──────────────────────┐
+        │   Two-Stage RAG      │              │   Inference Engine   │
+        │ - BM25 Keyword Index │              │ - Dynamic Bucketing  │
+        │ - Vector Embeddings  │              │ - Adaptive Sampling  │
+        │ - In-Memory Reranker │              │ - Laya System-1 Pass │
+        │ - Grounding Verifier │              │ - Prefix Pinning     │
+        └──────────┬───────────┘              │ - Embedding Unloader │
+                   │                          └──────────┬───────────┘
+                   │                                     │
+                   └──────────────────┬──────────────────┘
+                                      │
+                                      ▼
+                        ┌───────────────────────────┐
+                        │   Local Ollama Instance   │
+                        │ (llama3.1, nomic-embed)   │
+                        └─────────────┬─────────────┘
+                                      │
+                         ┌────────────┴────────────┐
+                         ▼                         ▼
+              ┌─────────────────────┐   ┌─────────────────────┐
+              │  Sandbox Execution  │   │  Local Persistence  │
+              │ - Pyodide (WASM)    │   │ - SQLite Database   │
+              │ - Child Process API │   │ - JSON Fallback     │
+              │ - Reversible Tools  │   │ - Response Cache    │
+              └─────────────────────┘   └─────────────────────┘
+```
 
 ---
 
@@ -45,6 +85,10 @@ None of this has been benchmarked against other tools — the claims above descr
   ollama pull nomic-embed-text   # optional: enables semantic (not just keyword) retrieval
   ```
 
+#### Hardware Guidelines
+- **CPU & RAM**: 4 CPU cores minimum, 16 GB system RAM recommended.
+- **GPU (for Ollama)**: NVIDIA (CUDA), Apple Silicon (Metal), or AMD (ROCm) with 6 GB–12 GB VRAM for 7B/8B parameter models. CPU inference works as a fallback but generation speed will be constrained by system memory bandwidth.
+
 ### 2. Setup & Run
 ```bash
 git clone https://github.com/p3nr0s3/castalia.git
@@ -56,7 +100,12 @@ npm install
 # the moment you expose this app beyond localhost.
 cp .env.example .env.local
 
+# Standard (Castalia only):
 npm run dev
+
+# All-in-One (Castalia + Laya System-1 Decision Engine in 1 step):
+# Works cross-platform across Windows, Linux, and macOS:
+npm run dev:all
 ```
 
 Open [http://localhost:3000](http://localhost:3000) (or [http://127.0.0.1:3000](http://127.0.0.1:3000)).
@@ -78,7 +127,7 @@ This is defense against accidents and casual misuse (an errant `../` path, a str
 ## Testing
 
 ```bash
-npm test              # Vitest — 44 suites, 408 tests as of this writing
+npm test              # Vitest — 45 suites, 423 tests as of this writing
 npx tsc --noEmit       # type check
 npm run build          # production build
 npm run analyze        # production build with a bundle-size breakdown (opens .next/analyze/*.html)

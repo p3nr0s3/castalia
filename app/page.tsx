@@ -31,6 +31,7 @@ import { composeSkillsPrompt, skillsRequireDiskTools, DEFAULT_SKILLS } from "@/l
 import { resolveAdaptiveSamplingParams } from "@/lib/adaptiveSampling";
 import { isCodeFile } from "@/lib/rag";
 import { verifyGrounding } from "@/lib/groundingVerifier";
+import { classifyTaskProfileWithLaya, evaluateToolSafetyWithLaya, LayaTaskProfileResult } from "@/lib/layaClient";
 import dynamic from "next/dynamic";
 import { Sidebar } from "@/components/Sidebar";
 import { ChatArea } from "@/components/ChatArea";
@@ -1035,7 +1036,8 @@ export default function HomePage() {
   // Helper to construct effective system prompt including project knowledge and skills
   const getEffectiveSystemPrompt = async (
     conv: Conversation,
-    userQuery = ""
+    userQuery = "",
+    options?: { thinkingModeOverride?: ThinkingMode }
   ): Promise<{
     prompt: string;
     staticPrompt: string;
@@ -1106,7 +1108,11 @@ export default function HomePage() {
     }
 
     // 3. Inject Thinking / Reasoning Mode Directive (Static)
-    const currentMode = conv.thinkingMode || thinkingMode || settings.thinkingMode || "default";
+    const userThinkingMode = conv.thinkingMode || thinkingMode || settings.thinkingMode || "default";
+    const currentMode =
+      options?.thinkingModeOverride && userThinkingMode === "default"
+        ? options.thinkingModeOverride
+        : userThinkingMode;
     if (currentMode === "think") {
       basePrompt += "\n\n=== DEEP THINKING & REASONING MODE: ACTIVE ===\nYou MUST think through this step-by-step and write out your detailed analytical reasoning before providing your final answer. Wrap your internal thoughts in <think>...</think> tags.\n";
     }
@@ -1774,13 +1780,31 @@ export default function HomePage() {
         }
       }
 
+      // Laya System-1 Decision Engine probe (non-autoregressive sub-50ms intent router)
+      let layaDecision: LayaTaskProfileResult | null = null;
+      if (settings.layaEnabled) {
+        try {
+          layaDecision = await classifyTaskProfileWithLaya(trimmedInput, {
+            endpoint: settings.layaEndpoint,
+            timeoutMs: settings.layaTimeoutMs,
+          });
+        } catch {
+          layaDecision = null;
+        }
+      }
+
+      const layaThinkingOverride: ThinkingMode | undefined =
+        layaDecision?.needsDeepReasoning ? "think" : undefined;
+
       const {
         prompt: baseEffectivePrompt,
         staticPrompt,
         dynamicContext: ragDynamicContext,
         knowledgeNotice,
         retrievedChunks,
-      } = await getEffectiveSystemPrompt(convWithNewMessages, trimmedInput);
+      } = await getEffectiveSystemPrompt(convWithNewMessages, trimmedInput, {
+        thinkingModeOverride: layaThinkingOverride,
+      });
       const effectiveDiskToolsActive =
         diskToolsActive || skillsRequireDiskTools(settings.skills || DEFAULT_SKILLS, convWithNewMessages.activeSkillIds);
       let accumulatedText = `${urlNotice}${connectorNotice}${knowledgeNotice}`;
@@ -1990,6 +2014,8 @@ export default function HomePage() {
         explicitMinP: targetConv.minP,
         explicitRepeatPenalty: targetConv.repeatPenalty,
         adaptiveSamplingEnabled: settings.adaptiveSampling ?? true,
+        layaProfileOverride: layaDecision?.profile,
+        layaReason: layaDecision ? `Laya System-1 (${layaDecision.profile}, ${(layaDecision.confidence * 100).toFixed(0)}% conf)` : undefined,
       });
 
       let accumulatedReasoning = "";
@@ -2084,6 +2110,18 @@ export default function HomePage() {
               const chatApprovalId = isMutating ? `chatapproval_${execId}` : undefined;
 
               if (isMutating) {
+                let safetyEvaluation: { isDangerous: boolean; riskScore: number; reason?: string } | null = null;
+                if (settings.layaEnabled) {
+                  try {
+                    safetyEvaluation = await evaluateToolSafetyWithLaya(toolName, args, {
+                      endpoint: settings.layaEndpoint,
+                      timeoutMs: settings.layaTimeoutMs,
+                    });
+                  } catch {
+                    safetyEvaluation = null;
+                  }
+                }
+
                 let previousContent: string | undefined;
                 if (
                   (toolName === "write_file" || toolName === "delete_file") &&
@@ -2109,6 +2147,8 @@ export default function HomePage() {
                   status: "pending",
                   createdAt: Date.now(),
                   previousContent,
+                  riskScore: safetyEvaluation?.riskScore,
+                  safetyWarning: safetyEvaluation?.reason,
                 };
                 setPendingApprovals((prev) => {
                   const next = [approval, ...prev];
@@ -2498,13 +2538,31 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
     abortControllerRef.current = abortController;
 
     try {
+      // Laya System-1 Decision Engine probe (non-autoregressive sub-50ms intent router)
+      let layaDecision: LayaTaskProfileResult | null = null;
+      if (settings.layaEnabled) {
+        try {
+          layaDecision = await classifyTaskProfileWithLaya(lastUserMessage.content, {
+            endpoint: settings.layaEndpoint,
+            timeoutMs: settings.layaTimeoutMs,
+          });
+        } catch {
+          layaDecision = null;
+        }
+      }
+
+      const layaThinkingOverride: ThinkingMode | undefined =
+        layaDecision?.needsDeepReasoning ? "think" : undefined;
+
       let accumulatedText = "";
       const {
         prompt: baseEffectivePrompt,
         staticPrompt,
         dynamicContext,
         retrievedChunks,
-      } = await getEffectiveSystemPrompt(updatedConv, lastUserMessage.content);
+      } = await getEffectiveSystemPrompt(updatedConv, lastUserMessage.content, {
+        thinkingModeOverride: layaThinkingOverride,
+      });
 
       const isSmartContext = settings.smartContextEnabled ?? true;
       const effectiveSystemPrompt = isSmartContext ? staticPrompt : baseEffectivePrompt;
@@ -2574,6 +2632,8 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
         explicitMinP: activeConversation.minP,
         explicitRepeatPenalty: activeConversation.repeatPenalty,
         adaptiveSamplingEnabled: settings.adaptiveSampling ?? true,
+        layaProfileOverride: layaDecision?.profile,
+        layaReason: layaDecision ? `Laya System-1 (${layaDecision.profile}, ${(layaDecision.confidence * 100).toFixed(0)}% conf)` : undefined,
       });
 
       let accumulatedReasoning = "";
@@ -2713,13 +2773,31 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
     const abortController = new AbortController();
     abortControllerRef.current = abortController;
 
+    // Laya System-1 Decision Engine probe (non-autoregressive sub-50ms intent router)
+    let layaDecision: LayaTaskProfileResult | null = null;
+    if (settings.layaEnabled) {
+      try {
+        layaDecision = await classifyTaskProfileWithLaya(newContent, {
+          endpoint: settings.layaEndpoint,
+          timeoutMs: settings.layaTimeoutMs,
+        });
+      } catch {
+        layaDecision = null;
+      }
+    }
+
+    const layaThinkingOverride: ThinkingMode | undefined =
+      layaDecision?.needsDeepReasoning ? "think" : undefined;
+
     let accumulatedText = "";
     const {
       prompt: baseEffectivePrompt,
       staticPrompt,
       dynamicContext,
       retrievedChunks,
-    } = await getEffectiveSystemPrompt(convWithPlaceholder, newContent);
+    } = await getEffectiveSystemPrompt(convWithPlaceholder, newContent, {
+      thinkingModeOverride: layaThinkingOverride,
+    });
 
     const isSmartContext = settings.smartContextEnabled ?? true;
     const effectiveSystemPrompt = isSmartContext ? staticPrompt : baseEffectivePrompt;
@@ -2777,6 +2855,8 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
       explicitMinP: activeConversation.minP,
       explicitRepeatPenalty: activeConversation.repeatPenalty,
       adaptiveSamplingEnabled: settings.adaptiveSampling ?? true,
+      layaProfileOverride: layaDecision?.profile,
+      layaReason: layaDecision ? `Laya System-1 (${layaDecision.profile}, ${(layaDecision.confidence * 100).toFixed(0)}% conf)` : undefined,
     });
 
     streamChatCompletion({

@@ -156,6 +156,8 @@ export function resolveAdaptiveSamplingParams(options: {
   explicitMinP?: number;
   explicitRepeatPenalty?: number;
   adaptiveSamplingEnabled?: boolean;
+  layaProfileOverride?: SamplingTaskProfile;
+  layaReason?: string;
 }): SamplingHyperparameters {
   const {
     userPrompt,
@@ -171,14 +173,18 @@ export function resolveAdaptiveSamplingParams(options: {
     explicitMinP,
     explicitRepeatPenalty,
     adaptiveSamplingEnabled = true,
+    layaProfileOverride,
+    layaReason,
   } = options;
 
-  const { profile, reason } = detectSamplingProfile({
-    userPrompt,
-    hasRagContext,
-    hasToolsActive,
-    hasCodeAttachments,
-  });
+  const { profile, reason } = layaProfileOverride
+    ? { profile: layaProfileOverride, reason: layaReason || "Laya System-1 classification" }
+    : detectSamplingProfile({
+        userPrompt,
+        hasRagContext,
+        hasToolsActive,
+        hasCodeAttachments,
+      });
 
   // If adaptive sampling is disabled or if user explicitly provided a temperature override,
   // honor user explicit parameters strictly.

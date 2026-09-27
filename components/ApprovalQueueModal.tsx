@@ -97,6 +97,18 @@ export function ApprovalQueueModal({
                       <p className="mt-1 text-[11px] text-neutral-500 flex items-center gap-1">
                         <Clock className="w-3 h-3" /> {new Date(approval.createdAt).toLocaleString()}
                       </p>
+                      {approval.safetyWarning && (
+                        <div
+                          className={`mt-2 px-2.5 py-1.5 rounded-lg text-[11px] flex items-center gap-1.5 ${
+                            (approval.riskScore ?? 0) >= 0.5
+                              ? "bg-red-500/10 border border-red-500/20 text-red-300"
+                              : "bg-amber-500/10 border border-amber-500/20 text-amber-300"
+                          }`}
+                        >
+                          <ShieldAlert className="w-3.5 h-3.5 flex-shrink-0" />
+                          <span>{approval.safetyWarning}</span>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
