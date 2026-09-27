@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { timingSafeEqual } from "crypto";
 
 /**
  * Gate for every /api/* route in this app.
@@ -65,6 +66,16 @@ const DANGEROUS_ROUTES = [
   "/api/fs",
 ];
 
+// Plain `!==` on the access token leaks timing information one byte at a
+// time to an attacker who can measure response latency (relevant once the
+// app is exposed via scripts/tunnel.mjs). Compare in constant time instead.
+function safeTokenEqual(a: string, b: string): boolean {
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  if (bufA.length !== bufB.length) return false;
+  return timingSafeEqual(bufA, bufB);
+}
+
 function isCrossSiteRequest(req: NextRequest): boolean {
   // Sec-Fetch-Site is set by the browser on every request and cannot be
   // set/overridden by page JavaScript — "cross-site" here means the request
@@ -126,7 +137,7 @@ export function middleware(req: NextRequest) {
 
   const providedToken = headerToken || queryToken;
 
-  if (providedToken !== requiredToken) {
+  if (!safeTokenEqual(providedToken, requiredToken)) {
     return NextResponse.json(
       { error: "Unauthorized: missing or invalid access token." },
       { status: 401 }
