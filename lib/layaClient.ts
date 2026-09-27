@@ -68,8 +68,19 @@ export interface LayaTaskProfileResult {
   rawAnswer?: LayaPredictionResponse;
 }
 
+import { apiFetch } from "./apiClient";
+
 export const DEFAULT_LAYA_ENDPOINT = "http://127.0.0.1:8000";
 export const DEFAULT_LAYA_TIMEOUT_MS = 1500;
+
+function resolveLayaUrl(subpath: string, host: string): string {
+  const cleanSubpath = subpath.replace(/^\/+/, "");
+  // In browser, route through internal Next.js API proxy to avoid browser CORS preflight (405) errors
+  if (typeof window !== "undefined") {
+    return `/api/laya/${cleanSubpath}?host=${encodeURIComponent(host)}`;
+  }
+  return `${host.replace(/\/+$/, "")}/${cleanSubpath}`;
+}
 
 /**
  * Checks whether the Laya server is reachable and responsive.
@@ -82,10 +93,11 @@ export async function checkLayaHealth(
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   const startTime = Date.now();
+  const fetchFn = typeof window !== "undefined" ? apiFetch : fetch;
 
   try {
     // 1. Try standard Laya GET /health endpoint first
-    let response = await fetch(`${cleanEndpoint}/health`, {
+    let response = await fetchFn(resolveLayaUrl("health", cleanEndpoint), {
       method: "GET",
       headers: { "Content-Type": "application/json" },
       signal: controller.signal,
@@ -93,7 +105,7 @@ export async function checkLayaHealth(
 
     // 2. If /health returned 404, fallback to probing POST /predict
     if (response.status === 404) {
-      response = await fetch(`${cleanEndpoint}/predict`, {
+      response = await fetchFn(resolveLayaUrl("predict", cleanEndpoint), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -139,10 +151,11 @@ export async function predictWithLaya(
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const fetchFn = typeof window !== "undefined" ? apiFetch : fetch;
 
   try {
     // Try standard Laya /v1/systemone endpoint first, falling back to /predict
-    let res = await fetch(`${endpoint}/v1/systemone`, {
+    let res = await fetchFn(resolveLayaUrl("v1/systemone", endpoint), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(request),
@@ -150,7 +163,7 @@ export async function predictWithLaya(
     });
 
     if (res.status === 404) {
-      res = await fetch(`${endpoint}/predict`, {
+      res = await fetchFn(resolveLayaUrl("predict", endpoint), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(request),
