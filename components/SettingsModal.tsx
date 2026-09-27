@@ -3699,10 +3699,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     <label className="flex items-center justify-between cursor-pointer">
                       <div className="pr-4">
                         <span className="text-xs font-medium text-[var(--foreground)]">
-                          Cross-Encoder Reranker
+                          Stage-2 Reranker
                         </span>
                         <p className="text-[10px] text-[var(--muted)]">
-                          Mengurutkan ulang peringkat potongan dokumen yang diambil menggunakan model cross-encoder lokal untuk relevansi optimal.
+                          Mengurutkan ulang peringkat potongan dokumen yang diambil — pakai model lokal lewat prompt (kalau Semantic RAG aktif) atau scorer leksikal in-memory (kalau tidak). Bukan cross-encoder yang dilatih khusus.
                         </p>
                       </div>
                       <input
@@ -3710,6 +3710,50 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         checked={Boolean(formData.ragRerankEnabled ?? true)}
                         onChange={(e) =>
                           setFormData({ ...formData, ragRerankEnabled: e.target.checked })
+                        }
+                        className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                      />
+                    </label>
+                  </div>
+
+                  {/* Semantic RAG Option */}
+                  <div className="pt-2 border-t border-[var(--card-border)] space-y-2">
+                    <label className="flex items-center justify-between cursor-pointer">
+                      <div className="pr-4">
+                        <span className="text-xs font-medium text-[var(--foreground)]">
+                          Semantic RAG (Vector Similarity)
+                        </span>
+                        <p className="text-[10px] text-[var(--muted)]">
+                          Nambahin pencarian dense-vector (embedding) di atas BM25 keyword search buat hasil retrieval yang lebih paham makna, bukan cuma cocok kata persis. Butuh model embedding ter-pull (misal <code className="text-[9px]">nomic-embed-text</code>) — kalau nggak ada, retrieval otomatis fallback ke BM25 murni. Juga ngaktifin cache respons semantik (bukan cuma exact-match).
+                        </p>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={Boolean(formData.semanticRagEnabled ?? false)}
+                        onChange={(e) =>
+                          setFormData({ ...formData, semanticRagEnabled: e.target.checked })
+                        }
+                        className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                      />
+                    </label>
+                  </div>
+
+                  {/* Grounding Checker LLM Fallback Option */}
+                  <div className="pt-2 border-t border-[var(--card-border)] space-y-2">
+                    <label className="flex items-center justify-between cursor-pointer">
+                      <div className="pr-4">
+                        <span className="text-xs font-medium text-[var(--foreground)]">
+                          Grounding Checker: LLM Fallback
+                        </span>
+                        <p className="text-[10px] text-[var(--muted)]">
+                          Kalau pengecekan grounding pasca-generate nemu kalimat yang ambigu (nggak jelas didukung atau nggak sama konteks yang di-retrieve), minta opini kedua dari model lokal lewat satu prompt singkat. Nambah sedikit latensi per turn RAG — hanya jalan buat kalimat yang beneran ambigu, bukan semua.
+                        </p>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={Boolean(formData.groundingLlmFallbackEnabled ?? false)}
+                        onChange={(e) =>
+                          setFormData({ ...formData, groundingLlmFallbackEnabled: e.target.checked })
                         }
                         className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
                       />
