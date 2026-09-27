@@ -229,17 +229,25 @@ async function main() {
 
   logCastalia(`Memulai antarmuka Castalia (mode: ${mode})...`);
 
-  // Use npx to execute next reliably cross-platform
-  const npxCmd = isWindows ? "npx.cmd" : "npx";
-  nextProcess = spawn(npxCmd, nextArgs, {
-    stdio: "inherit",
-    shell: isWindows,
-    env: {
-      ...process.env,
-      // Hint to Castalia client that Laya is running in one-step mode
-      NEXT_PUBLIC_AUTO_LAYA: "true",
-    },
-  });
+  const env = {
+    ...process.env,
+    // Hint to Castalia client that Laya is running in one-step mode
+    NEXT_PUBLIC_AUTO_LAYA: "true",
+  };
+
+  if (isWindows) {
+    const fullCmd = `npx.cmd ${nextArgs.join(" ")}`;
+    nextProcess = spawn(fullCmd, {
+      stdio: "inherit",
+      shell: true,
+      env,
+    });
+  } else {
+    nextProcess = spawn("npx", nextArgs, {
+      stdio: "inherit",
+      env,
+    });
+  }
 
   nextProcess.on("exit", (code) => {
     shutdownAll(code || 0);
