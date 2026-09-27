@@ -171,6 +171,10 @@ async function main() {
         LAYA_HOST: "127.0.0.1",
         LAYA_PORT: "8000",
         LAYA_LOG_LEVEL: "info",
+        // OPTIMIZATION: Only preload the multilingual model (saves ~1.8 GB RAM by avoiding english + typed-decisions)
+        LAYA_MODELS: process.env.LAYA_MODELS || "multilingual",
+        // OPTIMIZATION: Cap PyTorch thread pool to 2 threads to reduce CPU/RAM overhead
+        LAYA_THREADS: process.env.LAYA_THREADS || "2",
         PYTHONUNBUFFERED: "1",
       };
 
@@ -231,6 +235,8 @@ async function main() {
 
   const env = {
     ...process.env,
+    // OPTIMIZATION: Keep Node.js V8 heap capped to prevent memory bloat in dev mode
+    NODE_OPTIONS: process.env.NODE_OPTIONS || "--max-old-space-size=768",
     // Hint to Castalia client that Laya is running in one-step mode
     NEXT_PUBLIC_AUTO_LAYA: "true",
   };
