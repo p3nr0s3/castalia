@@ -140,6 +140,7 @@ describe("Laya System-1 Decision Engine Integration", () => {
       expect(decision?.profile).toBe("coding");
       expect(decision?.confidence).toBe(0.96);
       expect(decision?.needsDeepReasoning).toBe(true);
+      expect(typeof decision?.latencyMs).toBe("number");
     });
 
     it("classifies creative task without deep reasoning", async () => {

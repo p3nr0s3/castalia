@@ -115,6 +115,7 @@ const ChatMessageComponent: React.FC<ChatMessageProps> = ({
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [showMetricsDetail, setShowMetricsDetail] = useState(false);
   const [showGroundingDetail, setShowGroundingDetail] = useState(false);
+  const [showLayaDetail, setShowLayaDetail] = useState(false);
   const [showSources, setShowSources] = useState(true);
   const [isReasoningOpen, setIsReasoningOpen] = useState(true);
   const [isSpeaking, setIsSpeaking] = useState(false);
@@ -890,6 +891,27 @@ const ChatMessageComponent: React.FC<ChatMessageProps> = ({
                       <ChevronDown className={`w-2.5 h-2.5 opacity-70 transition-transform duration-150 ${showGroundingDetail ? "rotate-180" : ""}`} />
                     </button>
                   )}
+
+                  {/* Laya System-1 Decision Engine Telemetry Chip */}
+                  {!isUser && message.layaDecision && (
+                    <button
+                      type="button"
+                      onClick={() => setShowLayaDetail(!showLayaDetail)}
+                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-mono font-medium transition-all cursor-pointer shadow-2xs ${
+                        showLayaDetail
+                          ? "bg-purple-500/25 text-purple-300 border border-purple-500/50 shadow-xs"
+                          : "bg-purple-500/15 text-purple-300/90 border border-purple-500/30 hover:bg-purple-500/20 hover:text-purple-200"
+                      }`}
+                      title="Click to view Laya System-1 Decision Engine telemetry"
+                    >
+                      <Brain className="w-2.5 h-2.5 text-purple-400" />
+                      <span>
+                        S1 • {message.layaDecision.profile.toUpperCase()} • {(message.layaDecision.confidence * 100).toFixed(0)}%
+                        {message.layaDecision.latencyMs ? ` • ${message.layaDecision.latencyMs}ms` : ""}
+                      </span>
+                      <ChevronDown className={`w-2.5 h-2.5 opacity-70 transition-transform duration-150 ${showLayaDetail ? "rotate-180" : ""}`} />
+                    </button>
+                  )}
                 </div>
 
                 {/* Right: Actions (Copy, Edit, Regenerate, Delete, Time) */}
@@ -1103,6 +1125,56 @@ const ChatMessageComponent: React.FC<ChatMessageProps> = ({
                       </div>
                     </div>
                   )}
+                </div>
+              )}
+
+              {/* Expandable Laya System-1 Decision Engine Breakdown Card */}
+              {showLayaDetail && message.layaDecision && !isUser && (
+                <div className="p-3 rounded-2xl bg-[var(--card-bg)]/80 backdrop-blur-md border border-[var(--card-border)] text-xs text-[var(--foreground)] space-y-2.5 shadow-xs animate-in fade-in zoom-in-95">
+                  <div className="flex items-center justify-between text-[11px] font-semibold text-[var(--muted)] pb-1.5 border-b border-[var(--sidebar-border)]">
+                    <span className="flex items-center gap-1.5">
+                      <Brain className="w-3.5 h-3.5 text-purple-400" />
+                      Laya System-1 Decision Engine Telemetry
+                    </span>
+                    <button
+                      onClick={() => setShowLayaDetail(false)}
+                      className="text-[var(--muted)] hover:text-[var(--foreground)] cursor-pointer"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center font-mono text-[11px]">
+                    <div className="p-2 rounded-xl bg-[var(--sidebar-bg)]/60 border border-[var(--card-border)]">
+                      <div className="text-[10px] text-[var(--muted)]">Task Profile</div>
+                      <div className="font-bold text-purple-400 text-sm mt-0.5 uppercase">
+                        {message.layaDecision.profile}
+                      </div>
+                    </div>
+                    <div className="p-2 rounded-xl bg-[var(--sidebar-bg)]/60 border border-[var(--card-border)]">
+                      <div className="text-[10px] text-[var(--muted)]">Confidence</div>
+                      <div className="font-bold text-emerald-400 text-sm mt-0.5">
+                        {(message.layaDecision.confidence * 100).toFixed(1)}%
+                      </div>
+                    </div>
+                    <div className="p-2 rounded-xl bg-[var(--sidebar-bg)]/60 border border-[var(--card-border)]">
+                      <div className="text-[10px] text-[var(--muted)]">Deep Reasoning</div>
+                      <div className={`font-bold text-sm mt-0.5 ${message.layaDecision.needsDeepReasoning ? "text-cyan-400" : "text-[var(--muted)]"}`}>
+                        {message.layaDecision.needsDeepReasoning ? "Triggered (<think>)" : "Standard"}
+                      </div>
+                    </div>
+                    <div className="p-2 rounded-xl bg-[var(--sidebar-bg)]/60 border border-[var(--card-border)]">
+                      <div className="text-[10px] text-[var(--muted)]">S1 Latency</div>
+                      <div className="font-bold text-amber-400 text-sm mt-0.5">
+                        {message.layaDecision.latencyMs ? `${message.layaDecision.latencyMs} ms` : "< 35 ms"}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="text-[10px] text-[var(--muted)] leading-relaxed flex items-center justify-between pt-0.5 px-0.5">
+                    <span>Engine: Non-autoregressive ModernBERT encoder</span>
+                    <span className="text-[var(--muted)]/70">Sub-50ms CPU Forward Pass</span>
+                  </div>
                 </div>
               )}
             </div>

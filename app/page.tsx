@@ -1793,6 +1793,30 @@ export default function HomePage() {
         }
       }
 
+      if (layaDecision) {
+        setConversations((prev) =>
+          prev.map((c) => {
+            if (c.id !== targetId) return c;
+            return {
+              ...c,
+              messages: c.messages.map((m) =>
+                m.id === assistantMessageId
+                  ? {
+                      ...m,
+                      layaDecision: {
+                        profile: layaDecision.profile,
+                        confidence: layaDecision.confidence,
+                        needsDeepReasoning: layaDecision.needsDeepReasoning,
+                        latencyMs: layaDecision.latencyMs,
+                      },
+                    }
+                  : m
+              ),
+            };
+          })
+        );
+      }
+
       const layaThinkingOverride: ThinkingMode | undefined =
         layaDecision?.needsDeepReasoning ? "think" : undefined;
 
@@ -1961,6 +1985,14 @@ export default function HomePage() {
                       sources: cached.sources,
                       retrievedChunks: cached.retrievedChunks || retrievedChunks,
                       toolExecutions: cached.toolExecutions,
+                      layaDecision: layaDecision
+                        ? {
+                            profile: layaDecision.profile,
+                            confidence: layaDecision.confidence,
+                            needsDeepReasoning: layaDecision.needsDeepReasoning,
+                            latencyMs: layaDecision.latencyMs,
+                          }
+                        : m.layaDecision,
                     }
                   : m
               );
@@ -2284,6 +2316,14 @@ export default function HomePage() {
                       toolExecutions: toolExecutions.length > 0 ? toolExecutions : undefined,
                       retrievedChunks: retrievedChunks && retrievedChunks.length > 0 ? retrievedChunks : undefined,
                       groundingReport: groundingReport || undefined,
+                      layaDecision: layaDecision
+                        ? {
+                            profile: layaDecision.profile,
+                            confidence: layaDecision.confidence,
+                            needsDeepReasoning: layaDecision.needsDeepReasoning,
+                            latencyMs: layaDecision.latencyMs,
+                          }
+                        : m.layaDecision,
                     }
                   : m
               );
@@ -2551,6 +2591,30 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
         }
       }
 
+      if (layaDecision) {
+        setConversations((prev) =>
+          prev.map((c) => {
+            if (c.id !== activeId) return c;
+            return {
+              ...c,
+              messages: c.messages.map((m) =>
+                m.id === assistantMessageId
+                  ? {
+                      ...m,
+                      layaDecision: {
+                        profile: layaDecision.profile,
+                        confidence: layaDecision.confidence,
+                        needsDeepReasoning: layaDecision.needsDeepReasoning,
+                        latencyMs: layaDecision.latencyMs,
+                      },
+                    }
+                  : m
+              ),
+            };
+          })
+        );
+      }
+
       const layaThinkingOverride: ThinkingMode | undefined =
         layaDecision?.needsDeepReasoning ? "think" : undefined;
 
@@ -2694,6 +2758,14 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
                       metrics,
                       retrievedChunks: retrievedChunks && retrievedChunks.length > 0 ? retrievedChunks : undefined,
                       groundingReport: groundingReport || undefined,
+                      layaDecision: layaDecision
+                        ? {
+                            profile: layaDecision.profile,
+                            confidence: layaDecision.confidence,
+                            needsDeepReasoning: layaDecision.needsDeepReasoning,
+                            latencyMs: layaDecision.latencyMs,
+                          }
+                        : m.layaDecision,
                     }
                   : m
               );
@@ -2784,6 +2856,30 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
       } catch {
         layaDecision = null;
       }
+    }
+
+    if (layaDecision) {
+      setConversations((prev) =>
+        prev.map((c) => {
+          if (c.id !== activeId) return c;
+          return {
+            ...c,
+            messages: c.messages.map((m) =>
+              m.id === assistantMessageId
+                ? {
+                    ...m,
+                    layaDecision: {
+                      profile: layaDecision.profile,
+                      confidence: layaDecision.confidence,
+                      needsDeepReasoning: layaDecision.needsDeepReasoning,
+                      latencyMs: layaDecision.latencyMs,
+                    },
+                  }
+                : m
+            ),
+          };
+        })
+      );
     }
 
     const layaThinkingOverride: ThinkingMode | undefined =
@@ -2908,6 +3004,14 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
                     metrics,
                     retrievedChunks: retrievedChunks && retrievedChunks.length > 0 ? retrievedChunks : undefined,
                     groundingReport: groundingReport || undefined,
+                    layaDecision: layaDecision
+                      ? {
+                          profile: layaDecision.profile,
+                          confidence: layaDecision.confidence,
+                          needsDeepReasoning: layaDecision.needsDeepReasoning,
+                          latencyMs: layaDecision.latencyMs,
+                        }
+                      : m.layaDecision,
                   }
                 : m
             );

@@ -65,6 +65,7 @@ export interface LayaTaskProfileResult {
   profile: "coding" | "rag" | "creative" | "general";
   confidence: number;
   needsDeepReasoning: boolean;
+  latencyMs?: number;
   rawAnswer?: LayaPredictionResponse;
 }
 
@@ -214,6 +215,7 @@ export async function classifyTaskProfileWithLaya(
     },
   };
 
+  const startTime = Date.now();
   const response = await predictWithLaya(
     {
       state: trimmed.slice(0, 4000), // Laya reads up to 8192 tokens; 4000 chars is plenty for classification
@@ -222,6 +224,8 @@ export async function classifyTaskProfileWithLaya(
     },
     options
   );
+
+  const latencyMs = Date.now() - startTime;
 
   if (!response?.answers) return null;
 
@@ -247,6 +251,7 @@ export async function classifyTaskProfileWithLaya(
     profile: resolvedProfile,
     confidence,
     needsDeepReasoning,
+    latencyMs,
     rawAnswer: response,
   };
 }

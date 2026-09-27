@@ -219,6 +219,13 @@ export interface Message {
   toolExecutions?: ToolCallExecution[];
   retrievedChunks?: RetrievedChunkInfo[];
   groundingReport?: GroundingReport;
+  layaDecision?: {
+    profile: "coding" | "rag" | "creative" | "general";
+    confidence: number;
+    needsDeepReasoning: boolean;
+    latencyMs?: number;
+    reason?: string;
+  };
 }
 
 // ============================================================================
