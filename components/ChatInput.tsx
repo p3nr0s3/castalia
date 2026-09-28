@@ -47,7 +47,6 @@ interface ChatInputProps {
   onOpenDiskExplorer?: () => void;
   onClearChat?: () => void;
   onOpenVoiceCall?: () => void;
-  onOpenCodespace?: () => void;
   skills?: Skill[];
   isConnected?: boolean;
   ollamaUrl?: string;
@@ -85,7 +84,6 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   onOpenDiskExplorer,
   onClearChat,
   onOpenVoiceCall,
-  onOpenCodespace,
   skills = [],
   isConnected,
   ollamaUrl,

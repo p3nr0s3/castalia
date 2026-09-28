@@ -3,6 +3,7 @@ import {
   checkLayaHealth,
   predictWithLaya,
   classifyTaskProfileWithLaya,
+  classifyWithLayaSafely,
   evaluateToolSafetyWithLaya,
   DEFAULT_LAYA_ENDPOINT,
 } from "../lib/layaClient";
@@ -175,6 +176,62 @@ describe("Laya System-1 Decision Engine Integration", () => {
 
       const decision = await classifyTaskProfileWithLaya("Halo, apa kabar?");
       expect(decision).toBeNull();
+    });
+  });
+
+  describe("classifyWithLayaSafely (extracted from the 3 duplicated app/page.tsx call sites)", () => {
+    it("returns null immediately without calling fetch when layaEnabled is false", async () => {
+      const fetchSpy = vi.fn();
+      global.fetch = fetchSpy as any;
+
+      const result = await classifyWithLayaSafely("Buatkan fungsi fibonacci", { layaEnabled: false });
+
+      expect(result).toBeNull();
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it("returns null when layaEnabled is undefined (same default as settings.layaEnabled)", async () => {
+      const fetchSpy = vi.fn();
+      global.fetch = fetchSpy as any;
+
+      const result = await classifyWithLayaSafely("Buatkan fungsi fibonacci", {});
+
+      expect(result).toBeNull();
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it("calls classifyTaskProfileWithLaya with endpoint/timeout from settings when enabled", async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          model: "multilingual",
+          answers: {
+            profile: { type: "choice", choice: "coding", confidence: 0.9 },
+            deep_reasoning: { type: "noul", noul: 0.8 },
+          },
+        }),
+      }) as any;
+
+      const result = await classifyWithLayaSafely("Buatkan fungsi fibonacci", {
+        layaEnabled: true,
+        layaEndpoint: "http://localhost:9999",
+        layaTimeoutMs: 500,
+      });
+
+      expect(result?.profile).toBe("coding");
+      expect(global.fetch).toHaveBeenCalledWith(
+        expect.stringContaining("http://localhost:9999"),
+        expect.anything()
+      );
+    });
+
+    it("swallows a thrown error and returns null instead of propagating (the exact behavior all 3 duplicated call sites relied on)", async () => {
+      global.fetch = vi.fn().mockRejectedValue(new Error("ECONNREFUSED"));
+
+      await expect(
+        classifyWithLayaSafely("test", { layaEnabled: true })
+      ).resolves.toBeNull();
     });
   });
 

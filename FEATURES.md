@@ -68,9 +68,10 @@ Dokumen ini merupakan referensi teknis komprehensif mengenai seluruh fitur dan s
 * **Implementasi**: `lib/layaClient.ts`, `app/page.tsx`, `components/SettingsModal.tsx`, `components/ApprovalQueueModal.tsx`.
 * **Arsitektur**: Mengintegrasikan engine keputusan non-autoregresif berbasis encoder ModernBERT / mmBERT (`NandhaKishorM/laya`) yang berjalan di CPU RAM (~30–50ms latency) sebagai sistem "System 1" sebelum model chat autoregresif utama (System 2) dipanggil.
 * **Fungsi Utama**:
-  * **Intent & Sampling Profiling**: Mengklasifikasikan prompt pengguna ke profil `coding`, `rag`, `creative`, atau `general` dengan pemahaman semantik mendalam melampaui aturan kata kunci, serta mendukung kueri multibahasa (Bahasa Indonesia & Inggris).
+  * **Intent & Sampling Profiling**: Mengklasifikasikan prompt pengguna ke profil `coding`, `rag`, `creative`, atau `general` memakai model encoder alih-alih aturan kata kunci (belum dibandingkan secara terukur terhadap heuristik bawaan), serta mendukung kueri multibahasa (Bahasa Indonesia & Inggris).
   * **Dynamic Deep Reasoning Trigger**: Mendeteksi pertanyaan analitis kompleks (seperti pembuktian matematis, arsitektur sistem, atau algoritma) dan menyarankan aktivasi mode `<think>` secara otomatis saat percakapan berada pada mode `default`.
   * **Safety Guardrail**: Mengevaluasi risiko keamanan operasi disk bermutasi (`write_file`, `delete_file`) dan memunculkan indikator peringatan risiko pada antrean persetujuan (*Approval Queue*).
+* **Indikator Status**: `Settings > Chat > Laya` menampilkan badge online/offline beserta latensi. Ping otomatis dijalankan sekali saat toggle Laya dinyalakan, dan bisa diulang manual lewat tombol *Test Ping*.
 * **Graceful Silent Fallback**: Jika server Laya tidak aktif atau kueri mengalami batas waktu (timeout 1200–1500ms), Castalia secara transparan jatuh kembali (*fall back*) ke heuristik bawaan tanpa jeda atau error pada antarmuka pengguna.
 
 ### 2.4 Isolasi VRAM & Evakuasi Model Embedding
@@ -234,13 +235,15 @@ Dokumen ini merupakan referensi teknis komprehensif mengenai seluruh fitur dan s
 ## 10. Caching Respon & Persistensi Data
 
 ### 10.1 Dual-Tier Response Cache
-* **Implementasi**: `lib/responseCache.ts`, `lib/serverDb.ts`.
-* **Tier 1 (Exact Hash)**: Pencocokan string kueri dan system prompt secara instan menggunakan algoritma hashing FNV-1a 64-bit ($O(1)$).
-* **Tier 2 (Semantic Vector)**: Menguji kedekatan kosinus vektor embedding ($\ge 0.96$). Jika prompt memiliki makna identik, respon disajikan langsung dari cache dengan 0 latensi inferensi dan 0 konsumsi GPU.
+* **Implementasi**: `lib/responseCache.ts`, `lib/serverDb.ts`, `app/api/cache/route.ts`.
+* **Tier 1 (Exact Hash)**: Pencocokan kunci dari model + prompt + system prompt memakai hash FNV-1a **32-bit** (`0x811c9dc5`, lihat `computePromptCacheKey`) — selalu aktif. Hash 32-bit berarti tabrakan secara teori mungkin terjadi; untuk cache lokal satu-pengguna dengan ratusan entri, risikonya kecil tapi bukan nol.
+* **Tier 2 (Semantic Vector)**: Menguji kedekatan kosinus vektor embedding ($\ge 0.96$). **Hanya aktif jika `Settings > Retrieval > Semantic RAG` dinyalakan** dan model embedding tersedia. Cache hit melewati proses generate sepenuhnya (tanpa token GPU), tapi lookup semantic tetap memakan waktu untuk membuat embedding kueri (timeout 1200 ms) — bukan "0 latensi". Cache dilewati saat ada konteks web search.
+* **Penyimpanan**: Map in-memory (60 entri, cepat, sinkron) di depan penyimpanan server persisten (maks. 500 entri, TTL 2 jam) di tabel SQLite `response_cache` atau file `data/response-cache.json` — terpisah dari `db.json` agar tidak membengkakkan database utama. Entri di server dibaca hanya saat Map in-memory miss.
+* **Pengelolaan**: Tombol **Clear Response Cache** di `Settings > Data` menghapus cache in-memory sekaligus yang tersimpan di server.
 
 ### 10.2 Persistensi Server-Side & Sinkronisasi Antar-Tab
 * **Implementasi**: `lib/serverDb.ts`, `app/api/db/stream/route.ts`.
-* **Mekanisme**: Data percakapan, cache respon, dan pengaturan disimpan pada database lokal (SQLite dengan binding native atau fallback file JSON `data/db.json`). Perubahan data disiarkan (*broadcast*) ke tab browser lain secara real-time menggunakan Server-Sent Events (SSE), menghindari overhead polling berkala.
+* **Mekanisme**: Data percakapan, project, dan pengaturan disimpan pada database lokal (SQLite dengan binding native atau fallback file JSON `data/db.json`). Cache respon sengaja **tidak** ikut di sini — lihat 10.1. Perubahan data disiarkan (*broadcast*) ke tab browser lain secara real-time menggunakan Server-Sent Events (SSE), menghindari overhead polling berkala.
 
 ---
 

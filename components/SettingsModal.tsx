@@ -31,6 +31,7 @@ import {
   stopSpeaking,
 } from "@/lib/voiceEngine";
 import { checkLayaHealth } from "@/lib/layaClient";
+import { clearPromptCacheEverywhere } from "@/lib/responseCache";
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -275,6 +276,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   // Laya System-1 state in settings
   const [isTestingLaya, setIsTestingLaya] = useState(false);
   const [layaStatus, setLayaStatus] = useState<{ online: boolean; latencyMs?: number; error?: string } | null>(null);
+
+  // Response cache clear state
+  const [isClearingCache, setIsClearingCache] = useState(false);
+  const [cacheClearedAt, setCacheClearedAt] = useState<number | null>(null);
+
+  const handleClearResponseCache = async () => {
+    setIsClearingCache(true);
+    try {
+      await clearPromptCacheEverywhere();
+      setCacheClearedAt(Date.now());
+    } finally {
+      setIsClearingCache(false);
+    }
+  };
 
   const handleTestLayaConnection = async () => {
     setIsTestingLaya(true);
@@ -1777,7 +1792,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     <input
                       type="checkbox"
                       checked={formData.layaEnabled ?? false}
-                      onChange={(e) => setFormData({ ...formData, layaEnabled: e.target.checked })}
+                      onChange={(e) => {
+                        const enabled = e.target.checked;
+                        setFormData({ ...formData, layaEnabled: enabled });
+                        // Auto-ping on enable so the online/offline badge below
+                        // reflects reality immediately, instead of requiring a
+                        // manual "Test Ping" click before the user can tell
+                        // whether the endpoint they're about to rely on is even
+                        // reachable. Only fires on enable (not on every
+                        // formData change) — this is a deliberate one-shot
+                        // check, not a background poll.
+                        if (enabled && !isTestingLaya) {
+                          handleTestLayaConnection();
+                        }
+                      }}
                       className="w-4 h-4 rounded border-[var(--card-border)] text-cyan-500 focus:ring-cyan-500 bg-[var(--card-bg)] cursor-pointer"
                     />
                   </div>
@@ -4254,6 +4282,29 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     <Upload className="w-4 h-4 text-emerald-400" />
                     <input type="file" accept=".json" onChange={handleImportFile} className="hidden" />
                   </label>
+
+                  <button
+                    type="button"
+                    onClick={handleClearResponseCache}
+                    disabled={isClearingCache}
+                    className="w-full p-3 rounded-2xl border border-[var(--card-border)] bg-[var(--sidebar-bg)] hover:bg-[var(--sidebar-hover)] text-left flex items-center justify-between transition-colors cursor-pointer disabled:opacity-50"
+                  >
+                    <div>
+                      <div className="text-xs font-bold text-[var(--foreground)]">Clear Response Cache</div>
+                      <div className="text-[10px] text-[var(--muted)]">
+                        {cacheClearedAt
+                          ? `Cleared just now — exact & semantic caches wiped, in-memory and on disk`
+                          : "Removes cached prompt responses (exact + semantic) from this tab and the server"}
+                      </div>
+                    </div>
+                    {isClearingCache ? (
+                      <Loader2 className="w-4 h-4 text-cyan-400 animate-spin" />
+                    ) : cacheClearedAt ? (
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                    ) : (
+                      <RefreshCw className="w-4 h-4 text-cyan-400" />
+                    )}
+                  </button>
 
                   <button
                     type="button"

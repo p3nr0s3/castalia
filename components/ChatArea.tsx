@@ -62,7 +62,6 @@ interface ChatAreaProps {
   onToggleSidebar: () => void;
   thinkingMode?: ThinkingMode;
   setThinkingMode?: (mode: ThinkingMode) => void;
-  onOpenCodespace?: () => void;
   onOpenApprovals?: () => void;
   pendingApprovalCount?: number;
   nowPlayingInfo?: { isPlaying: boolean; title: string; onOpenPlayer: () => void } | null;
@@ -129,7 +128,6 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   onToggleSidebar,
   thinkingMode = "default",
   setThinkingMode,
-  onOpenCodespace,
   onOpenApprovals,
   pendingApprovalCount = 0,
   onOpenVoiceCall,
@@ -647,7 +645,6 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
         onOpenDiskExplorer={onOpenDiskExplorer}
         onClearChat={onNewChat}
         onOpenVoiceCall={onOpenVoiceCall}
-        onOpenCodespace={onOpenCodespace}
         skills={skills}
         isConnected={isConnected}
         ollamaUrl={ollamaUrl}

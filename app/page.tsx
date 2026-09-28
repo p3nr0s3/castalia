@@ -31,7 +31,7 @@ import { composeSkillsPrompt, skillsRequireDiskTools, DEFAULT_SKILLS } from "@/l
 import { resolveAdaptiveSamplingParams } from "@/lib/adaptiveSampling";
 import { isCodeFile } from "@/lib/rag";
 import { verifyGrounding } from "@/lib/groundingVerifier";
-import { classifyTaskProfileWithLaya, evaluateToolSafetyWithLaya, LayaTaskProfileResult } from "@/lib/layaClient";
+import { classifyWithLayaSafely, evaluateToolSafetyWithLaya } from "@/lib/layaClient";
 import dynamic from "next/dynamic";
 import { Sidebar } from "@/components/Sidebar";
 import { ChatArea } from "@/components/ChatArea";
@@ -56,7 +56,6 @@ const ArtifactsModal = dynamic(() => import("@/components/ArtifactsModal").then(
 const DirectoryModal = dynamic(() => import("@/components/DirectoryModal").then((m) => m.DirectoryModal), { ssr: false });
 const MemoryModal = dynamic(() => import("@/components/MemoryModal").then((m) => m.MemoryModal), { ssr: false });
 const VoiceModeModal = dynamic(() => import("@/components/VoiceModeModal").then((m) => m.VoiceModeModal), { ssr: false });
-const CodespaceView = dynamic(() => import("@/components/CodespaceView").then((m) => m.CodespaceView), { ssr: false });
 import {
   DEFAULT_DIRECTORY_SKILLS,
   DEFAULT_CONNECTORS,
@@ -112,9 +111,7 @@ export default function HomePage() {
   const [queuedMessage, setQueuedMessage] = useState<string | null>(null);
   const [liveStats, setLiveStats] = useState<{ tokenCount: number; liveTps: number } | undefined>(undefined);
   const [thinkingMode, setThinkingMode] = useState<ThinkingMode>("default");
-  const [mainView, setMainView] = useState<"workspace" | "codespace">("workspace");
-  const [isCodespaceOpen, setIsCodespaceOpen] = useState<boolean>(false);
-  const [isCodespaceMaximized, setIsCodespaceMaximized] = useState<boolean>(false);
+  const [mainView, setMainView] = useState<"workspace">("workspace");
   const [workspaceView, setWorkspaceView] = useState<"chat" | "projects-gallery" | "project-detail">("chat");
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -1781,17 +1778,7 @@ export default function HomePage() {
       }
 
       // Laya System-1 Decision Engine probe (non-autoregressive sub-50ms intent router)
-      let layaDecision: LayaTaskProfileResult | null = null;
-      if (settings.layaEnabled) {
-        try {
-          layaDecision = await classifyTaskProfileWithLaya(trimmedInput, {
-            endpoint: settings.layaEndpoint,
-            timeoutMs: settings.layaTimeoutMs,
-          });
-        } catch {
-          layaDecision = null;
-        }
-      }
+      const layaDecision = await classifyWithLayaSafely(trimmedInput, settings);
 
       if (layaDecision) {
         setConversations((prev) =>
@@ -2579,17 +2566,7 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
 
     try {
       // Laya System-1 Decision Engine probe (non-autoregressive sub-50ms intent router)
-      let layaDecision: LayaTaskProfileResult | null = null;
-      if (settings.layaEnabled) {
-        try {
-          layaDecision = await classifyTaskProfileWithLaya(lastUserMessage.content, {
-            endpoint: settings.layaEndpoint,
-            timeoutMs: settings.layaTimeoutMs,
-          });
-        } catch {
-          layaDecision = null;
-        }
-      }
+      const layaDecision = await classifyWithLayaSafely(lastUserMessage.content, settings);
 
       if (layaDecision) {
         setConversations((prev) =>
@@ -2846,17 +2823,7 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
     abortControllerRef.current = abortController;
 
     // Laya System-1 Decision Engine probe (non-autoregressive sub-50ms intent router)
-    let layaDecision: LayaTaskProfileResult | null = null;
-    if (settings.layaEnabled) {
-      try {
-        layaDecision = await classifyTaskProfileWithLaya(newContent, {
-          endpoint: settings.layaEndpoint,
-          timeoutMs: settings.layaTimeoutMs,
-        });
-      } catch {
-        layaDecision = null;
-      }
-    }
+    const layaDecision = await classifyWithLayaSafely(newContent, settings);
 
     if (layaDecision) {
       setConversations((prev) =>
@@ -3105,7 +3072,6 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
         onOpenApprovals={() => setIsApprovalModalOpen(true)}
         pendingApprovalCount={pendingApprovals.filter((a) => a.status === "pending").length}
         onOpenArtifacts={() => setIsArtifactsModalOpen(true)}
-        onOpenCodespace={() => setIsCodespaceOpen(true)}
         onOpenWorkspace={() => {
           setMainView("workspace");
           setWorkspaceView("chat");
@@ -3207,7 +3173,6 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
           onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
           thinkingMode={thinkingMode}
           setThinkingMode={setThinkingMode}
-          onOpenCodespace={() => setIsCodespaceOpen(true)}
           onOpenApprovals={() => setIsApprovalModalOpen(true)}
           pendingApprovalCount={pendingApprovals.filter((a) => a.status === "pending").length}
           onForkConversation={handleForkConversation}
@@ -3435,25 +3400,6 @@ Kamu sedang berbicara langsung dalam obrolan suara interaktif. Jawab langsung to
         }}
         onSendMessage={handleVoiceCallSendMessage}
       />
-
-      {/* Codespace Fullscreen Workspace */}
-      {isCodespaceOpen && (
-        <div className="fixed inset-0 z-50 w-full h-full bg-[var(--background)] overflow-hidden flex flex-col animate-in fade-in duration-150">
-          <CodespaceView
-            models={models}
-            selectedModel={selectedModel}
-            apiKeys={settings.apiKeys}
-            onSendToChat={(text) => {
-              setInput(text);
-              setIsCodespaceOpen(false);
-            }}
-            onClose={() => setIsCodespaceOpen(false)}
-            onPopout={() => {
-              window.open("/codespace", "CodespaceWindow", "width=1200,height=800,menubar=no,toolbar=no,location=no,status=no");
-            }}
-          />
-        </div>
-      )}
     </div>
   );
 }

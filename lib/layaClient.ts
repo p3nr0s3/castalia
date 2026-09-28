@@ -188,6 +188,30 @@ export async function predictWithLaya(
 }
 
 /**
+ * Convenience wrapper around classifyTaskProfileWithLaya that folds in the
+ * settings.layaEnabled gate and the try/catch-to-null fallback every call
+ * site needs — this exact pattern was duplicated 3x in app/page.tsx before
+ * being extracted here. Pass the same `settings` object the caller already
+ * has in scope; nothing here reads from React state or any other
+ * app-specific context, so this stays a plain function Node/browser both
+ * run identically.
+ */
+export async function classifyWithLayaSafely(
+  prompt: string,
+  settings: { layaEnabled?: boolean; layaEndpoint?: string; layaTimeoutMs?: number }
+): Promise<LayaTaskProfileResult | null> {
+  if (!settings.layaEnabled) return null;
+  try {
+    return await classifyTaskProfileWithLaya(prompt, {
+      endpoint: settings.layaEndpoint,
+      timeoutMs: settings.layaTimeoutMs,
+    });
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Classifies a user prompt into a task profile and reasoning depth in ~30ms.
  * Uses Laya's multilingual model to support Indonesian, English, and mixed code.
  */

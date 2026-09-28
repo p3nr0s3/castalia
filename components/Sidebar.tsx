@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { Plus, PushPin as Pin, Trash as Trash2, PencilSimple as Edit2, Check, X, MagnifyingGlass as Search, Gear as Settings, Folder, FolderOpen, CaretRight as ChevronRight, CaretDown as ChevronDown, SquaresFour as LayoutDashboard, FadersHorizontal as SlidersHorizontal, Play, Pulse as Activity, CodeSimple as Code2, Sparkle as Sparkles, Stack as Layers, Palette, ArrowsDownUp as ArrowUpDown, DotsThreeVertical as MoreVertical, Download, CaretLineLeft as PanelLeftClose, ShieldWarning as ShieldAlert, BookmarkSimple as BookMarked, ShareNetwork as Share2 } from "@phosphor-icons/react";
+import { Plus, PushPin as Pin, Trash as Trash2, PencilSimple as Edit2, Check, X, MagnifyingGlass as Search, Gear as Settings, Folder, FolderOpen, CaretRight as ChevronRight, CaretDown as ChevronDown, SquaresFour as LayoutDashboard, FadersHorizontal as SlidersHorizontal, Play, Pulse as Activity, Sparkle as Sparkles, Stack as Layers, Palette, ArrowsDownUp as ArrowUpDown, DotsThreeVertical as MoreVertical, Download, CaretLineLeft as PanelLeftClose, ShieldWarning as ShieldAlert, BookmarkSimple as BookMarked, ShareNetwork as Share2 } from "@phosphor-icons/react";
 import { Conversation, Project, AgentTask } from "@/lib/types";
 import { storage } from "@/lib/storage";
 
@@ -30,9 +30,8 @@ interface SidebarProps {
   onOpenProjectsGallery: () => void;
   workspaceView?: "chat" | "projects-gallery" | "project-detail";
   onOpenArtifacts?: () => void;
-  onOpenCodespace?: () => void;
   onOpenWorkspace?: () => void;
-  mainView?: "workspace" | "codespace";
+  mainView?: "workspace";
   agents?: AgentTask[];
   onOpenNewAgentModal?: () => void;
   onOpenAgentLogs?: (agent: AgentTask) => void;
@@ -74,7 +73,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenProjectsGallery,
   workspaceView = "chat",
   onOpenArtifacts,
-  onOpenCodespace,
   onOpenWorkspace,
   mainView = "workspace",
   agents = [],
@@ -336,21 +334,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
             >
               <Sparkles className="w-4 h-4 text-[var(--muted)]" />
               <span>Artifacts</span>
-            </button>
-          )}
-
-          {/* Code / Codespace */}
-          {onOpenCodespace && (
-            <button
-              onClick={() => {
-                onOpenCodespace();
-                if (typeof window !== "undefined" && window.innerWidth < 768) setIsOpen(false);
-              }}
-              className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--sidebar-hover)] transition-colors cursor-pointer"
-              title="Buka Codespace IDE"
-            >
-              <Code2 className="w-4 h-4 text-[var(--muted)]" />
-              <span>Code</span>
             </button>
           )}
         </div>
