@@ -33,6 +33,38 @@ const CACHE_TTL_MS = 2 * 60 * 60 * 1000; // 2 hours
 const memoryCache = new Map<string, CachedResponse>();
 
 /**
+ * FNV-1a, 64-bit, returned as 16 zero-padded hex chars.
+ *
+ * Why this shape:
+ *  - A 64-bit state makes an accidental collision between two different
+ *    prompts astronomically unlikely (~2^-64 per pair). The previous
+ *    implementation ran two 32-bit passes with the same multiplier, which
+ *    is not the same as one independent 64-bit hash.
+ *  - It stays synchronous and dependency-free. SubtleCrypto would be a
+ *    stronger hash but is async, which would turn computePromptCacheKey
+ *    into a Promise and ripple into the send-message path for no practical
+ *    gain: this key only has to resist collisions between the user's own
+ *    prompts, not adversarial input.
+ * BigInt.asUintN re-truncates to 64 bits after each multiply, matching the
+ * reference algorithm's wraparound. Constants are built with BigInt("0x...")
+ * rather than 0x...n literals so older TS targets don't reject the syntax.
+ * Iterates UTF-16 code units (charCodeAt), so it matches the reference
+ * vectors for ASCII input; non-ASCII input hashes consistently but is not
+ * the byte-wise UTF-8 FNV — irrelevant here since it is only ever compared
+ * against itself.
+ */
+export function fnv1a64Hex(input: string): string {
+  const FNV_OFFSET_BASIS_64 = BigInt("0xcbf29ce484222325");
+  const FNV_PRIME_64 = BigInt("0x100000001b3");
+  let h = FNV_OFFSET_BASIS_64;
+  for (let i = 0; i < input.length; i++) {
+    h ^= BigInt(input.charCodeAt(i));
+    h = BigInt.asUintN(64, h * FNV_PRIME_64);
+  }
+  return h.toString(16).padStart(16, "0");
+}
+
+/**
  * Computes a deterministic hash key for prompt caching.
  * Any change to model, prompt, system prompt, temperature, topP, numCtx, or tool settings
  * produces a different key, ensuring automatic cache invalidation.
@@ -50,21 +82,7 @@ export function computePromptCacheKey(params: PromptCacheKeyParams): string {
     dt: Boolean(params.diskToolsActive),
   });
 
-  // FNV-1a 32-bit hash
-  let h = 0x811c9dc5;
-  for (let i = 0; i < payload.length; i++) {
-    h ^= payload.charCodeAt(i);
-    h = Math.imul(h, 0x01000193);
-  }
-
-  // Second pass for better dispersion
-  let h2 = 0x27d4eb2f;
-  for (let i = payload.length - 1; i >= 0; i--) {
-    h2 ^= payload.charCodeAt(i);
-    h2 = Math.imul(h2, 0x01000193);
-  }
-
-  return `pc_${Math.abs(h).toString(16)}_${Math.abs(h2).toString(16)}`;
+  return `pc_${fnv1a64Hex(payload)}`;
 }
 
 /**

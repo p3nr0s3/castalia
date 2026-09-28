@@ -1,12 +1,34 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import {
   computePromptCacheKey,
+  fnv1a64Hex,
   getCachedPromptResponse,
   getCachedPromptResponseSync,
   findSemanticCachedResponse,
   setCachedPromptResponse,
   clearPromptCache,
 } from "../lib/responseCache";
+
+describe("fnv1a64Hex (Tier-1 cache key hash)", () => {
+  // Published FNV-1a 64-bit test vectors — these prove the implementation is
+  // really 64-bit FNV-1a rather than something that merely looks long.
+  it("matches the published FNV-1a 64-bit reference vectors", () => {
+    expect(fnv1a64Hex("")).toBe("cbf29ce484222325");
+    expect(fnv1a64Hex("a")).toBe("af63dc4c8601ec8c");
+    expect(fnv1a64Hex("foobar")).toBe("85944171f73967e8");
+  });
+
+  it("always returns exactly 16 hex characters, including for values with leading zeros", () => {
+    for (const input of ["", "a", "hello world", "x".repeat(1000), "日本語のプロンプト"]) {
+      expect(fnv1a64Hex(input)).toMatch(/^[0-9a-f]{16}$/);
+    }
+  });
+
+  it("is deterministic and sensitive to a single-character change", () => {
+    expect(fnv1a64Hex("same input")).toBe(fnv1a64Hex("same input"));
+    expect(fnv1a64Hex("same input")).not.toBe(fnv1a64Hex("same inpuT"));
+  });
+});
 
 describe("responseCache", () => {
   beforeEach(() => {
@@ -59,6 +81,11 @@ describe("responseCache", () => {
 
     expect(baseKey).not.toBe(differentTempKey);
     expect(baseKey).not.toBe(differentSystemKey);
+  });
+
+  it("produces a fixed-shape key: pc_ + 16 hex chars", () => {
+    const key = computePromptCacheKey({ model: "llama3.1", prompt: "hello" });
+    expect(key).toMatch(/^pc_[0-9a-f]{16}$/);
   });
 
   it("stores, retrieves, and clears cached responses (in-memory fast path)", async () => {

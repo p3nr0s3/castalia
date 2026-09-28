@@ -236,7 +236,7 @@ Dokumen ini merupakan referensi teknis komprehensif mengenai seluruh fitur dan s
 
 ### 10.1 Dual-Tier Response Cache
 * **Implementasi**: `lib/responseCache.ts`, `lib/serverDb.ts`, `app/api/cache/route.ts`.
-* **Tier 1 (Exact Hash)**: Pencocokan kunci dari model + prompt + system prompt memakai hash FNV-1a **32-bit** (`0x811c9dc5`, lihat `computePromptCacheKey`) — selalu aktif. Hash 32-bit berarti tabrakan secara teori mungkin terjadi; untuk cache lokal satu-pengguna dengan ratusan entri, risikonya kecil tapi bukan nol.
+* **Tier 1 (Exact Hash)**: Pencocokan kunci dari model + prompt + system prompt memakai hash FNV-1a **64-bit** (`fnv1a64Hex` di `lib/responseCache.ts`, diuji terhadap vektor uji FNV resmi) — selalu aktif. Kunci berbentuk `pc_` + 16 heksadesimal. Hash ini non-kriptografis; cukup untuk membedakan prompt milik satu pengguna, bukan untuk input adversarial.
 * **Tier 2 (Semantic Vector)**: Menguji kedekatan kosinus vektor embedding ($\ge 0.96$). **Hanya aktif jika `Settings > Retrieval > Semantic RAG` dinyalakan** dan model embedding tersedia. Cache hit melewati proses generate sepenuhnya (tanpa token GPU), tapi lookup semantic tetap memakan waktu untuk membuat embedding kueri (timeout 1200 ms) — bukan "0 latensi". Cache dilewati saat ada konteks web search.
 * **Penyimpanan**: Map in-memory (60 entri, cepat, sinkron) di depan penyimpanan server persisten (maks. 500 entri, TTL 2 jam) di tabel SQLite `response_cache` atau file `data/response-cache.json` — terpisah dari `db.json` agar tidak membengkakkan database utama. Entri di server dibaca hanya saat Map in-memory miss.
 * **Pengelolaan**: Tombol **Clear Response Cache** di `Settings > Data` menghapus cache in-memory sekaligus yang tersimpan di server.

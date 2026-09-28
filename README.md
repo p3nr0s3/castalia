@@ -6,7 +6,7 @@
 [![Next.js](https://img.shields.io/badge/Next.js-14.2.35-black?logo=next.js)](https://nextjs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.6.3-blue?logo=typescript)](https://www.typescriptlang.org/)
 [![Ollama](https://img.shields.io/badge/Ollama-Native%20API-white?logo=ollama)](https://ollama.com/)
-[![Tests](https://img.shields.io/badge/Tests-49%20Suites%20%7C%20490%20Passed-brightgreen)](https://vitest.dev/)
+[![Tests](https://img.shields.io/badge/Tests-49%20Suites%20%7C%20494%20Passed-brightgreen)](https://vitest.dev/)
 
 A local-first AI workspace built on Next.js 14, for chatting with locally-hosted Ollama models (or an OpenAI/Anthropic/Gemini-compatible cloud API) with retrieval-augmented context from your own project files.
 
@@ -127,7 +127,7 @@ This is defense against accidents and casual misuse (an errant `../` path, a str
 ## Testing
 
 ```bash
-npm test              # Vitest — 49 suites, 490 tests as of this writing
+npm test              # Vitest — 49 suites, 494 tests as of this writing
 npx tsc --noEmit       # type check
 npm run build          # production build
 npm run analyze        # production build with a bundle-size breakdown (opens .next/analyze/*.html)
