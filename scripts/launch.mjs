@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Cross-platform unified launcher for Castalia + Laya System-1 Decision Engine.
+ * Cross-platform unified launcher for Lyra + Laya System-1 Decision Engine.
  * Compatible with Windows, Linux, and macOS.
  *
  * Usage:
@@ -23,8 +23,8 @@ const COLOR_RED = "\x1b[31m";
 const COLOR_RESET = "\x1b[0m";
 const COLOR_BOLD = "\x1b[1m";
 
-function logCastalia(msg) {
-  console.log(`${COLOR_CYAN}${COLOR_BOLD}[Castalia]${COLOR_RESET} ${msg}`);
+function logLyra(msg) {
+  console.log(`${COLOR_CYAN}${COLOR_BOLD}[Lyra]${COLOR_RESET} ${msg}`);
 }
 
 function logLaya(msg) {
@@ -109,7 +109,7 @@ function shutdownAll(exitCode = 0) {
   if (isShuttingDown) return;
   isShuttingDown = true;
 
-  logCastalia("Menghentikan seluruh layanan (Castalia + Laya)...");
+  logLyra("Menghentikan seluruh layanan (Lyra + Laya)...");
 
   if (layaProcess && layaProcess.pid) {
     try {
@@ -144,7 +144,7 @@ process.on("exit", () => shutdownAll(0));
 async function main() {
   console.log("");
   console.log(`${COLOR_BOLD}${COLOR_CYAN}====================================================${COLOR_RESET}`);
-  console.log(`${COLOR_BOLD}${COLOR_CYAN}  Castalia + Laya System-1 Unified Launcher         ${COLOR_RESET}`);
+  console.log(`${COLOR_BOLD}${COLOR_CYAN}  Lyra + Laya System-1 Unified Launcher             ${COLOR_RESET}`);
   console.log(`${COLOR_BOLD}${COLOR_CYAN}====================================================${COLOR_RESET}`);
   console.log("");
 
@@ -162,7 +162,7 @@ async function main() {
     } else if (!pyInfo.hasLaya) {
       logLaya(`${COLOR_YELLOW}Python terdeteksi (${pyInfo.pythonCmd}), tetapi paket 'laya[serve]' belum terpasang.${COLOR_RESET}`);
       logLaya(`${COLOR_YELLOW}Untuk mengaktifkan Laya System-1, jalankan: pip install "laya[serve]"${COLOR_RESET}`);
-      logCastalia(`Tetap melanjutkan Castalia dengan mode fallback otomatis.`);
+      logLyra(`Tetap melanjutkan Lyra dengan mode fallback otomatis.`);
     } else {
       logLaya(`Memulai server Laya System-1 via ${pyInfo.pythonCmd} di port 8000...`);
 
@@ -215,13 +215,13 @@ async function main() {
       if (ready) {
         logLaya(`${COLOR_GREEN}Server Laya siap menerima inferensi di http://127.0.0.1:8000!${COLOR_RESET}`);
       } else {
-        logLaya(`${COLOR_YELLOW}Laya masih memuat model di latar belakang; Castalia siap beroperasi dengan fallback.${COLOR_RESET}`);
+        logLaya(`${COLOR_YELLOW}Laya masih memuat model di latar belakang; Lyra siap beroperasi dengan fallback.${COLOR_RESET}`);
       }
     }
   }
 
   console.log("");
-  // 2. Start Next.js Castalia
+  // 2. Start Next.js Lyra
   let nextArgs = ["next", "dev", "-H", "127.0.0.1", "-p", "3000"];
   if (mode === "dev:lan") {
     nextArgs = ["next", "dev", "-H", "0.0.0.0", "-p", "3000"];
@@ -231,13 +231,13 @@ async function main() {
     nextArgs = ["next", "start", "-H", "0.0.0.0", "-p", "3000"];
   }
 
-  logCastalia(`Memulai antarmuka Castalia (mode: ${mode})...`);
+  logLyra(`Memulai antarmuka Lyra (mode: ${mode})...`);
 
   const env = {
     ...process.env,
     // OPTIMIZATION: Keep Node.js V8 heap capped to prevent memory bloat in dev mode
     NODE_OPTIONS: process.env.NODE_OPTIONS || "--max-old-space-size=768",
-    // Hint to Castalia client that Laya is running in one-step mode
+    // Hint to Lyra client that Laya is running in one-step mode
     NEXT_PUBLIC_AUTO_LAYA: "true",
   };
 

@@ -1417,7 +1417,7 @@ export default function HomePage() {
         connectorNotice = `*No bridge found with id \`${bridgeId || "(none given)"}\`. Usage: \`/bridge <bridge-id> <message>\`. Add one in Directory > Connectors.*\n\n`;
       } else if (bridge.customBridgeType === "webhook") {
         try {
-          let payload: any = { text: message || "Notification from Castalia Workspace" };
+          let payload: any = { text: message || "Notification from Lyra Workspace" };
           if (bridge.defaultPayload) {
             try {
               payload = JSON.parse(bridge.defaultPayload.replace(/\{\{message\}\}/g, message || ""));

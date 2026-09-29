@@ -129,7 +129,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `castalia-workspace-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      link.download = `lyra-workspace-backup-${new Date().toISOString().slice(0, 10)}.json`;
       link.click();
       URL.revokeObjectURL(url);
     } catch (e) {
@@ -245,19 +245,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
           className="hidden md:block absolute top-0 right-0 w-1.5 h-full cursor-col-resize hover:bg-blue-500/50 active:bg-blue-500/70 z-10 touch-none translate-x-1/2"
           title="Geser buat ubah lebar sidebar"
         />
-        {/* Brand Header: Castalia Minimalist Typography & Mark */}
+        {/* Brand Header: Lyra Minimalist Typography & Mark */}
         <div className="px-4 pt-4 pb-2.5 flex items-center justify-between">
           <div 
             className="flex items-center gap-2.5 min-w-0 select-none cursor-default group"
-            title="Castalia — Sacred Spring of Knowledge"
+            title="Lyra — Minimalist AI Workspace"
           >
             {/* Minimalist Monogram Badge */}
             <div className="w-6 h-6 rounded-lg bg-[var(--sidebar-hover)] border border-[var(--card-border)] flex items-center justify-center text-[var(--foreground)] font-serif font-semibold text-xs transition-colors group-hover:border-[var(--muted)]">
-              C
+              L
             </div>
 
             <span className="font-serif text-base font-semibold tracking-tight text-[var(--foreground)] leading-none truncate">
-              Castalia
+              Lyra
             </span>
           </div>
 

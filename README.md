@@ -1,4 +1,4 @@
-# Castalia
+# Lyra
 
 <div align="center">
 
@@ -8,7 +8,7 @@
 [![Ollama](https://img.shields.io/badge/Ollama-Native%20API-white?logo=ollama)](https://ollama.com/)
 [![Tests](https://img.shields.io/badge/Tests-49%20Suites%20%7C%20494%20Passed-brightgreen)](https://vitest.dev/)
 
-A local-first AI workspace built on Next.js 14, for chatting with locally-hosted Ollama models (or an OpenAI/Anthropic/Gemini-compatible cloud API) with retrieval-augmented context from your own project files.
+A minimalist, local-first AI workspace built on Next.js 14, for chatting with locally-hosted Ollama models (or an OpenAI/Anthropic/Gemini-compatible cloud API) with retrieval-augmented context from your own project files.
 
 Single-user by design: there is no login system, and the only access control is a shared bearer token (see [Security](#security)). It's built for one person running it on their own machine, not for a team.
 
@@ -25,7 +25,7 @@ This is a short orientation, not a feature list — see **[FEATURES.md](FEATURES
 - **Chat** with local Ollama models or a connected cloud provider, with streaming, branching, multimodal input, and a `<think>` block renderer for reasoning models.
 - **Two-stage RAG** over project files: BM25 + dense-vector retrieval fused with RRF, an optional reranking pass, adjacent-chunk stitching, and an ambient filesystem watcher that keeps the index in sync with files on disk.
 - **Agentic tool calls** (`list_directory`, `read_file`, `write_file`, `delete_file`, and a few others) gated behind an explicit toggle; file-mutating calls require a server-verified, single-use approval before they run, and can be reverted.
-- **A sandboxed Codespace** for running Python (via Pyodide/WASM), Node, PowerShell, or bash from the browser.
+- **Artifacts and Knowledge Studio** for dynamic generation of code snippets, diagrams, markdown previews, and full project workspaces.
 - **A response cache** (exact-hash and, optionally, semantic-similarity) that skips regeneration for repeat prompts, persisted server-side so it survives a reload.
 - **Inference-side tuning**: context-window bucketing to avoid over-allocating KV cache, per-task sampling profiles, and KV prefix pinning for static system prompts.
 - **System-1 Decision Engine (optional Laya integration)**: Fast non-autoregressive encoder pass (~30ms on CPU) for intent routing, deep reasoning recommendation, and tool safety scoring, with transparent fallback to local heuristics.
@@ -40,7 +40,7 @@ None of this has been benchmarked against other tools — the claims above descr
 ```
                   ┌────────────────────────────────────────┐
                   │       Next.js 14 Web Frontend          │
-                  │   (Chat, Codespace, Projects, UI)      │
+                  │       (Chat, Projects, UI)             │
                   └───────────────────┬────────────────────┘
                                       │
                    ┌──────────────────┴──────────────────┐
@@ -100,10 +100,10 @@ npm install
 # the moment you expose this app beyond localhost.
 cp .env.example .env.local
 
-# Standard (Castalia only):
+# Standard (Lyra only):
 npm run dev
 
-# All-in-One (Castalia + Laya System-1 Decision Engine in 1 step):
+# All-in-One (Lyra + Laya System-1 Decision Engine in 1 step):
 # Works cross-platform across Windows, Linux, and macOS:
 npm run dev:all
 ```
@@ -140,9 +140,9 @@ Test counts drift as the codebase changes — the badge above and the count here
 ## Project Structure
 
 ```
-castalia/
-├── app/                     # Next.js App Router — pages, API routes, /codespace
-├── components/              # UI components (chat, sidebar, modals, codespace, projects)
+lyra/
+├── app/                     # Next.js App Router — pages, API routes
+├── components/              # UI components (chat, sidebar, modals, projects)
 ├── lib/
 │   ├── ollama.ts            # Ollama client, context-window bucketing, num_keep pinning
 │   ├── rag.ts               # Hybrid retrieval, reranking, BM25, chunk stitching

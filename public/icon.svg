@@ -3,13 +3,14 @@
   <rect width="64" height="64" rx="14" fill="#090d16" />
   <rect x="1" y="1" width="62" height="62" rx="13" fill="none" stroke="#ffffff" stroke-opacity="0.08" stroke-width="1" />
 
-  <!-- Clean, Minimalist 'C' Monogram (Castalia Spring Curve) -->
-  <path d="M42 22 C36 16 26 16 20 22 C14 28 14 36 20 42 C26 48 36 48 42 42" 
+  <!-- Clean, Minimalist 'L' Monogram (Lyra Star Constellation Stroke) -->
+  <path d="M22 18 V44 H42" 
         fill="none" 
         stroke="#f8fafc" 
         stroke-width="4.5" 
-        stroke-linecap="round" />
+        stroke-linecap="round" 
+        stroke-linejoin="round" />
 
-  <!-- Subtle Minimal Spring Dot -->
-  <circle cx="42" cy="22" r="2.5" fill="#38bdf8" />
+  <!-- Subtle Minimal Celestial Dot (Vega star) -->
+  <circle cx="22" cy="18" r="2.5" fill="#38bdf8" />
 </svg>

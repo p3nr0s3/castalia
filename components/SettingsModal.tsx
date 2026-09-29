@@ -1876,7 +1876,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           pip install &quot;laya[serve]&quot; &amp;&amp; python -m laya.serve --port 8000
                         </div>
                         <p className="text-[9px] text-[var(--muted)]">
-                          Jika Laya offline atau belum dijalankan, Castalia otomatis fallback ke mode heuristik bawaan tanpa jeda.
+                          Jika Laya offline atau belum dijalankan, Lyra otomatis fallback ke mode heuristik bawaan tanpa jeda.
                         </p>
                       </div>
                     </div>

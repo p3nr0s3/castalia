@@ -1,6 +1,6 @@
 {
-  "name": "Castalia - Local AI Workspace",
-  "short_name": "Castalia",
+  "name": "Lyra - Local AI Workspace",
+  "short_name": "Lyra",
   "description": "Minimalist, local-first AI workspace featuring RAG, AST code intelligence, and zero-compromise security.",
   "start_url": "/",
   "display": "standalone",

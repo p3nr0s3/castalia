@@ -2,8 +2,8 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Castalia — Local AI Workspace",
-  description: "Castalia: Minimalist, local-first AI workspace for Ollama LLMs with vision, documents & Claude-style projects",
+  title: "Lyra — Local AI Workspace",
+  description: "Lyra: Minimalist, local-first AI workspace for Ollama LLMs with vision, documents & Claude-style projects",
   icons: {
     icon: [
       { url: "/favicon.svg", type: "image/svg+xml" },
@@ -16,7 +16,7 @@ export const metadata: Metadata = {
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "Castalia",
+    title: "Lyra",
   },
   manifest: "/manifest.json",
 };
