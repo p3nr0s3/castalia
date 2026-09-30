@@ -7,10 +7,12 @@
  *   node scripts/launch.mjs [dev|dev:lan|start|start:lan]
  */
 
-import { spawn, execSync } from "node:child_process";
+import { spawn, execSync, execFileSync } from "node:child_process";
 import http from "node:http";
 import path from "node:path";
 import fs from "node:fs";
+import { fileURLToPath } from "node:url";
+import { sanitizeChildEnv, isLanMode } from "./launchHelpers.mjs";
 
 const mode = process.argv[2] || "dev";
 const isWindows = process.platform === "win32";
@@ -80,16 +82,18 @@ function findPythonWithLaya() {
     }
 
     try {
-      // Check if command is executable
-      execSync(`${cmd} --version`, { stdio: "ignore" });
+      // execFileSync (no shell): a path such as C:\Users\John Doe\lyra\.venv\... contains a
+      // space, and the old `execSync(`${cmd} --version`)` split it in two, failed, and made the
+      // launcher conclude "Python not found" without saying why.
+      execFileSync(cmd, ["--version"], { stdio: "ignore" });
 
       // Check if laya and uvicorn are importable
-      execSync(`${cmd} -c "import laya, uvicorn"`, { stdio: "ignore" });
+      execFileSync(cmd, ["-c", "import laya, uvicorn"], { stdio: "ignore" });
       return { pythonCmd: cmd, hasLaya: true };
     } catch {
       // Either command not found or laya not installed
       try {
-        execSync(`${cmd} --version`, { stdio: "ignore" });
+        execFileSync(cmd, ["--version"], { stdio: "ignore" });
         // Python exists but laya is missing
         return { pythonCmd: cmd, hasLaya: false };
       } catch {
@@ -141,7 +145,23 @@ process.on("SIGINT", () => shutdownAll(0));
 process.on("SIGTERM", () => shutdownAll(0));
 process.on("exit", () => shutdownAll(0));
 
+/**
+ * The npm "pre" hooks (predev, prestart) only exist for `dev` and `start`, so the
+ * token warning never ran for dev:lan / start:lan or any *:all mode — exactly the
+ * modes that expose the app. Run the same check here; it exits non-zero when a
+ * *:lan mode has no APP_ACCESS_TOKEN.
+ */
+function runAccessCheck() {
+  const script = fileURLToPath(new URL("./warnOpenAccess.mjs", import.meta.url));
+  try {
+    execFileSync(process.execPath, [script, ...(isLanMode(mode) ? ["--lan"] : [])], { stdio: "inherit" });
+  } catch {
+    process.exit(1);
+  }
+}
+
 async function main() {
+  runAccessCheck();
   console.log("");
   console.log(`${COLOR_BOLD}${COLOR_CYAN}====================================================${COLOR_RESET}`);
   console.log(`${COLOR_BOLD}${COLOR_CYAN}  Lyra + Laya System-1 Unified Launcher             ${COLOR_RESET}`);
@@ -167,7 +187,8 @@ async function main() {
       logLaya(`Memulai server Laya System-1 via ${pyInfo.pythonCmd} di port 8000...`);
 
       const layaEnv = {
-        ...process.env,
+        // No provider API keys / access token for the third-party Python process.
+        ...sanitizeChildEnv(process.env),
         LAYA_HOST: "127.0.0.1",
         LAYA_PORT: "8000",
         LAYA_LOG_LEVEL: "info",

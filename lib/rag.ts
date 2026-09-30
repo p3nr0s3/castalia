@@ -323,6 +323,10 @@ export interface ProjectSymbolGraph {
 /**
  * Builds an in-memory cross-file symbol call and reference graph from document chunks.
  */
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 export function buildProjectSymbolGraph(chunks: DocumentChunk[]): ProjectSymbolGraph {
   const symbolToChunkIds = new Map<string, string[]>();
   const chunkDefinedSymbols = new Map<string, string[]>();
@@ -355,7 +359,11 @@ export function buildProjectSymbolGraph(chunks: DocumentChunk[]): ProjectSymbolG
       // Fast check before regex
       if (!chunkLower.includes(symKey)) continue;
 
-      const regex = new RegExp(`\\b${symKey}\\b`, "i");
+      // Escape: symbol names come from user files. `$store` (valid JS) never matched with a
+      // bare `\\b$store\\b`, and a name containing regex metacharacters threw a SyntaxError
+      // that took down the whole project symbol graph. Explicit boundaries instead of \\b
+      // because `\\b` does not work next to `$`; no lookbehind (older Safari lacks it).
+      const regex = new RegExp(`(^|[^\\w$])${escapeRegExp(symKey)}(?![\\w$])`, "i");
       if (regex.test(chunk.text)) {
         const defChunkId = symbolToChunkIds.get(symKey)?.[0];
         const origName =

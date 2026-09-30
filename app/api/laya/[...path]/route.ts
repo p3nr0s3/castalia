@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { assertOllamaHostUrl, SsrfBlockedError } from "@/lib/ssrfGuard";
 import { getCorsHeaders } from "@/lib/corsHeaders";
+import { isAllowedLayaPath } from "@/lib/proxyPaths";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -31,7 +32,13 @@ function getLayaHost(req: NextRequest): string {
   }
 }
 
-async function validateLayaHost(host: string): Promise<NextResponse | null> {
+async function validateLayaHost(host: string, subpath: string): Promise<NextResponse | null> {
+  if (!isAllowedLayaPath(subpath)) {
+    return NextResponse.json(
+      { error: `Path '/${subpath}' is not part of the Laya API. Refusing to proxy it.` },
+      { status: 403, headers: CORS_HEADERS }
+    );
+  }
   try {
     await assertOllamaHostUrl(host);
     return null;
@@ -49,7 +56,7 @@ export async function GET(
 ) {
   const subpath = (params.path || []).join("/");
   const host = getLayaHost(req);
-  const blocked = await validateLayaHost(host);
+  const blocked = await validateLayaHost(host, subpath);
   if (blocked) return blocked;
 
   try {
@@ -82,7 +89,7 @@ export async function POST(
 ) {
   const subpath = (params.path || []).join("/");
   const host = getLayaHost(req);
-  const blocked = await validateLayaHost(host);
+  const blocked = await validateLayaHost(host, subpath);
   if (blocked) return blocked;
 
   try {

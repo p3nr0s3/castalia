@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { runDiskTool } from "@/lib/diskToolOps";
 import { resolveOnLocalDisk } from "@/lib/pathSandbox";
-import { getPendingApprovalById, writeServerDb } from "@/lib/serverDb";
+import { MUTATING_TOOLS, authorizeMutatingTool } from "@/lib/toolApproval";
 import { explainSymbol, queryGraph, pathBetween, GraphifyError } from "@/lib/graphifyOps";
 
 export const runtime = "nodejs";
@@ -28,12 +28,6 @@ export const dynamic = "force-dynamic";
 // exact same rules without a second copy of the OS-critical-directories list.
 const resolveSafePath = resolveOnLocalDisk;
 
-const MUTATING_TOOLS = new Set(["write_file", "delete_file"]);
-const APPROVAL_FRESHNESS_MS = 5 * 60 * 1000;
-
-function argsMatch(a: Record<string, any>, b: Record<string, any>): boolean {
-  return (a?.path ?? null) === (b?.path ?? null);
-}
 
 export async function POST(req: NextRequest) {
   try {
@@ -45,72 +39,16 @@ export async function POST(req: NextRequest) {
     }
 
     if (MUTATING_TOOLS.has(tool)) {
-      if (!approvalToken) {
-        return NextResponse.json(
-          {
-            success: false,
-            tool,
-            error: `Tool '${tool}' requires a resolved approval before execution. This route will not run it without an approvalToken.`,
-          },
-          { status: 403 }
-        );
+      const auth = await authorizeMutatingTool({
+        tool,
+        args,
+        approvalToken,
+        expectedSource: "chat",
+        sourceLabel: "manual chat",
+      });
+      if (!auth.ok) {
+        return NextResponse.json({ success: false, tool, error: auth.error }, { status: auth.status });
       }
-
-      const approval = await getPendingApprovalById(approvalToken);
-
-      if (!approval) {
-        return NextResponse.json(
-          { success: false, tool, error: `Unknown approval id '${approvalToken}'. Refusing to execute.` },
-          { status: 403 }
-        );
-      }
-
-      if (approval.source !== "chat") {
-        return NextResponse.json(
-          { success: false, tool, error: `Approval '${approvalToken}' was not issued for manual chat. Refusing to execute.` },
-          { status: 403 }
-        );
-      }
-
-      if (approval.status !== "approved") {
-        return NextResponse.json(
-          {
-            success: false,
-            tool,
-            error: `Approval '${approvalToken}' is not approved (status: ${approval.status}). Refusing to execute.`,
-          },
-          { status: 403 }
-        );
-      }
-
-      if (approval.toolName !== tool || !argsMatch(approval.args, args)) {
-        return NextResponse.json(
-          {
-            success: false,
-            tool,
-            error: `Approval '${approvalToken}' does not match this request. Refusing to execute.`,
-          },
-          { status: 403 }
-        );
-      }
-
-      const resolvedAt = approval.resolvedAt ?? approval.createdAt;
-      if (Date.now() - resolvedAt > APPROVAL_FRESHNESS_MS) {
-        return NextResponse.json(
-          { success: false, tool, error: `Approval '${approvalToken}' has expired. Ask the user to approve again.` },
-          { status: 403 }
-        );
-      }
-
-      if (approval.result?.consumedAt) {
-        return NextResponse.json(
-          { success: false, tool, error: `Approval '${approvalToken}' was already used and cannot be replayed.` },
-          { status: 403 }
-        );
-      }
-
-      const consumedApproval = { ...approval, result: { ...(approval.result || {}), consumedAt: Date.now() } };
-      await writeServerDb({ pendingApprovals: [consumedApproval] });
     }
 
     // Graphify tools answer questions about THIS project's own codebase via a

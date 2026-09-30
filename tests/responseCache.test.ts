@@ -176,7 +176,13 @@ describe("responseCache", () => {
 
       const result = await findSemanticCachedResponse({ model: "llama3.1", queryEmbedding: embedding });
       expect(result?.content).toBe("semantic server hit");
-      expect(global.fetch).toHaveBeenCalledWith(expect.stringContaining("/api/cache?"), expect.anything());
+      // Must be a POST with the embedding in the BODY: in a query string a real
+      // 768-dim vector exceeds the server's header limit (HTTP 431).
+      const [url, init] = (global.fetch as any).mock.calls[0];
+      expect(String(url)).toContain("/api/cache");
+      expect(String(url)).not.toContain("embedding=");
+      expect(init.method).toBe("POST");
+      expect(JSON.parse(init.body)).toMatchObject({ action: "semantic-lookup", model: "llama3.1", embedding });
     });
 
     it("ignores an expired entry returned by the server", async () => {

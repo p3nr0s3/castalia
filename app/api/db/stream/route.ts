@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { readServerDb } from "@/lib/serverDb";
+import { readServerDbVersion } from "@/lib/serverDb";
 import { getCorsHeaders } from "@/lib/corsHeaders";
 
 export const runtime = "nodejs";
@@ -54,10 +54,10 @@ export async function GET(req: NextRequest) {
       const checkTimer = setInterval(async () => {
         if (closed) return;
         try {
-          const db = await readServerDb();
-          if (db.version !== lastSeenVersion) {
-            lastSeenVersion = db.version;
-            send("changed", { version: db.version });
+          const version = await readServerDbVersion();
+          if (version !== lastSeenVersion) {
+            lastSeenVersion = version;
+            send("changed", { version });
           }
         } catch (err: any) {
           send("error", { message: err.message || "Failed to check database version" });
@@ -75,11 +75,11 @@ export async function GET(req: NextRequest) {
 
       // Send an immediate check on connect, in case something changed
       // between the client's last poll and this connection opening.
-      readServerDb()
-        .then((db) => {
-          if (db.version !== lastSeenVersion) {
-            lastSeenVersion = db.version;
-            send("changed", { version: db.version });
+      readServerDbVersion()
+        .then((version) => {
+          if (version !== lastSeenVersion) {
+            lastSeenVersion = version;
+            send("changed", { version });
           }
         })
         .catch(() => {});

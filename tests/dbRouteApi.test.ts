@@ -10,9 +10,12 @@ import { NextRequest } from "next/server";
 // data/db.json.
 const readServerDb = vi.fn();
 const writeServerDb = vi.fn();
+// Mirrors the real function: the version of whatever readServerDb would return, without the payload.
+const readServerDbVersion = vi.fn(async () => (await readServerDb()).version);
 
 vi.mock("@/lib/serverDb", () => ({
   readServerDb: (...args: any[]) => readServerDb(...args),
+  readServerDbVersion: (...args: any[]) => (readServerDbVersion as any)(...args),
   writeServerDb: (...args: any[]) => writeServerDb(...args),
 }));
 
@@ -32,6 +35,8 @@ const fakeDb = (version: number) => ({
 describe("Database Sync API (/api/db)", () => {
   beforeEach(() => {
     readServerDb.mockReset();
+    readServerDbVersion.mockReset();
+    readServerDbVersion.mockImplementation(async () => (await readServerDb()).version);
     writeServerDb.mockReset();
   });
 
@@ -39,6 +44,25 @@ describe("Database Sync API (/api/db)", () => {
     it("returns 204 with no body", async () => {
       const res = await OPTIONS();
       expect(res.status).toBe(204);
+    });
+  });
+
+  describe("GET — up-to-date clients do not pay for a full database read", () => {
+    it("answers ?v=<current> from the version lookup alone (full read never happens)", async () => {
+      // If the route fell back to readServerDb() this would throw and the test would fail.
+      readServerDb.mockRejectedValue(new Error("full read must not happen on the fast path"));
+      readServerDbVersion.mockResolvedValue(12);
+      const res = await GET(new NextRequest("http://localhost:3000/api/db?v=12"));
+      expect(await res.json()).toEqual({ changed: false, version: 12 });
+      expect(readServerDb).not.toHaveBeenCalled();
+    });
+
+    it("does the single full read only when the client is behind", async () => {
+      readServerDbVersion.mockResolvedValue(13);
+      readServerDb.mockResolvedValue(fakeDb(13));
+      const res = await GET(new NextRequest("http://localhost:3000/api/db?v=12"));
+      expect((await res.json()).changed).toBe(true);
+      expect(readServerDb).toHaveBeenCalledTimes(1);
     });
   });
 

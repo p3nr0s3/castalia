@@ -78,14 +78,43 @@ function mergeAgents(serverList: AgentTask[], clientList: AgentTask[]): AgentTas
   return Array.from(map.values()).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
 }
 
-function mergePendingApprovals(serverList: PendingApproval[], clientList: PendingApproval[]): PendingApproval[] {
+/**
+ * Merges approval records from a client into the server's copy.
+ *
+ * "Newest wins" is NOT enough for approvals: consuming or reverting one does
+ * not bump `resolvedAt`, so a stale copy from another tab / a delayed sync
+ * (same `resolvedAt`, but without `consumedAt`) used to overwrite the
+ * server's consumed record and bring a spent approval back to life — a
+ * replay of write_file/delete_file within the 5-minute window. Terminal
+ * facts are therefore monotonic: once the server has recorded
+ * `consumedAt`, `reverted`, or a resolved status, a client can never undo it.
+ */
+export function mergePendingApprovals(serverList: PendingApproval[], clientList: PendingApproval[]): PendingApproval[] {
   const map = new Map<string, PendingApproval>();
   for (const a of serverList) map.set(a.id, a);
-  for (const a of clientList) {
-    const existing = map.get(a.id);
-    if (!existing || (a.resolvedAt || a.createdAt) >= (existing.resolvedAt || existing.createdAt)) {
-      map.set(a.id, a);
+  for (const incoming of clientList) {
+    const existing = map.get(incoming.id);
+    if (!existing) {
+      map.set(incoming.id, incoming);
+      continue;
     }
+    const incomingIsNewer = (incoming.resolvedAt || incoming.createdAt) >= (existing.resolvedAt || existing.createdAt);
+    const merged: PendingApproval = incomingIsNewer ? { ...incoming } : { ...existing };
+
+    const consumedAt = existing.result?.consumedAt ?? incoming.result?.consumedAt;
+    if (consumedAt) merged.result = { ...(merged.result || {}), consumedAt };
+
+    if (existing.reverted || incoming.reverted) {
+      merged.reverted = true;
+      merged.revertedAt = existing.revertedAt ?? incoming.revertedAt;
+    }
+
+    // A resolved status (approved/rejected) never regresses to pending.
+    if (existing.status !== "pending" && incoming.status === "pending") {
+      merged.status = existing.status;
+      merged.resolvedAt = existing.resolvedAt;
+    }
+    map.set(incoming.id, merged);
   }
   return Array.from(map.values()).sort((a, b) => b.createdAt - a.createdAt);
 }
@@ -473,6 +502,22 @@ function usingSqlite(): boolean {
 
 export async function readServerDb(): Promise<ServerDatabase> {
   return usingSqlite() ? readServerDbSqlite() : readServerDbJson();
+}
+
+/**
+ * Current database version number, without materialising the database.
+ *
+ * /api/db/stream asks "did anything change?" every 2 seconds for EVERY open tab,
+ * and GET /api/db?v=N asks the same on each sync. Both used readServerDb(), which on
+ * the SQLite backend SELECTs and JSON.parses every conversation, message, project,
+ * agent and journal row just to compare one integer — cost that grows with the
+ * history and is paid continuously while a local model is also using the machine.
+ * On SQLite this is a single-row lookup; the JSON backend already holds the whole
+ * database in memory, so it simply reads the cached object.
+ */
+export async function readServerDbVersion(): Promise<number> {
+  if (usingSqlite()) return sqliteGetKv<number>("version", 1);
+  return (await readServerDbJson()).version;
 }
 
 export async function writeServerDb(data: WriteServerDbInput): Promise<ServerDatabase> {

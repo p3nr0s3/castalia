@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Message } from "@/lib/types";
+import { extractImageParts, toAnthropicMessages, toGeminiContents, toOpenAiMessages, type FormattedMessage } from "@/lib/cloudVision";
 import { redactSensitiveContent } from "@/lib/redaction";
 import { getCorsHeaders } from "@/lib/corsHeaders";
+import { assertOllamaHostUrl, SsrfBlockedError } from "@/lib/ssrfGuard";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -37,8 +39,8 @@ export async function OPTIONS() {
 }
 
 // Helper to format messages with attachments
-function formatMessagesText(messages: Message[]): { role: string; content: string }[] {
-  const formatted: { role: string; content: string }[] = [];
+function formatMessagesText(messages: Message[]): FormattedMessage[] {
+  const formatted: FormattedMessage[] = [];
 
   for (const msg of messages) {
     let msgContent = msg.content || "";
@@ -56,6 +58,8 @@ function formatMessagesText(messages: Message[]): { role: string; content: strin
     formatted.push({
       role: msg.role === "assistant" ? "assistant" : "user",
       content: msgContent,
+      // Only user turns carry images to the provider.
+      images: msg.role === "assistant" ? [] : extractImageParts(msg),
     });
   }
 
@@ -108,13 +112,16 @@ export async function POST(req: NextRequest) {
     // 1. GOOGLE GEMINI API (Stream SSE)
     // -------------------------------------------------------------
     if (provider === "gemini") {
-      const geminiModel = model.replace(/^models\//, "");
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:streamGenerateContent?alt=sse&key=${apiKey}`;
+      const geminiModel = String(model).replace(/^models\//, "");
+      // The model is interpolated into a URL path: only allow real model-id characters
+      // so it can't be used to address a different Google API endpoint with the key.
+      if (!/^[A-Za-z0-9._-]+$/.test(geminiModel)) {
+        return NextResponse.json({ error: `Invalid Gemini model id '${geminiModel}'.` }, { status: 400, headers: CORS_HEADERS });
+      }
+      // Key goes in a header, not the query string: URLs end up in logs, proxies and error messages.
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:streamGenerateContent?alt=sse`;
 
-      const contents = formattedMessages.map((m) => ({
-        role: m.role === "assistant" ? "model" : "user",
-        parts: [{ text: m.content }],
-      }));
+      const contents = toGeminiContents(formattedMessages);
 
       const geminiPayload: any = {
         contents,
@@ -132,8 +139,9 @@ export async function POST(req: NextRequest) {
 
       const geminiRes = await fetch(url, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey ?? "" },
         body: JSON.stringify(geminiPayload),
+        signal: req.signal, // stop generating (and paying for) tokens when the client disconnects
       });
 
       if (!geminiRes.ok) {
@@ -207,10 +215,10 @@ export async function POST(req: NextRequest) {
                 } catch {}
               }
             }
-          } catch (streamErr) {
-            controller.error(streamErr);
-          } finally {
             controller.close();
+          } catch (streamErr) {
+            // Client aborts land here too. Erroring an already-closed/cancelled stream throws.
+            try { controller.error(streamErr); } catch {}
           }
         },
       });
@@ -234,10 +242,12 @@ export async function POST(req: NextRequest) {
 
       const claudePayload: any = {
         model,
-        messages: formattedMessages,
+        messages: toAnthropicMessages(formattedMessages),
         max_tokens: 4096,
+        // temperature only: current Claude models reject requests that set BOTH
+        // temperature and top_p (HTTP 400), and topP defaults to 0.9 here, so
+        // sending it made every default request fail on those models.
         temperature,
-        top_p: topP,
         stream: true,
       };
 
@@ -253,6 +263,7 @@ export async function POST(req: NextRequest) {
           "content-type": "application/json",
         },
         body: JSON.stringify(claudePayload),
+        signal: req.signal,
       });
 
       if (!claudeRes.ok) {
@@ -317,10 +328,10 @@ export async function POST(req: NextRequest) {
                 } catch {}
               }
             }
-          } catch (streamErr) {
-            controller.error(streamErr);
-          } finally {
             controller.close();
+          } catch (streamErr) {
+            // Client aborts land here too. Erroring an already-closed/cancelled stream throws.
+            try { controller.error(streamErr); } catch {}
           }
         },
       });
@@ -352,16 +363,30 @@ export async function POST(req: NextRequest) {
     } else if (provider === "openrouter") {
       endpointUrl = "https://openrouter.ai/api/v1/chat/completions";
       customHeaders["HTTP-Referer"] = "http://localhost:3000";
-      customHeaders["X-Title"] = "Ollama Local AI Hub";
+      customHeaders["X-Title"] = "Lyra";
     } else if (provider === "custom" && customBaseUrl) {
+      if (typeof customBaseUrl !== "string") {
+        return NextResponse.json({ error: "customBaseUrl must be a string." }, { status: 400, headers: CORS_HEADERS });
+      }
       endpointUrl = `${customBaseUrl.replace(/\/+$/, "")}/chat/completions`;
+      // Custom endpoints are legitimately local/LAN (vLLM, LM Studio, LocalAI), so only
+      // link-local / cloud-metadata targets are refused — otherwise this route is a
+      // server-side request relay that also reflects upstream error bodies to the caller.
+      try {
+        await assertOllamaHostUrl(endpointUrl);
+      } catch (err) {
+        if (err instanceof SsrfBlockedError) {
+          return NextResponse.json({ error: err.message }, { status: 403, headers: CORS_HEADERS });
+        }
+        return NextResponse.json({ error: "Invalid customBaseUrl." }, { status: 400, headers: CORS_HEADERS });
+      }
     }
 
     const messagesPayload: any[] = [];
     if (redactedSystemPrompt && redactedSystemPrompt.trim()) {
       messagesPayload.push({ role: "system", content: redactedSystemPrompt.trim() });
     }
-    messagesPayload.push(...formattedMessages);
+    messagesPayload.push(...toOpenAiMessages(formattedMessages));
 
     const openaiPayload: any = {
       model,
@@ -375,6 +400,10 @@ export async function POST(req: NextRequest) {
       method: "POST",
       headers: customHeaders,
       body: JSON.stringify(openaiPayload),
+      signal: req.signal,
+      // Never follow redirects for a user-supplied endpoint: a 302 to a
+      // link-local/metadata address would bypass the host check above.
+      ...(provider === "custom" ? { redirect: "manual" as const } : {}),
     });
 
     if (!openAiRes.ok) {
@@ -449,10 +478,10 @@ export async function POST(req: NextRequest) {
               } catch {}
             }
           }
-        } catch (streamErr) {
-          controller.error(streamErr);
-        } finally {
           controller.close();
+        } catch (streamErr) {
+          // Client aborts land here too. Erroring an already-closed/cancelled stream throws.
+          try { controller.error(streamErr); } catch {}
         }
       },
     });

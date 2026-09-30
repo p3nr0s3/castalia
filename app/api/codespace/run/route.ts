@@ -181,9 +181,56 @@ function buildChildEnv(): NodeJS.ProcessEnv {
   return { ...env, NODE_ENV: "development" };
 }
 
+// Hard cap on simultaneous executions: each one is a real OS process, and this
+// route previously accepted an unlimited number at once.
+const MAX_CONCURRENT_RUNS = 4;
+let activeRuns = 0;
+
+/**
+ * Kills the child AND everything it spawned. `child.kill()` only signals the
+ * direct child, so a `bash` script running `sleep 999 &` (or a Python script
+ * with subprocesses) left orphans running after the timeout fired.
+ */
+function killProcessTree(child: ReturnType<typeof spawn>): void {
+  const pid = child.pid;
+  try {
+    if (pid && process.platform === "win32") {
+      spawn("taskkill", ["/pid", String(pid), "/T", "/F"], { stdio: "ignore" });
+    } else if (pid) {
+      process.kill(-pid, "SIGKILL"); // negative pid = the whole process group (see `detached` below)
+    } else {
+      child.kill("SIGKILL");
+    }
+  } catch {
+    try {
+      child.kill("SIGKILL");
+    } catch {}
+  }
+}
+
+function nodeSupportsStripTypes(): boolean {
+  const [major, minor] = process.versions.node.split(".").map(Number);
+  return major > 22 || (major === 22 && minor >= 6);
+}
+
 export async function POST(req: NextRequest) {
   let tempFilePath: string | null = null;
   const startTime = Date.now();
+
+  if (activeRuns >= MAX_CONCURRENT_RUNS) {
+    return NextResponse.json(
+      { success: false, error: `Too many executions already running (limit ${MAX_CONCURRENT_RUNS}). Try again in a moment.` },
+      { status: 429, headers: { "Retry-After": "2" } }
+    );
+  }
+  activeRuns++;
+  let released = false;
+  const releaseSlot = () => {
+    if (!released) {
+      released = true;
+      activeRuns--;
+    }
+  };
 
   try {
     const body: RunRequest = await req.json();
@@ -197,7 +244,9 @@ export async function POST(req: NextRequest) {
     }
 
     const normLang = (language || "").toLowerCase().trim();
-    const safeTimeout = Math.min(Math.max(timeoutMs, 1000), 30000); // 1s to 30s
+    // Number(): a string/NaN timeout used to produce NaN here, and setTimeout(NaN) fires immediately.
+    const requestedTimeout = Number(timeoutMs);
+    const safeTimeout = Number.isFinite(requestedTimeout) ? Math.min(Math.max(requestedTimeout, 1000), 30000) : 15000; // 1s to 30s
     const tempDir = path.join(os.tmpdir(), "codespace_runs");
     await fsp.mkdir(tempDir, { recursive: true });
 
@@ -230,6 +279,15 @@ export async function POST(req: NextRequest) {
       runArgs = [tempFilePath];
       runnerName = "node.js";
     } else if (normLang === "typescript" || normLang === "ts") {
+      if (!nodeSupportsStripTypes()) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: `Running TypeScript on the server needs Node 22.6 or newer (this server runs Node ${process.versions.node}).`,
+          },
+          { status: 400 }
+        );
+      }
       tempFilePath = path.join(tempDir, `script_${runId}.ts`);
       await fsp.writeFile(tempFilePath, code, "utf-8");
       executable = process.execPath;
@@ -266,15 +324,19 @@ export async function POST(req: NextRequest) {
       let stdout = "";
       let stderr = "";
       let isTimedOut = false;
+      let stdoutTruncated = false;
+      let stderrTruncated = false;
 
       const child = spawn(executable, runArgs, {
         cwd: tempDir,
         env: buildChildEnv(),
+        // Own process group on POSIX, so killProcessTree can signal all descendants.
+        detached: process.platform !== "win32",
       });
 
       const timer = setTimeout(() => {
         isTimedOut = true;
-        child.kill("SIGKILL");
+        killProcessTree(child);
       }, safeTimeout);
 
       if (stdin && child.stdin) {
@@ -283,19 +345,23 @@ export async function POST(req: NextRequest) {
       }
 
       child.stdout?.on("data", (chunk) => {
+        if (stdoutTruncated) return;
         stdout += chunk.toString();
         // Prevent buffer explosion
         if (stdout.length > 500000) {
+          stdoutTruncated = true;
           stdout = stdout.slice(0, 500000) + "\n... [Output truncated at 500KB]";
-          child.kill("SIGTERM");
+          killProcessTree(child);
         }
       });
 
       child.stderr?.on("data", (chunk) => {
+        if (stderrTruncated) return;
         stderr += chunk.toString();
         if (stderr.length > 500000) {
+          stderrTruncated = true;
           stderr = stderr.slice(0, 500000) + "\n... [Stderr truncated at 500KB]";
-          child.kill("SIGTERM");
+          killProcessTree(child);
         }
       });
 
@@ -357,6 +423,7 @@ export async function POST(req: NextRequest) {
       { status: 500 }
     );
   } finally {
+    releaseSlot();
     // Cleanup temporary script file
     if (tempFilePath) {
       try {

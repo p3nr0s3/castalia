@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { assertPublicUrl, SsrfBlockedError } from "@/lib/ssrfGuard";
+import { safeFetch } from "@/lib/safeFetch";
 import { testBridgeConnection, executeBridgeAction } from "@/lib/localAppBridge";
 
 /**
@@ -85,7 +86,9 @@ export async function POST(req: NextRequest) {
       const headers: Record<string, string> = { "Content-Type": "application/json" };
       if (apiKey) headers["Authorization"] = `Bearer ${apiKey.trim()}`;
 
-      const res = await fetch(targetUrl, { method: "POST", headers, body: JSON.stringify(testBody) });
+      // safeFetch (not fetch): pins the validated IP and re-validates every redirect hop,
+      // which assertPublicUrl alone cannot do.
+      const res = await safeFetch(targetUrl, { method: "POST", headers, body: JSON.stringify(testBody), signal: AbortSignal.timeout(10000), maxBodyBytes: 256 * 1024 });
       if (!res.ok) {
         const errText = await res.text().catch(() => "");
         return NextResponse.json(
@@ -116,10 +119,12 @@ export async function POST(req: NextRequest) {
       const headers: Record<string, string> = { "Content-Type": "application/json" };
       if (apiKey) headers["Authorization"] = `Bearer ${apiKey.trim()}`;
 
-      const res = await fetch(targetUrl, {
+      const res = await safeFetch(targetUrl, {
         method: "POST",
         headers,
         body: JSON.stringify(payload || { text: "Notification from Lyra Workspace" }),
+        signal: AbortSignal.timeout(10000),
+        maxBodyBytes: 256 * 1024,
       });
 
       if (!res.ok) {
@@ -167,6 +172,9 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ success: false, error: `Unknown action '${action}'` }, { status: 400 });
   } catch (error: any) {
+    if (error instanceof SsrfBlockedError) {
+      return NextResponse.json({ success: false, error: error.message }, { status: 400 });
+    }
     console.error("Connectors API error:", error);
     return NextResponse.json({ success: false, error: error.message || "Internal server error" }, { status: 500 });
   }

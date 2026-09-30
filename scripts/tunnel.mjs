@@ -1,9 +1,13 @@
 import { spawn } from "child_process";
 import qrcode from "qrcode-terminal";
+import { loadEnv } from "./loadEnv.mjs";
 
-const PORT = 3000;
+// Read .env.local too (see scripts/loadEnv.mjs): checking process.env alone made
+// this script refuse to start even when the token was configured as documented.
+const env = loadEnv();
+const PORT = Number(env.PORT) || 3000;
 
-if (!process.env.APP_ACCESS_TOKEN) {
+if (!env.APP_ACCESS_TOKEN) {
   console.log("\n============================================================");
   console.log("REFUSING TO START TUNNEL: APP_ACCESS_TOKEN is not set.");
   console.log("============================================================");
@@ -22,6 +26,9 @@ console.log("\n============================================================");
 console.log("Starting Secure Public Internet Tunnel (Pinggy SSH)...");
 console.log(`Forwarding traffic to local Next.js on port ${PORT}...`);
 console.log("Access token check: ENABLED (APP_ACCESS_TOKEN is set)");
+if (env.NEXT_PUBLIC_APP_ACCESS_TOKEN !== env.APP_ACCESS_TOKEN) {
+  console.log("WARNING: NEXT_PUBLIC_APP_ACCESS_TOKEN is missing or different — the UI will get 401s.");
+}
 console.log("============================================================\n");
 
 const sshProcess = spawn(
@@ -30,12 +37,15 @@ const sshProcess = spawn(
     "-p",
     "443",
     "-o",
-    "StrictHostKeyChecking=no",
+    // accept-new: trust the tunnel host on first use, but refuse if its key ever
+    // CHANGES. "no" silently accepted any key, so a network attacker could sit
+    // in the middle of the tunnel and read the bearer token and all traffic.
+    "StrictHostKeyChecking=accept-new",
     "-o",
     "ServerAliveInterval=30",
     "-o",
     "ServerAliveCountMax=3",
-    `-R0:localhost:${PORT}`,
+    `-R0:127.0.0.1:${PORT}`,
     "a.pinggy.io",
   ],
   {
@@ -47,7 +57,9 @@ let linkFound = false;
 
 const handleOutput = (data) => {
   const text = data.toString();
-  const matches = text.match(/https:\/\/[a-zA-Z0-9-]+\.(?:free\.pinggy\.net|run\.pinggy-free\.link|a\.pinggy\.link)/g);
+  // Pinggy has used several free-tier domain shapes over time
+  // (xxx.a.free.pinggy.link, xxx.run.pinggy-free.link, xxx.free.pinggy.net, ...).
+  const matches = text.match(/https:\/\/[a-zA-Z0-9.-]+\.pinggy(?:-free)?\.(?:link|net|io)\b/g);
 
   if (matches && matches.length > 0 && !linkFound) {
     linkFound = true;

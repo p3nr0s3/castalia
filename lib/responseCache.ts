@@ -198,12 +198,20 @@ export async function findSemanticCachedResponse(params: {
   if (local) return local;
 
   try {
-    const qs = new URLSearchParams({
-      model: params.model,
-      embedding: JSON.stringify(params.queryEmbedding),
-      ...(params.similarityThreshold !== undefined ? { threshold: String(params.similarityThreshold) } : {}),
+    // POST, not GET: a 768-dim embedding (nomic-embed-text) is ~17 KB once
+    // JSON-encoded, which exceeds Node's 16 KB request-header limit when put
+    // in the query string — the server answered HTTP 431 and the persisted
+    // semantic tier never produced a single hit.
+    const res = await apiFetch("/api/cache", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "semantic-lookup",
+        model: params.model,
+        embedding: params.queryEmbedding,
+        ...(params.similarityThreshold !== undefined ? { threshold: params.similarityThreshold } : {}),
+      }),
     });
-    const res = await apiFetch(`/api/cache?${qs.toString()}`);
     if (!res.ok) return null;
     const { entry } = await res.json();
     if (!entry?.data) return null;

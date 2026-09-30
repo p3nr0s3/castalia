@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import os from "os";
 import { readServerDb, writeServerDb } from "./serverDb";
-import { resolveWithinBase, isTextFile } from "./pathSandbox";
+import { resolveWithinHomeSafe, isTextFile } from "./pathSandbox";
 import type { Project, ProjectFile } from "./types";
 
 // Ambient file-watcher: when a project has watchedFolderEnabled + a
@@ -29,7 +29,7 @@ const DEBOUNCE_MS = 800; // fs.watch fires multiple events per single save (e.g.
 const HOME_DIR = path.resolve(os.homedir());
 
 function resolveWithinHome(inputPath: string): string {
-  return resolveWithinBase(HOME_DIR, inputPath);
+  return resolveWithinHomeSafe(inputPath, HOME_DIR);
 }
 
 interface WatcherEntry {

@@ -2,6 +2,10 @@ import { describe, it, expect } from "vitest";
 import { POST } from "../app/api/codespace/run/route";
 import { NextRequest } from "next/server";
 
+// TypeScript execution uses `node --experimental-strip-types`, which exists from Node 22.6.
+const [NODE_MAJOR, NODE_MINOR] = process.versions.node.split(".").map(Number);
+const NODE_HAS_STRIP_TYPES = NODE_MAJOR > 22 || (NODE_MAJOR === 22 && NODE_MINOR >= 6);
+
 function createMockRequest(body: Record<string, any>): NextRequest {
   return new NextRequest("http://localhost:3000/api/codespace/run", {
     method: "POST",
@@ -74,7 +78,14 @@ describe("Codespace Backend Runner API (/api/codespace/run)", () => {
     expect(data.runner).toBe("node.js");
   });
 
-  it("executes TypeScript code with native type stripping", async () => {
+  it("tells the user TypeScript needs Node 22.6+ instead of failing obscurely on older Node", async (ctx) => {
+    if (NODE_HAS_STRIP_TYPES) return ctx.skip();
+    const res = await POST(createMockRequest({ code: "const x: number = 1; console.log(x)", language: "typescript" }));
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/Node 22\.6/);
+  });
+
+  it.skipIf(!NODE_HAS_STRIP_TYPES)("executes TypeScript code with native type stripping", async () => {
     const req = createMockRequest({
       code: `
         interface Result {
@@ -145,4 +156,42 @@ describe("Codespace Backend Runner API (/api/codespace/run)", () => {
       expect(data.output).toContain("Python Test Execution");
     }
   });
+});
+
+describe.skipIf(process.platform === "win32")("Codespace runner — hardening", () => {
+  it("does not time out immediately when timeoutMs is not a number (was NaN → setTimeout(NaN))", async () => {
+    const res = await POST(createMockRequest({ code: "echo still-alive", language: "bash", timeoutMs: "not-a-number" }));
+    const data = await res.json();
+    expect(data.timedOut).toBeUndefined();
+    expect(data.output).toContain("still-alive");
+  });
+
+  it("kills the whole process tree on timeout, not just the direct child", async () => {
+    const marker = `lyra-orphan-${Date.now()}`;
+    // A background grandchild that would outlive a plain child.kill().
+    const res = await POST(
+      createMockRequest({ code: `bash -c 'exec -a ${marker} sleep 60' &\nsleep 60`, language: "bash", timeoutMs: 1000 })
+    );
+    const data = await res.json();
+    expect(data.timedOut).toBe(true);
+    await new Promise((r) => setTimeout(r, 300));
+    const { execSync } = await import("child_process");
+    let found = "";
+    try {
+      // "[x]rest" makes the pattern not match the very shell that runs pgrep.
+      found = execSync(`pgrep -f "[${marker[0]}]${marker.slice(1)}" || true`).toString().trim();
+    } catch {}
+    expect(found).toBe("");
+  }, 15000);
+
+  it("rejects the 5th simultaneous execution with 429 instead of spawning unbounded processes", async () => {
+    const slow = () => POST(createMockRequest({ code: "sleep 1; echo done", language: "bash", timeoutMs: 5000 }));
+    const batch = await Promise.all([slow(), slow(), slow(), slow(), slow(), slow()]);
+    const statuses = batch.map((r) => r.status);
+    expect(statuses.filter((s) => s === 429).length).toBeGreaterThanOrEqual(1);
+    expect(statuses.filter((s) => s === 200).length).toBeGreaterThanOrEqual(4);
+    // the slot is released afterwards
+    const after = await POST(createMockRequest({ code: "echo ok", language: "bash" }));
+    expect(after.status).toBe(200);
+  }, 15000);
 });

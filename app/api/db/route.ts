@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { readServerDb, writeServerDb } from "@/lib/serverDb";
+import { readServerDb, readServerDbVersion, writeServerDb } from "@/lib/serverDb";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,11 +20,16 @@ export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const clientVersion = searchParams.get("v");
-    const db = await readServerDb();
 
-    if (clientVersion && Number(clientVersion) === db.version) {
-      return NextResponse.json({ changed: false, version: db.version }, { headers: CORS_HEADERS });
+    // Cheap path first: a client that is already up to date must not make the server
+    // load and parse the entire database just to say "nothing changed".
+    if (clientVersion) {
+      const currentVersion = await readServerDbVersion();
+      if (Number(clientVersion) === currentVersion) {
+        return NextResponse.json({ changed: false, version: currentVersion }, { headers: CORS_HEADERS });
+      }
     }
+    const db = await readServerDb();
 
     return NextResponse.json({ changed: true, ...db }, { headers: CORS_HEADERS });
   } catch (err: any) {

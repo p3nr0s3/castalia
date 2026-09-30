@@ -70,6 +70,11 @@ export interface BridgeExecuteResult {
 }
 
 function tokenFilePath(bridgeId: string): string {
+  // The id becomes part of a file name. It is developer-supplied today, but the
+  // framework is documented as user-extensible, so never let it traverse out of data/.
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(bridgeId)) {
+    throw new Error(`Invalid bridge id '${bridgeId}': use letters, digits, '-' or '_' (max 64).`);
+  }
   return path.join(process.cwd(), "data", `${bridgeId}-bridge-token.json`);
 }
 
@@ -83,8 +88,14 @@ function tokenFilePath(bridgeId: string): string {
 export function generateAndStoreBridgeToken(bridge: BridgeDefinition): string {
   const token = crypto.randomBytes(24).toString("hex");
   const dataDir = path.join(process.cwd(), "data");
-  if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
-  fs.writeFileSync(tokenFilePath(bridge.id), JSON.stringify({ token, createdAt: Date.now() }), "utf-8");
+  if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true, mode: 0o700 });
+  // 0600: the token authorises code execution in the target app, so other local
+  // users must not be able to read it (default mode is world-readable 0644).
+  const file = tokenFilePath(bridge.id);
+  fs.writeFileSync(file, JSON.stringify({ token, createdAt: Date.now() }), { encoding: "utf-8", mode: 0o600 });
+  try {
+    fs.chmodSync(file, 0o600); // also tightens a pre-existing file; no-op semantics on Windows
+  } catch {}
   return token;
 }
 
@@ -132,7 +143,9 @@ export async function testBridgeConnection(
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), bridge.timeoutMs ?? 4000);
   try {
-    const res = await fetch(url, { method: "GET", signal: controller.signal });
+    // redirect: "manual" — a loopback service answering 302 would otherwise send us to an
+    // arbitrary host AFTER the loopback check; 3xx therefore counts as "not reachable".
+    const res = await fetch(url, { method: "GET", signal: controller.signal, redirect: "manual" });
     clearTimeout(timeoutId);
     if (!res.ok) return { reachable: false };
     const details = await res.json().catch(() => undefined);
@@ -173,11 +186,15 @@ export async function executeBridgeAction(
   try {
     let res: Response | null = null;
     if (bridge.executePath) {
+      // redirect: "manual" on both POSTs: fetch keeps custom headers such as
+      // X-Bridge-Token (it only strips Authorization) when following a cross-origin
+      // redirect, so a redirecting local service could leak the token and payload.
       res = await fetch(`${url}${bridge.executePath}`, {
         method: "POST",
         headers,
         body: JSON.stringify(payload),
         signal: controller.signal,
+        redirect: "manual",
       }).catch(() => null);
     }
 
@@ -187,6 +204,7 @@ export async function executeBridgeAction(
         headers,
         body: JSON.stringify(payload),
         signal: controller.signal,
+        redirect: "manual",
       }).catch(() => null);
     }
 

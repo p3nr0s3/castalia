@@ -1,5 +1,6 @@
 import dns from "dns/promises";
 import net from "net";
+import { isPublicIp, isLoopbackIp, isLinkLocalIp } from "./ipPolicy";
 
 /**
  * SSRF guard for app/api/connectors/route.ts.
@@ -32,60 +33,9 @@ import net from "net";
  * to 127.0.0.1 or a metadata IP).
  */
 
-export class SsrfBlockedError extends Error {}
-
-/**
- * Decodes the embedded IPv4 address from an IPv4-mapped IPv6 address
- * ("::ffff:x.x.x.x"). Handles both forms Node can hand back: dotted-quad
- * (what dns.lookup typically returns) and the two-hex-group form that
- * new URL() normalizes a dotted-quad literal to (e.g. "::ffff:7f00:1").
- * Returns null if `ip` isn't an IPv4-mapped IPv6 address.
- */
-function mappedIPv4(ip: string): string | null {
-  const lower = ip.toLowerCase();
-  if (!lower.startsWith("::ffff:")) return null;
-  const suffix = lower.slice("::ffff:".length);
-
-  if (net.isIP(suffix) === 4) return suffix;
-
-  const hexGroups = suffix.split(":");
-  if (hexGroups.length === 2 && /^[0-9a-f]{1,4}$/.test(hexGroups[0]) && /^[0-9a-f]{1,4}$/.test(hexGroups[1])) {
-    const hi = parseInt(hexGroups[0], 16);
-    const lo = parseInt(hexGroups[1], 16);
-    return [hi >> 8, hi & 0xff, lo >> 8, lo & 0xff].join(".");
-  }
-  return null;
-}
-
-function ipIsPrivateOrLocal(ip: string): boolean {
-  const kind = net.isIP(ip);
-
-  if (kind === 4) {
-    const octets = ip.split(".").map(Number);
-    const [a, b] = octets;
-    if (a === 127) return true; // loopback
-    if (a === 10) return true; // RFC1918
-    if (a === 172 && b >= 16 && b <= 31) return true; // RFC1918
-    if (a === 192 && b === 168) return true; // RFC1918
-    if (a === 169 && b === 254) return true; // link-local, includes cloud metadata (169.254.169.254)
-    if (a === 0) return true; // "this network"
-    return false;
-  }
-
-  if (kind === 6) {
-    const lower = ip.toLowerCase();
-    if (lower === "::1") return true; // loopback
-    if (lower.startsWith("fe80:") || lower.startsWith("fe80::")) return true; // link-local
-    if (lower.startsWith("fc") || lower.startsWith("fd")) return true; // unique local (fc00::/7)
-    if (lower.startsWith("::ffff:")) {
-      // IPv4-mapped IPv6 — check the embedded IPv4 address too.
-      const mapped = mappedIPv4(lower);
-      if (mapped) return ipIsPrivateOrLocal(mapped);
-    }
-    return false;
-  }
-
-  return false; // not a valid IP at all — let the caller's own fetch fail naturally
+export class SsrfBlockedError extends Error {
+  // Explicit name so callers that cannot import this module (client-bundled code) can still identify it.
+  name = "SsrfBlockedError";
 }
 
 async function resolveAllIps(hostname: string): Promise<string[]> {
@@ -133,7 +83,7 @@ export async function assertPublicUrl(rawUrl: string): Promise<void> {
   const ips = await resolveAllIps(url.hostname);
 
   for (const ip of ips) {
-    if (ipIsPrivateOrLocal(ip)) {
+    if (!isPublicIp(ip)) {
       throw new SsrfBlockedError(
         `'${rawUrl}' resolves to a private/local address (${ip}). Webhook and endpoint URLs must point to a public host.`
       );
@@ -141,70 +91,34 @@ export async function assertPublicUrl(rawUrl: string): Promise<void> {
   }
 }
 
-/** For blender_execute/blender test. ONLY localhost/loopback is allowed — that's the feature; anything else is refused. */
+async function assertLoopback(rawUrl: string, describe: (rawUrl: string) => string): Promise<void> {
+  const url = await parseAndValidate(rawUrl);
+  const ips = await resolveAllIps(url.hostname);
+  const allLoopback = ips.length > 0 && ips.every((ip) => isLoopbackIp(ip));
+  if (!allLoopback) throw new SsrfBlockedError(describe(rawUrl));
+}
+
 /**
  * Enforces that a local-app-bridge endpoint resolves to loopback only
- * (127.0.0.1 / ::1) — never a LAN address, never a public host. This is
+ * (127.0.0.0/8 / ::1) — never a LAN address, never a public host. This is
  * the generic policy for ANY local bridge that accepts arbitrary code
- * execution or privileged actions (Blender's Python MCP bridge is the
- * first caller, but the policy itself has nothing Blender-specific in
- * it — see lib/localAppBridge.ts for the framework this backs).
+ * execution or privileged actions (see lib/localAppBridge.ts).
  */
 export async function assertLoopbackOnlyUrl(rawUrl: string): Promise<void> {
-  const url = await parseAndValidate(rawUrl);
-  const ips = await resolveAllIps(url.hostname);
-
-  const allLoopback = ips.length > 0 && ips.every((ip) => {
-    const kind = net.isIP(ip);
-    if (kind === 4) return ip.startsWith("127.");
-    if (kind === 6) return ip.toLowerCase() === "::1";
-    return false;
-  });
-
-  if (!allLoopback) {
-    throw new SsrfBlockedError(
-      `This bridge must be on localhost (127.0.0.1 or ::1) — '${rawUrl}' does not resolve to loopback. Refusing to connect to a non-local endpoint.`
-    );
-  }
+  return assertLoopback(
+    rawUrl,
+    (u) =>
+      `This bridge must be on localhost (127.0.0.1 or ::1) — '${u}' does not resolve to loopback. Refusing to connect to a non-local endpoint.`
+  );
 }
 
-/** @deprecated Use assertLoopbackOnlyUrl — kept as an alias so the
- * existing Blender call site (app/api/connectors/route.ts) and its
- * error message wording don't need to change. New bridges should call
- * assertLoopbackOnlyUrl directly via lib/localAppBridge.ts. */
+/** @deprecated Use assertLoopbackOnlyUrl. Kept so existing call sites and their error wording don't change. */
 export async function assertBlenderUrl(rawUrl: string): Promise<void> {
-  const url = await parseAndValidate(rawUrl);
-  const ips = await resolveAllIps(url.hostname);
-
-  const allLoopback = ips.length > 0 && ips.every((ip) => {
-    const kind = net.isIP(ip);
-    if (kind === 4) return ip.startsWith("127.");
-    if (kind === 6) return ip.toLowerCase() === "::1";
-    return false;
-  });
-
-  if (!allLoopback) {
-    throw new SsrfBlockedError(
-      `Blender's bridge must be on localhost (127.0.0.1 or ::1) — '${rawUrl}' does not resolve to loopback. Refusing to connect to a non-local Blender endpoint.`
-    );
-  }
-}
-
-function ipIsLinkLocalOrMetadata(ip: string): boolean {
-  const kind = net.isIP(ip);
-  if (kind === 4) {
-    const [a, b] = ip.split(".").map(Number);
-    return a === 169 && b === 254; // covers the 169.254.169.254 cloud metadata address
-  }
-  if (kind === 6) {
-    const lower = ip.toLowerCase();
-    if (lower.startsWith("fe80:") || lower.startsWith("fe80::")) return true;
-    if (lower.startsWith("::ffff:")) {
-      const mapped = mappedIPv4(lower);
-      if (mapped) return ipIsLinkLocalOrMetadata(mapped);
-    }
-  }
-  return false;
+  return assertLoopback(
+    rawUrl,
+    (u) =>
+      `Blender's bridge must be on localhost (127.0.0.1 or ::1) — '${u}' does not resolve to loopback. Refusing to connect to a non-local Blender endpoint.`
+  );
 }
 
 /**
@@ -220,16 +134,19 @@ function ipIsLinkLocalOrMetadata(ip: string): boolean {
  * cloud metadata address 169.254.169.254) — nobody configures their
  * Ollama host to a link-local address on purpose, and an attacker
  * supplying `?host=169.254.169.254` to probe cloud metadata through this
- * proxy is the actual risk being closed here. Arbitrary external hosts
- * are also blocked, same reasoning as assertPublicUrl: this proxy has no
- * legitimate reason to relay to some third party's server.
+ * proxy is the actual risk being closed here.
+ *
+ * Public hosts are deliberately ALLOWED (a cloud-hosted Ollama is a valid
+ * configuration; see tests/ssrfGuard.test.ts). What keeps the proxy from
+ * being a general-purpose relay is NOT this host check but the path
+ * allow-list in lib/proxyPaths.ts, which the proxy routes enforce.
  */
 export async function assertOllamaHostUrl(rawUrl: string): Promise<void> {
   const url = await parseAndValidate(rawUrl);
   const ips = await resolveAllIps(url.hostname);
 
   for (const ip of ips) {
-    if (ipIsLinkLocalOrMetadata(ip)) {
+    if (isLinkLocalIp(ip)) {
       throw new SsrfBlockedError(
         `'${rawUrl}' resolves to a link-local/metadata address (${ip}). Refusing to proxy to it.`
       );

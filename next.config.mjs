@@ -5,9 +5,10 @@ const nextConfig = {
   // SECURITY NOTE (verified 2026-09-16, extended 2026-09-18, re-verified
   // 2026-09-25): this project is pinned to next@^14.2.35. There is no
   // patched 14.x release to move to yet — the latest published 14.x is
-  // still a canary prerelease, not a stable release; the official fix
-  // ships only in Next 16.x, a major/breaking upgrade this codebase has
-  // not taken. `npm audit` now lists exactly 2 vulnerabilities, both
+  // still a canary prerelease, not a stable release. Fixes ship in the
+  // 15.5.x line (e.g. 15.5.24 for CVE-2026-75604) and in 16.x; both are
+  // major/breaking upgrades from 14 (e.g. 15 makes route `params` async)
+  // that this codebase has not taken. 15.5.x is the smaller jump. `npm audit` now lists exactly 2 vulnerabilities, both
   // this Next pin: next itself, and postcss as a next.js transitive
   // dependency. Everything else `npm audit` used to report (axios and
   // its dependents, via the unused `localtunnel` package; a stale
@@ -97,6 +98,14 @@ const nextConfig = {
         ...config.resolve.fallback,
         fs: false,
         path: false,
+        // Server-only networking modules reachable through lazy imports
+        // (lib/safeFetch.ts); never executed in the browser.
+        http: false,
+        https: false,
+        net: false,
+        zlib: false,
+        stream: false,
+        "dns/promises": false,
       };
     }
     return config;

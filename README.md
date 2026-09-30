@@ -6,7 +6,7 @@
 [![Next.js](https://img.shields.io/badge/Next.js-14.2.35-black?logo=next.js)](https://nextjs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.6.3-blue?logo=typescript)](https://www.typescriptlang.org/)
 [![Ollama](https://img.shields.io/badge/Ollama-Native%20API-white?logo=ollama)](https://ollama.com/)
-[![Tests](https://img.shields.io/badge/Tests-49%20Suites%20%7C%20494%20Passed-brightgreen)](https://vitest.dev/)
+[![Tests](https://img.shields.io/badge/Tests-63%20Suites%20%7C%20612%20Passed-brightgreen)](https://vitest.dev/)
 
 A minimalist, local-first AI workspace built on Next.js 14, for chatting with locally-hosted Ollama models (or an OpenAI/Anthropic/Gemini-compatible cloud API) with retrieval-augmented context from your own project files.
 
@@ -77,7 +77,7 @@ None of this has been benchmarked against other tools — the claims above descr
 ## Quick Start
 
 ### 1. Prerequisites
-- **Node.js** 18+ or 20+
+- **Node.js** 20.19+ (22 LTS recommended — the SQLite backend needs Node 22, and running TypeScript in the Codespace runner needs 22.6+; on Node 20 the app works but stores data in `data/db.json`)
 - **[Ollama](https://ollama.com/)** running locally:
   ```bash
   ollama serve
@@ -91,8 +91,8 @@ None of this has been benchmarked against other tools — the claims above descr
 
 ### 2. Setup & Run
 ```bash
-git clone https://github.com/p3nr0s3/castalia.git
-cd castalia
+git clone https://github.com/p3nr0s3/lyra.git
+cd lyra
 
 npm install
 
@@ -110,25 +110,38 @@ npm run dev:all
 
 Open [http://localhost:3000](http://localhost:3000) (or [http://127.0.0.1:3000](http://127.0.0.1:3000)).
 
+Notes:
+
+- `npm run dev` / `npm start` bind to `127.0.0.1` only. To reach the app from a phone or another PC on your network use `npm run dev:lan` / `npm run start:lan` **and set `APP_ACCESS_TOKEN`** (see [Security](#security)). Other hostnames you serve it under (e.g. a reverse proxy) must be listed in `ALLOWED_HOSTS`.
+- The repo ships an `.npmrc` with `ignore-scripts=true`. This is deliberate: it lets the prebuilt `better-sqlite3` binary work instead of npm trying (and on machines without a C++ toolchain, silently failing) to compile it.
+- The UI loads its web fonts from Google Fonts and the in-browser Python runner (Pyodide) is downloaded from the jsDelivr CDN on first use. Everything else runs locally; the first-run Pyodide download is the only part of code execution that needs the internet.
+- `npm run typecheck` runs `tsc --noEmit`; `npm run verify` runs typecheck, tests and a production build (what CI runs).
+- `dev:lan` / `start:lan` refuse to start without `APP_ACCESS_TOKEN` (override: `ALLOW_OPEN_LAN=1`). See [SECURITY.md](SECURITY.md) for the threat model.
+
 ---
 
 ## Security
 
-- **SSRF guard** (`lib/ssrfGuard.ts`): resolves DNS before dispatching outbound requests, to block loopback/internal-subnet targets and DNS-rebinding.
-- **Filesystem path sandbox** (`lib/pathSandbox.ts`): confines file operations to a designated root, rejects `../` traversal.
-- **Approval records**: server-side, single-use, bound to the specific tool call and its arguments, with a 5-minute expiry and one-click revert.
-- **Secret redaction** (`lib/redaction.ts`): strips API keys/tokens from payloads before they're sent to a cloud provider.
-- **Auth**: a single shared bearer token (`APP_ACCESS_TOKEN`), checked in `middleware.ts`. This token is also exposed client-side (`NEXT_PUBLIC_APP_ACCESS_TOKEN`) because there's no server-side session — treat it as a lock on the door, not a secret, and don't rely on it alone if you expose this app beyond your own machine. See `.env.example` for details.
+- **Request gate** (`middleware.ts`, `lib/requestGuard.ts`) — three independent layers:
+  1. a **`Host` allow-list** (localhost, IP literals, LAN/`.local` names, Pinggy tunnel domains, plus `ALLOWED_HOSTS`) that stops DNS-rebinding attacks from other websites;
+  2. a **same-origin requirement** for every state-changing call and for the file/DB/code-execution routes, so a page open in another tab (or another local dev server on a different port) cannot drive this app;
+  3. the optional **bearer token** `APP_ACCESS_TOKEN` (constant-time compared, Edge-runtime safe). The token is also exposed to the browser as `NEXT_PUBLIC_APP_ACCESS_TOKEN` because there is no server-side session — treat it as a lock on the door, not a secret.
 
-This is defense against accidents and casual misuse (an errant `../` path, a stray request to a metadata endpoint), not a hardened multi-tenant security boundary. If you need real user accounts, audit logs, or isolation between users, this isn't that.
+  Layers 1–2 are always on; layer 3 is off until you set a token. **Set it before using `*:lan` scripts or `npm run tunnel`** (the tunnel refuses to start without it).
+- **SSRF protection** (`lib/ssrfGuard.ts`, `lib/ipPolicy.ts`, `lib/safeFetch.ts`): for webhooks, URL ingestion, web scraping and the OWASP scanner, `safeFetch` resolves the hostname once, checks every address against an allow-list of globally-routable IPs (so CGNAT, multicast, `::`, NAT64/6to4 and the like are blocked too), **pins the connection to the validated address** (closing DNS-rebinding) and re-validates **every redirect hop**. The Ollama and Laya proxies relay only their upstream's own API paths (`lib/proxyPaths.ts`); custom cloud endpoints may be local/LAN but never link-local/metadata addresses.
+- **File access** (`lib/pathSandbox.ts`): the file explorer, agent tools and folder watcher are confined to your home directory (symlinks are resolved, so a link pointing out of it doesn't escape). Manual-chat disk tools can reach the whole disk by design (an OS-directory denylist still applies). **Everywhere**, credential stores (`~/.ssh`, `~/.aws`, browser profiles, keychains, private key files) and this app's own `.env*` files and `data/` directory are off limits — read-only tools run without an approval prompt, so a prompt-injected document must not be able to read them.
+- **Approval gate** (`lib/toolApproval.ts`): `write_file` / `delete_file` need a server-side approval record that is approved, for exactly that tool **and exactly those arguments (path and content)**, at most 5 minutes old, and is consumed once (also under concurrent requests; stale syncs cannot resurrect a used approval). Every write can be reverted with one click if the file is unchanged since. This is a confirmation-and-replay-protection gate, **not** an authentication boundary — keeping other callers out is the request gate's job.
+- **Secret redaction** (`lib/redaction.ts`): before anything is sent to a cloud provider it masks PEM private keys, AWS/GitHub/Slack/Google/Stripe keys, the key formats of the supported providers (Anthropic, OpenAI, Groq, OpenRouter, DeepSeek-style `sk-…`, Hugging Face), JWTs, bearer tokens, quoted `password:`/`api_key=` assignments, `.env`-style secret lines and private-range IPs. It is pattern-based, so treat it as a safety net, not a guarantee.
+
+This is meant to protect a single user's machine from accidents, from other websites, and from prompt-injected content — not to be a hardened multi-user boundary. If you need real user accounts, audit logs, or isolation between users, this isn't that.
 
 ---
 
 ## Testing
 
 ```bash
-npm test              # Vitest — 49 suites, 494 tests as of this writing
-npx tsc --noEmit       # type check
+npm test              # Vitest — 63 suites, 612 tests as of this writing
+npm run typecheck     # tsc --noEmit
 npm run build          # production build
 npm run analyze        # production build with a bundle-size breakdown (opens .next/analyze/*.html)
 ```

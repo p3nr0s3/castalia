@@ -13,6 +13,13 @@ vi.mock("../lib/localAppBridge", () => ({
   executeBridgeAction: (...args: any[]) => executeBridgeActionMock(...args),
 }));
 
+// The route dispatches through safeFetch (pinned IP + validated redirects), so
+// that is the seam to mock — global fetch is no longer what it calls.
+const safeFetchMock = vi.fn();
+vi.mock("../lib/safeFetch", () => ({
+  safeFetch: (...args: any[]) => safeFetchMock(...args),
+}));
+
 function makeReq(body: Record<string, any>): NextRequest {
   return new NextRequest("http://localhost:3000/api/connectors", {
     method: "POST",
@@ -24,6 +31,7 @@ function makeReq(body: Record<string, any>): NextRequest {
 beforeEach(() => {
   testBridgeConnectionMock.mockReset();
   executeBridgeActionMock.mockReset();
+  safeFetchMock.mockReset();
 });
 
 describe("POST /api/connectors — action: test (webhook)", () => {
@@ -43,7 +51,7 @@ describe("POST /api/connectors — action: test (webhook)", () => {
 
   it("succeeds when the webhook responds ok", async () => {
     const fetchSpy = vi.fn().mockResolvedValue({ ok: true, text: async () => "" });
-    vi.stubGlobal("fetch", fetchSpy);
+    safeFetchMock.mockImplementation((...a: any[]) => fetchSpy(...a));
 
     const { POST } = await import("../app/api/connectors/route");
     const res = await POST(makeReq({ action: "test", customBridgeType: "webhook", webhookUrl: "https://example.com/hook" }));
@@ -55,7 +63,7 @@ describe("POST /api/connectors — action: test (webhook)", () => {
 
   it("reports failure when the webhook rejects the request", async () => {
     const fetchSpy = vi.fn().mockResolvedValue({ ok: false, status: 403, text: async () => "Forbidden" });
-    vi.stubGlobal("fetch", fetchSpy);
+    safeFetchMock.mockImplementation((...a: any[]) => fetchSpy(...a));
 
     const { POST } = await import("../app/api/connectors/route");
     const res = await POST(makeReq({ action: "test", customBridgeType: "webhook", webhookUrl: "https://example.com/hook" }));
@@ -68,7 +76,7 @@ describe("POST /api/connectors — action: test (webhook)", () => {
 
   it("sends the apiKey as a Bearer token when provided", async () => {
     const fetchSpy = vi.fn().mockResolvedValue({ ok: true, text: async () => "" });
-    vi.stubGlobal("fetch", fetchSpy);
+    safeFetchMock.mockImplementation((...a: any[]) => fetchSpy(...a));
 
     const { POST } = await import("../app/api/connectors/route");
     await POST(makeReq({ action: "test", customBridgeType: "webhook", webhookUrl: "https://example.com/hook", apiKey: "secret123" }));
@@ -132,7 +140,7 @@ describe("POST /api/connectors — action: webhook_send", () => {
 
   it("dispatches the given payload as-is", async () => {
     const fetchSpy = vi.fn().mockResolvedValue({ ok: true });
-    vi.stubGlobal("fetch", fetchSpy);
+    safeFetchMock.mockImplementation((...a: any[]) => fetchSpy(...a));
 
     const { POST } = await import("../app/api/connectors/route");
     await POST(makeReq({ action: "webhook_send", webhookUrl: "https://example.com/hook", payload: { text: "custom message" } }));
@@ -145,7 +153,7 @@ describe("POST /api/connectors — action: webhook_send", () => {
 
   it("falls back to a default payload when none is given", async () => {
     const fetchSpy = vi.fn().mockResolvedValue({ ok: true });
-    vi.stubGlobal("fetch", fetchSpy);
+    safeFetchMock.mockImplementation((...a: any[]) => fetchSpy(...a));
 
     const { POST } = await import("../app/api/connectors/route");
     await POST(makeReq({ action: "webhook_send", webhookUrl: "https://example.com/hook" }));

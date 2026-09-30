@@ -68,10 +68,39 @@ export async function GET(req: NextRequest) {
   }
 }
 
-/** POST { key, model?, timestamp, embedding?, data } — upserts one entry. */
+/**
+ * POST { key, model?, timestamp, embedding?, data } — upserts one entry.
+ * POST { action: "semantic-lookup", model, embedding, threshold? } — cosine lookup (body, not query string).
+ */
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
+
+    // Semantic lookup by POST body. The embedding is far too large for a query
+    // string (768 floats ≈ 17 KB > Node's 16 KB header limit → HTTP 431).
+    if (body?.action === "semantic-lookup") {
+      const { model, embedding, threshold } = body;
+      if (
+        typeof model !== "string" ||
+        !model ||
+        !Array.isArray(embedding) ||
+        embedding.length === 0 ||
+        embedding.length > 8192 ||
+        !embedding.every((n: unknown) => typeof n === "number" && Number.isFinite(n))
+      ) {
+        return NextResponse.json(
+          { error: "semantic-lookup requires a model string and a non-empty numeric embedding array (max 8192 dims)" },
+          { status: 400, headers: CORS_HEADERS }
+        );
+      }
+      const entry = await findPersistedSemanticCacheEntry({
+        model,
+        queryEmbedding: embedding,
+        similarityThreshold: typeof threshold === "number" ? threshold : undefined,
+      });
+      return NextResponse.json({ entry }, { headers: CORS_HEADERS });
+    }
+
     if (!body?.key || typeof body.key !== "string") {
       return NextResponse.json({ error: "key is required" }, { status: 400, headers: CORS_HEADERS });
     }
