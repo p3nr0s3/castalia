@@ -248,3 +248,35 @@ describe("cross-route approval source restriction", () => {
     expect(runDiskToolMock).not.toHaveBeenCalled();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Regression tests for the approval-gate hardening (bound args, atomic consume)
+// ---------------------------------------------------------------------------
+describe.each([
+  { name: "manual chat route", modulePath: "../app/api/tools/execute/route", url: "http://localhost:3000/api/tools/execute", validSource: "chat" as const },
+  { name: "agent route", modulePath: "../app/api/tools/execute-agent/route", url: "http://localhost:3000/api/tools/execute-agent", validSource: "agent" as const },
+])("$name — approval is bound to ALL arguments and single-use under concurrency", ({ modulePath, url, validSource }) => {
+  it("refuses to spend an approval for content A on content B at the same path", async () => {
+    dbState.pendingApprovals = [baseApproval({ source: validSource, args: { path: "/tmp/notes.txt", content: "what the user saw" } })];
+    const { POST } = await import(modulePath);
+    const res = await POST(makeReq(url, { tool: "write_file", args: { path: "/tmp/notes.txt", content: "something else" }, approvalToken: "appr_1" }));
+    expect(res.status).toBe(403);
+    expect(runDiskToolMock).not.toHaveBeenCalled();
+  });
+
+  it("accepts identical content regardless of key order", async () => {
+    dbState.pendingApprovals = [baseApproval({ source: validSource, args: { path: "/tmp/n.txt", content: "x" } })];
+    const { POST } = await import(modulePath);
+    const res = await POST(makeReq(url, { tool: "write_file", args: { content: "x", path: "/tmp/n.txt" }, approvalToken: "appr_1" }));
+    expect(res.status).toBe(200);
+  });
+
+  it("lets exactly one of several concurrent requests through", async () => {
+    dbState.pendingApprovals = [baseApproval({ source: validSource })];
+    const { POST } = await import(modulePath);
+    const body = { tool: "write_file", args: { path: "C:\\Users\\rei\\notes.txt" }, approvalToken: "appr_1" };
+    const results = await Promise.all([1, 2, 3, 4, 5].map(() => POST(makeReq(url, body))));
+    expect(results.filter((r) => r.status === 200)).toHaveLength(1);
+    expect(runDiskToolMock).toHaveBeenCalledTimes(1);
+  });
+});

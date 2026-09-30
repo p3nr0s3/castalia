@@ -30,8 +30,8 @@ export function apiFetch(input: string, init: RequestInit = {}): Promise<Respons
  * Appends the access token as a `?token=` query param instead of an
  * Authorization header. Needed for URLs handed directly to native browser
  * elements (`<audio src>`, `<img src>`) — those issue their own GET requests
- * and cannot attach custom headers, so middleware.ts accepts this as a
- * fallback specifically for media routes. Not used for apiFetch calls,
+ * and cannot attach custom headers. middleware.ts only honours `?token=` on the
+ * SSE route (/api/db/stream), so this is NOT a general fallback for other routes. Not used for apiFetch calls,
  * which use the (safer, not URL/log-visible) header instead.
  */
 export function withAccessToken(url: string): string {

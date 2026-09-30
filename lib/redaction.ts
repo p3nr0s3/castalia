@@ -7,6 +7,9 @@
  * do more harm than good for a security-analyst workflow where logs and
  * configs get pasted often — over-redaction breaks legitimate analysis.
  *
+ * Also masked: API keys of the providers this app supports, JWTs, quoted
+ * `password:`/`api_key=` style assignments, and .env-style secret lines.
+ *
  * Deliberately NOT redacted: email addresses (too common as legitimate
  * analysis subjects — reporters, phishing targets, tickets) and public IPs
  * (often the actual subject of a security discussion, e.g. IOC lookups).
@@ -19,6 +22,8 @@
 interface RedactionRule {
   label: string;
   pattern: RegExp;
+  /** Keep the key visible (helps the model understand the config) and mask only the value. */
+  keepPrefix?: boolean;
 }
 
 const RULES: RedactionRule[] = [
@@ -38,6 +43,39 @@ const RULES: RedactionRule[] = [
   { label: "SLACK_TOKEN", pattern: /\bxox[baprs]-[A-Za-z0-9-]{10,72}\b/g },
   { label: "GOOGLE_API_KEY", pattern: /\bAIza[0-9A-Za-z_-]{35}\b/g },
   { label: "STRIPE_KEY", pattern: /\b(sk|pk|rk)_(live|test)_[0-9A-Za-z]{16,99}\b/g },
+
+  // API keys of the providers this app itself can talk to (OpenAI, Anthropic,
+  // Groq, OpenRouter, DeepSeek, Hugging Face, ...). These are the secrets a
+  // user is MOST likely to paste into a chat or keep in a project file, and
+  // all have distinctive prefixes. Order matters: specific prefixes first so
+  // the generic `sk-` rule doesn't mislabel them.
+  { label: "ANTHROPIC_API_KEY", pattern: /\bsk-ant-[A-Za-z0-9_-]{20,}\b/g },
+  { label: "OPENROUTER_API_KEY", pattern: /\bsk-or-v1-[A-Za-z0-9]{32,}\b/g },
+  { label: "OPENAI_API_KEY", pattern: /\bsk-(?:proj|svcacct|admin)-[A-Za-z0-9_-]{20,}\b/g },
+  { label: "GROQ_API_KEY", pattern: /\bgsk_[A-Za-z0-9]{40,}\b/g },
+  { label: "HUGGINGFACE_TOKEN", pattern: /\bhf_[A-Za-z0-9]{30,}\b/g },
+  { label: "NPM_TOKEN", pattern: /\bnpm_[A-Za-z0-9]{36}\b/g },
+  { label: "GITLAB_TOKEN", pattern: /\bglpat-[A-Za-z0-9_-]{20,}\b/g },
+  // Legacy OpenAI / DeepSeek style: "sk-" + a long alphanumeric run.
+  { label: "SK_API_KEY", pattern: /\bsk-[A-Za-z0-9]{32,}\b/g },
+
+  // JSON Web Tokens (three base64url segments, header always starts "eyJ").
+  { label: "JWT", pattern: /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g },
+
+  // Quoted secret assignments in code/JSON/YAML: password: "hunter2hunter2".
+  // Quoted-only (and >= 8 chars) keeps `password: string` type annotations and
+  // prose untouched.
+  {
+    label: "ASSIGNED_SECRET",
+    keepPrefix: true,
+    pattern: /\b(?:password|passwd|secret|client[_-]?secret|api[_-]?key|access[_-]?token|auth[_-]?token)(["']?\s*[:=]\s*)(["'])[^"'\s]{8,}\2/gi,
+  },
+  // .env-style lines: OPENAI_API_KEY=abcd1234...  (whole-line, value >= 8 chars).
+  {
+    label: "ENV_SECRET",
+    keepPrefix: true,
+    pattern: /^([ \t]*(?:export[ \t]+)?[A-Z0-9_]*(?:PASSWORD|SECRET|TOKEN|API_KEY|PRIVATE_KEY)[A-Z0-9_]*[ \t]*=[ \t]*)(?!\[REDACTED)["']?[^\s"']{8,}["']?[ \t]*$/gm,
+  },
 
   // Generic bearer token / authorization header pattern.
   {
@@ -69,9 +107,15 @@ export function redactSensitiveContent(input: string): RedactionResult {
   const labelsFound = new Set<string>();
 
   for (const rule of RULES) {
-    text = text.replace(rule.pattern, (match) => {
+    text = text.replace(rule.pattern, (match: string, ...groups: any[]) => {
       redactedCount++;
       labelsFound.add(rule.label);
+      if (rule.keepPrefix) {
+        // Groups: 1 = everything up to the value; for ASSIGNED_SECRET also 2 = quote char.
+        const key = match.slice(0, match.indexOf(groups[0]) + String(groups[0]).length);
+        const quote = rule.label === "ASSIGNED_SECRET" ? String(groups[1]) : "";
+        return `${key}${quote}[REDACTED:${rule.label}]${quote}`;
+      }
       return `[REDACTED:${rule.label}]`;
     });
   }

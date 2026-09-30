@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { acquireOllamaSlot, releaseOllamaSlot, OllamaOpType } from "@/lib/ollamaRateLimit";
 import { assertOllamaHostUrl, SsrfBlockedError } from "@/lib/ssrfGuard";
+import { isAllowedOllamaPath } from "@/lib/proxyPaths";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -41,7 +42,15 @@ function getOllamaHost(req: NextRequest): string {
  * than the other SSRF guards in this app. Returns an error NextResponse to
  * short-circuit with if validation fails, or null if the host is fine.
  */
-async function validateOllamaHost(host: string): Promise<NextResponse | null> {
+async function validateOllamaHost(host: string, path: string): Promise<NextResponse | null> {
+  // Path allow-list first: this proxy must only ever relay Ollama's own API
+  // (see lib/proxyPaths.ts for the confused-deputy attack this prevents).
+  if (!isAllowedOllamaPath(path)) {
+    return NextResponse.json(
+      { error: `Path '/${path}' is not part of the Ollama API. Refusing to proxy it.` },
+      { status: 403, headers: CORS_HEADERS }
+    );
+  }
   try {
     await assertOllamaHostUrl(host);
     return null;
@@ -61,7 +70,7 @@ export async function GET(
   const host = getOllamaHost(req);
   const targetUrl = `${host}/${path}`;
 
-  const blocked = await validateOllamaHost(host);
+  const blocked = await validateOllamaHost(host, path);
   if (blocked) return blocked;
 
   try {
@@ -100,7 +109,7 @@ export async function POST(
   const host = getOllamaHost(req);
   const targetUrl = `${host}/${path}`;
 
-  const blocked = await validateOllamaHost(host);
+  const blocked = await validateOllamaHost(host, path);
   if (blocked) return blocked;
 
   // Guard chat generations and embeddings with a concurrency + VRAM queue semaphore
@@ -208,7 +217,7 @@ export async function DELETE(
   const host = getOllamaHost(req);
   const targetUrl = `${host}/${path}`;
 
-  const blocked = await validateOllamaHost(host);
+  const blocked = await validateOllamaHost(host, path);
   if (blocked) return blocked;
 
   try {

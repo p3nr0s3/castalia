@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import fs from "fs/promises";
 import path from "path";
 import os from "os";
-import { resolveWithinBase, isTextFile } from "@/lib/pathSandbox";
+import { resolveWithinHomeSafe, isTextFile } from "@/lib/pathSandbox";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
 const HOME_DIR = path.resolve(os.homedir());
 
 function resolveWithinHome(inputPath: string): string {
-  return resolveWithinBase(HOME_DIR, inputPath);
+  return resolveWithinHomeSafe(inputPath, HOME_DIR);
 }
 
 // GET: List directory contents

@@ -1,3 +1,4 @@
+import fs from "fs";
 import path from "path";
 import os from "os";
 
@@ -32,6 +33,113 @@ export function resolveWithinBase(baseDir: string, inputPath?: string): string {
     );
   }
 
+  // The checks above are purely lexical. A symlink INSIDE the base that points
+  // outside of it (e.g. ~/notes -> /etc) passes them, so also compare the
+  // real, symlink-resolved locations.
+  const realBase = realPathOfNearestExisting(normalizedBase);
+  const realTarget = realPathOfNearestExisting(normalizedResolved);
+  if (realTarget !== realBase && !realTarget.startsWith(realBase + path.sep)) {
+    throw new Error(
+      `Access denied: path '${inputPath}' resolves through a symbolic link to ${realTarget}, which is outside the safe base directory (${normalizedBase}).`
+    );
+  }
+
+  return resolved;
+}
+
+/**
+ * realpath() of `p`, or — if `p` doesn't exist yet (e.g. a file about to be
+ * created) — realpath() of its nearest existing ancestor with the missing
+ * tail re-appended. Sync on purpose: path resolvers are sync throughout.
+ */
+export function realPathOfNearestExisting(p: string): string {
+  let current = path.resolve(p);
+  const tail: string[] = [];
+  for (;;) {
+    try {
+      return path.join(fs.realpathSync(current), ...tail.reverse());
+    } catch {
+      const parent = path.dirname(current);
+      if (parent === current) return path.resolve(p);
+      tail.push(path.basename(current));
+      current = parent;
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Credential / secret locations
+// ---------------------------------------------------------------------------
+
+/** Home-relative locations that hold credentials. Never readable or writable by disk tools. */
+const SENSITIVE_HOME_SUBPATHS = [
+  ".ssh", ".aws", ".gnupg", ".kube", ".azure", ".config/gcloud", ".config/gh", ".docker/config.json",
+  ".netrc", "_netrc", ".npmrc", ".pypirc", ".git-credentials", ".password-store", ".local/share/keyrings",
+  ".mozilla", ".config/google-chrome", ".config/chromium", ".config/BraveSoftware",
+  "AppData/Local/Google/Chrome/User Data", "AppData/Local/Microsoft/Edge/User Data",
+  "AppData/Roaming/Mozilla", "AppData/Roaming/Microsoft/Credentials", "AppData/Roaming/Microsoft/Protect",
+  "Library/Keychains", "Library/Application Support/Google/Chrome", "Library/Application Support/Firefox",
+];
+
+const PRIVATE_KEY_BASENAME = /^id_(?:rsa|dsa|ecdsa|ed25519)(?:_.*)?$/i;
+
+const CASE_INSENSITIVE_FS = process.platform === "win32" || process.platform === "darwin";
+const fold = (p: string) => (CASE_INSENSITIVE_FS ? p.toLowerCase() : p);
+
+function isInside(target: string, root: string): boolean {
+  const t = fold(path.normalize(target));
+  const r = fold(path.normalize(root));
+  return t === r || t.startsWith(r.endsWith(path.sep) ? r : r + path.sep);
+}
+
+/**
+ * Throws "Access denied: ..." if `resolvedPath` is a credential store (SSH /
+ * cloud / browser / keychain locations under the home directory, private key
+ * files), or one of THIS app's own secrets: `.env*` files in the app root and
+ * its `data/` directory (API keys, bridge tokens, the whole chat database).
+ *
+ * Why it matters: read_file/list_directory/search_files run WITHOUT an
+ * approval prompt, so a prompt-injected document or web page could otherwise
+ * make the model read ~/.ssh/id_ed25519 or .env.local into the conversation
+ * (and on to a cloud provider).
+ */
+export function assertNotSensitivePath(
+  resolvedPath: string,
+  homeDir: string = os.homedir(),
+  appRoot: string = process.cwd()
+): void {
+  const deny = (why: string) => {
+    throw new Error(`Access denied: '${resolvedPath}' is ${why}. Disk tools cannot touch it.`);
+  };
+  // Resolve the roots too: `candidate` is always absolute (with a drive letter on Windows),
+  // so comparing it with an unresolved `\\home\\rei` never matched there.
+  const home = path.resolve(homeDir);
+  const root = path.resolve(appRoot);
+  const variants = new Set([path.resolve(resolvedPath), realPathOfNearestExisting(resolvedPath)]);
+
+  for (const candidate of variants) {
+    for (const sub of SENSITIVE_HOME_SUBPATHS) {
+      if (isInside(candidate, path.join(home, ...sub.split("/")))) deny("a credential store");
+    }
+    const base = path.basename(candidate);
+    if (PRIVATE_KEY_BASENAME.test(base) && !base.toLowerCase().endsWith(".pub")) deny("a private key file");
+
+    if (isInside(candidate, path.join(root, "data"))) deny("this app's private data directory");
+    const rel = path.relative(root, candidate);
+    if (!rel.startsWith("..") && !path.isAbsolute(rel) && !rel.includes(path.sep) && /^\.env(?:\..*)?$/i.test(rel)) {
+      if (!/\.example$/i.test(rel)) deny("this app's environment file");
+    }
+  }
+}
+
+/**
+ * Home-scoped resolver for the agent tools, file explorer, and folder
+ * watcher: lexical containment + symlink check (resolveWithinBase) plus the
+ * credential-location denylist.
+ */
+export function resolveWithinHomeSafe(inputPath: string | undefined, homeDir: string = path.resolve(os.homedir())): string {
+  const resolved = resolveWithinBase(homeDir, inputPath);
+  assertNotSensitivePath(resolved, homeDir);
   return resolved;
 }
 
@@ -84,9 +192,16 @@ const OS_CRITICAL_DENYLIST = [
   "/usr",
   "/bin",
   "/sbin",
+  "/lib",
+  "/lib64",
   "/etc",
+  "/private/etc",
   "/boot",
-].map((p) => path.normalize(p).toLowerCase());
+  "/proc",
+  "/sys",
+  "/dev",
+  "/run",
+].map((p) => fold(path.normalize(p)));
 
 export function resolveOnLocalDisk(inputPath?: string, homeDir: string = os.homedir()): string {
   if (!inputPath || inputPath.trim() === "" || inputPath === ".") {
@@ -94,7 +209,7 @@ export function resolveOnLocalDisk(inputPath?: string, homeDir: string = os.home
   }
 
   const resolved = path.resolve(inputPath);
-  const normalizedLower = path.normalize(resolved).toLowerCase();
+  const normalizedLower = fold(path.normalize(resolved));
 
   const hitsDenylist = OS_CRITICAL_DENYLIST.some(
     (root) => normalizedLower === root || normalizedLower.startsWith(root + path.sep)
@@ -105,5 +220,6 @@ export function resolveOnLocalDisk(inputPath?: string, homeDir: string = os.home
     );
   }
 
+  assertNotSensitivePath(resolved, homeDir);
   return resolved;
 }

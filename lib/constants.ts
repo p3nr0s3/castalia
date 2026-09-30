@@ -256,25 +256,29 @@ export const CLOUD_MODEL_PRESETS: ModelOption[] = [
   },
 
   // Anthropic Claude Models
+  // Current Claude models. (The earlier presets — claude-3-7-sonnet-20250219,
+  // claude-3-5-sonnet-20241022, claude-3-5-haiku-20241022 — are older
+  // generations that may no longer be served by the API.) No "Thinking" badge:
+  // app/api/cloud/chat/route.ts does not request extended thinking.
   {
-    id: "claude-3-7-sonnet-20250219",
-    name: "Claude 3.7 Sonnet",
+    id: "claude-sonnet-5-5",
+    name: "Claude Sonnet 5.5",
     provider: "anthropic",
-    description: "Anthropic's latest hybrid reasoning & instant response model",
-    badge: "Thinking",
+    description: "Balanced intelligence and speed for coding, analysis and writing",
+    badge: "Balanced",
   },
   {
-    id: "claude-3-5-sonnet-20241022",
-    name: "Claude 3.5 Sonnet",
+    id: "claude-opus-5-5",
+    name: "Claude Opus 5.5",
     provider: "anthropic",
-    description: "Industry-leading intelligence for coding and analysis",
-    badge: "Elite Coding",
+    description: "Most capable Claude model for complex, long-running tasks",
+    badge: "Most Capable",
   },
   {
-    id: "claude-3-5-haiku-20241022",
-    name: "Claude 3.5 Haiku",
+    id: "claude-haiku-4-5-20251001",
+    name: "Claude Haiku 4.5",
     provider: "anthropic",
-    description: "Ultra-fast lightweight Claude model",
+    description: "Fast, lightweight Claude model",
     badge: "Fast",
   },
 

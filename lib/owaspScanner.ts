@@ -1,3 +1,4 @@
+import { safeFetch } from "./safeFetch";
 // lib/owaspScanner.ts
 //
 // AI-Powered Passive Web Security Scanner aligned with:
@@ -632,7 +633,7 @@ export async function fetchPassiveEndpoints(
 
   // 1. Check robots.txt
   try {
-    const robotsRes = await fetch(`${origin}/robots.txt`, {
+    const robotsRes = await safeFetch(`${origin}/robots.txt`, {
       headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) OWASP-Scanner/1.0" },
       signal: AbortSignal.timeout(3000),
     });
@@ -685,7 +686,7 @@ export async function fetchPassiveEndpoints(
 
   // 2. Check /.well-known/security.txt (RFC 9116)
   try {
-    const secRes = await fetch(`${origin}/.well-known/security.txt`, {
+    const secRes = await safeFetch(`${origin}/.well-known/security.txt`, {
       headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) OWASP-Scanner/1.0" },
       signal: AbortSignal.timeout(3000),
     });
@@ -785,13 +786,13 @@ export async function runOwaspScan(rawTargetUrl: string): Promise<OwaspScanResul
 
   try {
     // 1. Fetch main target page
-    const res = await fetch(targetUrl, {
+    const res = await safeFetch(targetUrl, {
       headers: {
         "User-Agent":
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 OWASP-Scanner/1.0",
         Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
       },
-      redirect: "follow",
+      maxBodyBytes: 3 * 1024 * 1024,
       signal: controller.signal,
     });
 

@@ -517,6 +517,11 @@ export async function streamChatCompletion({
     let finalMetrics: GenerationMetrics | undefined;
     const accumulatedToolCalls: { name: string; args: Record<string, any> }[] = [];
     const reasoningParser = new ReasoningStreamParser();
+    // Ollama reports failures that happen AFTER the HTTP 200 was sent (runner
+    // crash, out of memory, model unload) as a `{"error": "..."}` line inside
+    // the stream. Those lines used to be dropped by the catch-all below, so the
+    // user just saw a silently truncated answer.
+    let streamError: string | null = null;
 
     while (true) {
       const { done, value } = await reader.read();
@@ -532,6 +537,11 @@ export async function streamChatCompletion({
 
         try {
           const parsed = JSON.parse(trimmed);
+
+          if (parsed && typeof parsed.error === "string" && parsed.error) {
+            streamError = parsed.error;
+            break;
+          }
 
           const reasoningChunk = parsed.message?.thinking || parsed.message?.reasoning;
           if (reasoningChunk) {
@@ -606,6 +616,14 @@ export async function streamChatCompletion({
           }
         } catch {}
       }
+      if (streamError) break;
+    }
+
+    if (streamError) {
+      try {
+        await reader.cancel();
+      } catch {}
+      throw new Error(streamError);
     }
 
     reasoningParser.flush({

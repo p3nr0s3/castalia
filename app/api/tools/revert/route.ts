@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import path from "path";
 import os from "os";
 import { runDiskTool } from "@/lib/diskToolOps";
-import { resolveOnLocalDisk, resolveWithinBase } from "@/lib/pathSandbox";
+import { resolveOnLocalDisk, resolveWithinHomeSafe } from "@/lib/pathSandbox";
 import { getPendingApprovalById, writeServerDb } from "@/lib/serverDb";
 import { PendingApproval } from "@/lib/types";
 
@@ -28,7 +28,7 @@ export const dynamic = "force-dynamic";
 
 const HOME_DIR = path.resolve(os.homedir());
 function resolveWithinHome(inputPath?: string): string {
-  return resolveWithinBase(HOME_DIR, inputPath);
+  return resolveWithinHomeSafe(inputPath, HOME_DIR);
 }
 
 const REVERTIBLE_TOOLS = new Set(["write_file", "delete_file"]);

@@ -281,7 +281,12 @@ export async function scrapePageContent(url: string, maxChars: number = 2500): P
   let metaDesc = "";
 
   try {
-    const res = await fetch(url, {
+    // safeFetch: the URL here can come from search results or a prompt-injected
+    // agent; it must not reach internal hosts via DNS rebinding or redirects.
+    // Lazy import: this module is also bundled for the browser (app/page.tsx uses
+    // reformulateSearchQuery), and safeFetch needs Node's http/dns modules.
+    const { safeFetch } = await import("./safeFetch");
+    const res = await safeFetch(url, {
       headers: {
         "User-Agent":
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
@@ -289,6 +294,7 @@ export async function scrapePageContent(url: string, maxChars: number = 2500): P
         "Accept-Language": "en-US,en;q=0.9,id;q=0.8",
       },
       signal: AbortSignal.timeout(3500),
+      maxBodyBytes: 3 * 1024 * 1024,
     });
 
     if (res.ok) {
@@ -318,7 +324,10 @@ export async function scrapePageContent(url: string, maxChars: number = 2500): P
       }
       initialText = cleanText;
     }
-  } catch {
+  } catch (err) {
+    // A blocked (internal/private) target must NOT be forwarded to the Jina
+    // fallback either — that would just hand the URL to a third party.
+    if ((err as Error)?.name === "SsrfBlockedError") return null;
     // Network or timeout error on direct fetch; proceed to Jina reader fallback
   }
 

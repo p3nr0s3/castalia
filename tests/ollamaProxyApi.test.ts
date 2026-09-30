@@ -36,6 +36,32 @@ describe("Ollama Proxy API (/api/ollama/[...path])", () => {
     return { req, params: { params: { path: pathSegments } } };
   }
 
+  describe("path allow-list (confused-deputy regression)", () => {
+    it("refuses to relay a non-Ollama path such as this app's own code-execution route", async () => {
+      const fetchSpy = vi.fn();
+      global.fetch = fetchSpy as any;
+      const { req, params } = makeRequest("POST", ["api", "codespace", "run"], {
+        host: "http://127.0.0.1:3000",
+        body: { language: "bash", code: "echo pwned" },
+      });
+      const res = await POST(req, params);
+      expect(res.status).toBe(403);
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it("refuses traversal-looking and metadata-style paths on GET and DELETE", async () => {
+      const fetchSpy = vi.fn();
+      global.fetch = fetchSpy as any;
+      for (const segs of [["latest", "meta-data"], ["api", "tags", "..", "db"], ["api", "db"]]) {
+        const { req, params } = makeRequest("GET", segs, { host: "http://127.0.0.1:11434" });
+        expect((await GET(req, params)).status).toBe(403);
+      }
+      const { req, params } = makeRequest("DELETE", ["api", "fs"], { host: "http://127.0.0.1:11434", body: {} });
+      expect((await DELETE(req, params)).status).toBe(403);
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+  });
+
   describe("OPTIONS (CORS preflight)", () => {
     it("returns 204 with no body", async () => {
       const res = await OPTIONS();
