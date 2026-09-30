@@ -39,15 +39,20 @@ jobs:
         run: npm run build
 
   audit:
-    name: Dependency audit (informational)
+    name: Dependency audit (vs reviewed baseline)
     runs-on: ubuntu-latest
     # next@14 has known advisories with no patch in the 14.x line (see the security note in
-    # next.config.mjs). Report them on every run, but don't block merges on them; the job
-    # still fails loudly if a NEW package starts showing up in the list.
-    continue-on-error: true
+    # next.config.mjs), so plain `npm audit` would be permanently red. Instead this fails ONLY
+    # for advisories/packages that are not in .github/audit-baseline.json, i.e. ones nobody
+    # has reviewed yet. See scripts/auditCheck.mjs.
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - run: npm audit --omit=dev
+      # No `npm ci` needed: audit reads package-lock.json. Write to a file rather than piping:
+      # GitHub's default shell uses `pipefail`, and `npm audit` exits 1 whenever it finds anything.
+      - name: Fetch audit report
+        run: npm audit --omit=dev --json > audit.json || true
+      - name: Compare with reviewed baseline
+        run: node scripts/auditCheck.mjs < audit.json

@@ -2,6 +2,10 @@ import { describe, it, expect } from "vitest";
 import { POST } from "../app/api/codespace/run/route";
 import { NextRequest } from "next/server";
 
+// TypeScript execution uses `node --experimental-strip-types`, which exists from Node 22.6.
+const [NODE_MAJOR, NODE_MINOR] = process.versions.node.split(".").map(Number);
+const NODE_HAS_STRIP_TYPES = NODE_MAJOR > 22 || (NODE_MAJOR === 22 && NODE_MINOR >= 6);
+
 function createMockRequest(body: Record<string, any>): NextRequest {
   return new NextRequest("http://localhost:3000/api/codespace/run", {
     method: "POST",
@@ -74,7 +78,14 @@ describe("Codespace Backend Runner API (/api/codespace/run)", () => {
     expect(data.runner).toBe("node.js");
   });
 
-  it("executes TypeScript code with native type stripping", async () => {
+  it("tells the user TypeScript needs Node 22.6+ instead of failing obscurely on older Node", async (ctx) => {
+    if (NODE_HAS_STRIP_TYPES) return ctx.skip();
+    const res = await POST(createMockRequest({ code: "const x: number = 1; console.log(x)", language: "typescript" }));
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/Node 22\.6/);
+  });
+
+  it.skipIf(!NODE_HAS_STRIP_TYPES)("executes TypeScript code with native type stripping", async () => {
     const req = createMockRequest({
       code: `
         interface Result {

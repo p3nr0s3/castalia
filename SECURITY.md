@@ -33,6 +33,9 @@ Not protected against:
 - Dependency advisories for `next@14` have no fix in the 14.x line; upgrading means moving to 15.5.x
   or 16.x (a migration, not a bump). See the note in `next.config.mjs` for why the published
   advisories do not apply to this code base as it stands.
+  CI keeps this honest: the `audit` job fails for any advisory that is not listed in
+  `.github/audit-baseline.json` (the ones reviewed so far), so a new advisory gets a fresh look
+  instead of disappearing into a permanently red `npm audit`.
 - The in-browser Python runner downloads Pyodide from a CDN without Subresource Integrity.
 - The secret-redaction patterns are a safety net, not a guarantee.
 
