@@ -19,7 +19,7 @@ jobs:
         # 22.x: recommended; exercises the better-sqlite3 backend and the TypeScript runner.
         node: ["20", "22"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v4
         with:
@@ -46,7 +46,7 @@ jobs:
     # for advisories/packages that are not in .github/audit-baseline.json, i.e. ones nobody
     # has reviewed yet. See scripts/auditCheck.mjs.
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
