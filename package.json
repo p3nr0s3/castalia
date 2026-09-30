@@ -46,7 +46,7 @@
     "@next/bundle-analyzer": "^14.2.35",
     "@tailwindcss/typography": "^0.5.20",
     "@types/better-sqlite3": "^9.6.0",
-    "@types/node": "^20.17.6",
+    "@types/node": "^26.6.3",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "autoprefixer": "^10.4.20",
