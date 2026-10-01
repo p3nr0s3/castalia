@@ -39,7 +39,7 @@ function loadCacheFromDisk(): void {
   try {
     const fs = require("fs");
     const path = require("path");
-    const cacheFile = path.join(process.cwd(), "data", "embeddings-cache.json");
+    const cacheFile = path.join(process.env.LYRA_DATA_DIR ? path.resolve(process.env.LYRA_DATA_DIR) : path.join(process.cwd(), "data"), "embeddings-cache.json");
     const raw = fs.readFileSync(cacheFile, "utf8");
     const parsed = JSON.parse(raw) as Record<string, number[]>;
     for (const key of Object.keys(parsed)) {
@@ -55,7 +55,7 @@ function persistCacheToDisk(): void {
   try {
     const fs = require("fs");
     const path = require("path");
-    const dataDir = path.join(process.cwd(), "data");
+    const dataDir = process.env.LYRA_DATA_DIR ? path.resolve(process.env.LYRA_DATA_DIR) : path.join(process.cwd(), "data");
     const cacheFile = path.join(dataDir, "embeddings-cache.json");
     if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
     const obj: Record<string, number[]> = {};

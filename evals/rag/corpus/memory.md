@@ -1,0 +1,2 @@
+# Persistent memory
+The assistant can remember durable facts about you across conversations, such as your role or preferred language. Facts are extracted after a conversation and listed in Settings where you can edit or delete them. Before anything is stored, credentials are filtered out: passwords, API keys, JWT tokens and card-like numbers are removed so they never end up in memory or in a prompt.

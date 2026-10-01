@@ -141,6 +141,14 @@ describe("middleware", () => {
     expect(status(middleware(req("/api/cache?key=x", { headers: { "sec-fetch-site": "cross-site" } })))).toBe(200);
   });
 
+  it("treats chat-history search, backups and MCP as sensitive even for GET", () => {
+    delete process.env.APP_ACCESS_TOKEN;
+    for (const p of ["/api/history/search?q=secret", "/api/backup", "/api/backup?download=live", "/api/mcp/tools"]) {
+      expect(middleware(req(p, { headers: { "sec-fetch-site": "cross-site" } })).status, p).toBe(403);
+      expect(status(middleware(req(p, { headers: { "sec-fetch-site": "same-origin" } }))), p).toBe(200);
+    }
+  });
+
   it("checks Origin against Host when Sec-Fetch-Site is absent (older browsers)", () => {
     delete process.env.APP_ACCESS_TOKEN;
     expect(middleware(req("/api/db", { method: "POST", headers: { origin: "http://evil.example" } })).status).toBe(403);

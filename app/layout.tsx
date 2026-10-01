@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import { ServiceWorkerRegister } from "@/components/ServiceWorkerRegister";
 
 export const metadata: Metadata = {
   title: "Lyra — Local AI Workspace",
@@ -49,6 +50,7 @@ export default function RootLayout({
         <link rel="manifest" href="/manifest.json" />
       </head>
       <body suppressHydrationWarning className="antialiased h-[100dvh] w-full max-w-full overflow-hidden bg-[var(--background)] text-[var(--foreground)] selection:bg-blue-500 selection:text-white touch-manipulation">
+        <ServiceWorkerRegister />
         {children}
       </body>
     </html>

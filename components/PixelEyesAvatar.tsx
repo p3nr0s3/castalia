@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useMemo } from "react";
-import { VoiceCallStatus } from "./VoiceCallModal";
+import type { VoiceCallStatus } from "@/lib/types";
 
 export type PixelEmotion =
   | "normal"

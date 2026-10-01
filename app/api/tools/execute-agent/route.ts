@@ -1,3 +1,5 @@
+import { ToolExecuteSchema } from "@/lib/schemas";
+import { parseJsonBody } from "@/lib/routeValidation";
 import { NextRequest, NextResponse } from "next/server";
 import path from "path";
 import os from "os";
@@ -38,12 +40,13 @@ function resolveWithinHome(inputPath?: string): string {
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
-    const { tool, args = {}, approvalToken } = body;
-
-    if (!tool) {
-      return NextResponse.json({ success: false, error: "Missing 'tool' parameter in request body." }, { status: 400 });
-    }
+    const parsed = await parseJsonBody(req, ToolExecuteSchema, {
+      maxBytes: 12 * 1024 * 1024, // write_file carries whole file contents
+      prefixPath: false,
+      errorShape: (message) => ({ success: false, error: message }),
+    });
+    if (!parsed.ok) return parsed.response;
+    const { tool, args, approvalToken } = parsed.data;
 
     if (MUTATING_TOOLS.has(tool)) {
       const auth = await authorizeMutatingTool({

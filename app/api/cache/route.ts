@@ -1,3 +1,6 @@
+import { z } from "zod";
+import { CacheUpsertSchema, SemanticLookupSchema } from "@/lib/schemas";
+import { parseJsonBody } from "@/lib/routeValidation";
 import { NextRequest, NextResponse } from "next/server";
 import {
   getPersistedCacheEntry,
@@ -74,42 +77,41 @@ export async function GET(req: NextRequest) {
  */
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
+    const parsed = await parseJsonBody(req, z.record(z.string(), z.unknown()), {
+      headers: CORS_HEADERS,
+      maxBytes: 8 * 1024 * 1024,
+    });
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.data;
 
     // Semantic lookup by POST body. The embedding is far too large for a query
     // string (768 floats ≈ 17 KB > Node's 16 KB header limit → HTTP 431).
-    if (body?.action === "semantic-lookup") {
-      const { model, embedding, threshold } = body;
-      if (
-        typeof model !== "string" ||
-        !model ||
-        !Array.isArray(embedding) ||
-        embedding.length === 0 ||
-        embedding.length > 8192 ||
-        !embedding.every((n: unknown) => typeof n === "number" && Number.isFinite(n))
-      ) {
+    if (body.action === "semantic-lookup") {
+      const lookup = SemanticLookupSchema.safeParse(body);
+      if (!lookup.success) {
         return NextResponse.json(
           { error: "semantic-lookup requires a model string and a non-empty numeric embedding array (max 8192 dims)" },
           { status: 400, headers: CORS_HEADERS }
         );
       }
       const entry = await findPersistedSemanticCacheEntry({
-        model,
-        queryEmbedding: embedding,
-        similarityThreshold: typeof threshold === "number" ? threshold : undefined,
+        model: lookup.data.model,
+        queryEmbedding: lookup.data.embedding,
+        similarityThreshold: lookup.data.threshold,
       });
       return NextResponse.json({ entry }, { headers: CORS_HEADERS });
     }
 
-    if (!body?.key || typeof body.key !== "string") {
-      return NextResponse.json({ error: "key is required" }, { status: 400, headers: CORS_HEADERS });
+    const upsert = CacheUpsertSchema.safeParse(body);
+    if (!upsert.success) {
+      return NextResponse.json({ error: upsert.error.issues[0].message }, { status: 400, headers: CORS_HEADERS });
     }
     await setPersistedCacheEntry({
-      key: body.key,
-      model: body.model,
-      timestamp: body.timestamp || Date.now(),
-      embedding: body.embedding,
-      data: body.data,
+      key: upsert.data.key,
+      model: upsert.data.model,
+      timestamp: upsert.data.timestamp || Date.now(),
+      embedding: upsert.data.embedding,
+      data: upsert.data.data,
     });
     return NextResponse.json({ ok: true }, { headers: CORS_HEADERS });
   } catch (err: any) {

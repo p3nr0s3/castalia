@@ -4,6 +4,20 @@ import { streamChatCompletion } from "./ollama";
 import { parseToolDirective, buildAgentToolDirectivePrompt, getNativeOllamaTools, READ_ONLY_TOOLS, MUTATING_TOOLS, ToolName } from "./tools";
 import { executeAgentToolCall, ToolExecutionError } from "./toolEngine";
 
+let idCounter = 0;
+/**
+ * Unique id for records an agent run creates. These used to be `prefix_${Date.now()}`, so two agents
+ * that finished in the same millisecond (the scheduler starts every due agent on the same tick)
+ * produced the SAME conversation id and one report overwrote the other.
+ */
+function makeId(prefix: string): string {
+  const rand =
+    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID().slice(0, 8)
+      : Math.random().toString(36).slice(2, 10);
+  return `${prefix}_${Date.now()}_${(idCounter++).toString(36)}${rand}`;
+}
+
 export const AGENT_PRESET_TEMPLATES = [
   {
     name: "Morning AI & Tech News Digest",
@@ -60,7 +74,11 @@ export function calculateNextRun(agent: AgentTask): number | undefined {
   }
 
   if (agent.scheduleType === "daily" && agent.dailyTime) {
-    const [hours, minutes] = agent.dailyTime.split(":").map(Number);
+    const match = /^(\d{1,2}):(\d{2})$/.exec(agent.dailyTime.trim());
+    const hours = match ? Number(match[1]) : NaN;
+    const minutes = match ? Number(match[2]) : NaN;
+    // A malformed time used to yield NaN here; `now >= NaN` is never true, so the agent silently never ran.
+    if (!match || hours > 23 || minutes > 59) return undefined;
     const target = new Date();
     target.setHours(hours, minutes, 0, 0);
 
@@ -88,10 +106,10 @@ function finalizeAgentSuccess(
   searchSources: any[]
 ): { updatedAgent: AgentTask; createdConversation: Conversation } {
   const durationSec = Math.round((Date.now() - startTime) / 1000);
-  const convId = `conv_agent_${Date.now()}`;
+  const convId = makeId("conv_agent");
 
   const assistantMsg: Message = {
-    id: `msg_agent_res_${Date.now()}`,
+    id: makeId("msg_agent_res"),
     role: "assistant",
     content: fullOutput,
     timestamp: Date.now(),
@@ -116,7 +134,7 @@ function finalizeAgentSuccess(
   };
 
   const newLog: AgentLog = {
-    id: `log_${Date.now()}`,
+    id: makeId("log"),
     agentId: agent.id,
     runAt: Date.now(),
     status: "success",
@@ -214,7 +232,7 @@ async function runAgentToolLoop(
       }
 
       const pendingApproval: PendingApproval = {
-        id: `approval_${agent.id}_${Date.now()}`,
+        id: makeId(`approval_${agent.id}`),
         source: "agent",
         agentId: agent.id,
         agentName: agent.name,
@@ -239,9 +257,9 @@ async function runAgentToolLoop(
 
     workingHistory = [
       ...workingHistory,
-      { id: `msg_agent_asst_${iteration}_${Date.now()}`, role: "assistant", content: loopText, timestamp: Date.now() },
+      { id: makeId(`msg_agent_asst_${iteration}`), role: "assistant", content: loopText, timestamp: Date.now() },
       {
-        id: `msg_agent_toolres_${iteration}_${Date.now()}`,
+        id: makeId(`msg_agent_toolres_${iteration}`),
         role: "user",
         content: `[TOOL_RESULT untuk ${toolName}]:\n${toolResultText}\n\nLanjutkan berdasarkan hasil ini. Jangan panggil tool yang sama dengan argumen sama persis lagi kalau sudah berhasil.`,
         timestamp: Date.now(),
@@ -286,7 +304,7 @@ export async function executeAgent(
   createdConversation?: Conversation;
   pendingApproval?: PendingApproval;
   /** Saved so resumeAgentAfterApproval can pick this run back up. */
-  pausedContext?: { history: Message[]; effectiveSystemPrompt: string; userMsg: Message; searchSources: any[] };
+  pausedContext?: { history: Message[]; effectiveSystemPrompt: string; userMsg: Message; searchSources: any[]; outputSoFar?: string };
 }> {
   const startTime = Date.now();
   let searchSources: any[] = [];
@@ -375,7 +393,7 @@ export async function executeAgent(
 
   // 3. User Message & Assistant Placeholder
   const userMsg: Message = {
-    id: `msg_agent_req_${Date.now()}`,
+    id: makeId("msg_agent_req"),
     role: "user",
     content: `[Automated Task Trigger]: ${agent.prompt}`,
     timestamp: Date.now(),
@@ -430,6 +448,7 @@ export async function executeAgent(
             effectiveSystemPrompt,
             userMsg,
             searchSources,
+            outputSoFar: loopResult.outputSoFar,
           },
         };
       }
@@ -450,7 +469,7 @@ export async function executeAgent(
     return { updatedAgent, createdConversation };
   } catch (error: any) {
     const newLog: AgentLog = {
-      id: `log_${Date.now()}`,
+      id: makeId("log"),
       agentId: agent.id,
       runAt: Date.now(),
       status: "failed",
@@ -482,13 +501,13 @@ export async function resumeAgentAfterApproval(
   agent: AgentTask,
   approval: PendingApproval,
   decision: "approved" | "rejected",
-  pausedContext: { history: Message[]; effectiveSystemPrompt: string; userMsg: Message; searchSources: any[] },
+  pausedContext: { history: Message[]; effectiveSystemPrompt: string; userMsg: Message; searchSources: any[]; outputSoFar?: string },
   options: { ollamaUrl: string; apiKeys?: ApiKeysConfig; onProgress?: (tokenChunk: string) => void }
 ): Promise<{
   updatedAgent: AgentTask;
   createdConversation?: Conversation;
   pendingApproval?: PendingApproval;
-  pausedContext?: { history: Message[]; effectiveSystemPrompt: string; userMsg: Message; searchSources: any[] };
+  pausedContext?: { history: Message[]; effectiveSystemPrompt: string; userMsg: Message; searchSources: any[]; outputSoFar?: string };
 }> {
   const startTime = Date.now();
   let toolResultText: string;
@@ -506,8 +525,13 @@ export async function resumeAgentAfterApproval(
 
   const updatedHistory: Message[] = [
     ...pausedContext.history,
+    // The assistant turn that CONTAINS the tool request. Without it the model saw two user messages in
+    // a row and had no record of having asked for the tool whose result it was now being handed.
+    ...(pausedContext.outputSoFar
+      ? [{ id: makeId("msg_agent_asst_resume"), role: "assistant" as const, content: pausedContext.outputSoFar, timestamp: Date.now() }]
+      : []),
     {
-      id: `msg_agent_toolres_resume_${Date.now()}`,
+      id: makeId("msg_agent_toolres_resume"),
       role: "user",
       content: `[TOOL_RESULT untuk ${approval.toolName}]:\n${toolResultText}\n\nLanjutkan berdasarkan hasil ini.`,
       timestamp: Date.now(),
@@ -552,6 +576,7 @@ export async function resumeAgentAfterApproval(
           effectiveSystemPrompt: pausedContext.effectiveSystemPrompt,
           userMsg: pausedContext.userMsg,
           searchSources: pausedContext.searchSources,
+          outputSoFar: loopResult.outputSoFar,
         },
       };
     }
@@ -568,7 +593,7 @@ export async function resumeAgentAfterApproval(
     return { updatedAgent, createdConversation };
   } catch (error: any) {
     const newLog: AgentLog = {
-      id: `log_${Date.now()}`,
+      id: makeId("log"),
       agentId: agent.id,
       runAt: Date.now(),
       status: "failed",

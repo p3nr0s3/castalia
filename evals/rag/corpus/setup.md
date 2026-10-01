@@ -1,0 +1,2 @@
+# Installing and starting the app
+Install Node.js 22 (Node 20.19 also works, with JSON storage). Clone the repository, run `npm install`, copy `.env.example` to `.env.local`, then start the development server with `npm run dev`. The app listens on port 3000 at 127.0.0.1, so open http://localhost:3000 in a browser. For a production build use `npm run build` followed by `npm start`. To reach the app from a phone on the same Wi-Fi use `npm run dev:lan`, which refuses to start without an access token.

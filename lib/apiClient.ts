@@ -17,13 +17,24 @@ function getAccessToken(): string {
   return process.env.NEXT_PUBLIC_APP_ACCESS_TOKEN || "";
 }
 
+// Only set by the server-side agent scheduler (lib/agentScheduler.ts). In a browser relative URLs
+// resolve against the page; in a Node process they need an absolute base, and the call must carry
+// the access token like any other caller. Left empty everywhere else, so nothing else changes.
+let serverBaseUrl = "";
+let serverToken = "";
+export function configureServerApi(baseUrl: string, token = ""): void {
+  serverBaseUrl = baseUrl.replace(/\/+$/, "");
+  serverToken = token;
+}
+
 export function apiFetch(input: string, init: RequestInit = {}): Promise<Response> {
-  const token = getAccessToken();
+  const token = serverToken || getAccessToken();
   const headers = new Headers(init.headers || {});
   if (token) {
     headers.set("Authorization", `Bearer ${token}`);
   }
-  return fetch(input, { ...init, headers });
+  const target = serverBaseUrl && input.startsWith("/") ? `${serverBaseUrl}${input}` : input;
+  return fetch(target, { ...init, headers });
 }
 
 /**

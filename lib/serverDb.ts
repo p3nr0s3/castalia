@@ -1,3 +1,5 @@
+import { dataDir } from "./dataDir";
+import { MAX_INDEXED_CHARS, buildFtsQuery, makeSnippet, searchConversationsJs, tokenizeQuery, type HistoryHit } from "./historySearch";
 import fs from "fs";
 import path from "path";
 import type BetterSqlite3 from "better-sqlite3";
@@ -16,7 +18,7 @@ export interface ServerDatabase {
   version: number;
 }
 
-const DATA_DIR = path.join(process.cwd(), "data");
+const DATA_DIR = dataDir();
 const SQLITE_FILE = path.join(DATA_DIR, "db.sqlite3");
 const JSON_FILE = path.join(DATA_DIR, "db.json");
 
@@ -154,7 +156,20 @@ export function mergeSettings(serverSettings: AppSettings, clientSettings?: Part
 // every save.
 // =====================================================================
 
+/**
+ * better-sqlite3 13 requires Node >= 22 (its package.json `engines`). On older Node the prebuilt
+ * binary is still found and `require()` succeeds, but `new Database()` then SEGFAULTS (exit 139),
+ * killing the whole server on the first database access — a try/catch around require() cannot
+ * save us from that. So the version is checked BEFORE loading, and older Node uses the JSON backend.
+ */
+export const SQLITE_MIN_NODE_MAJOR = 22;
+export function nodeSupportsSqliteBackend(nodeVersion: string = process.versions.node): boolean {
+  const major = Number(nodeVersion.split(".")[0]);
+  return Number.isFinite(major) && major >= SQLITE_MIN_NODE_MAJOR;
+}
+
 function loadBetterSqlite3(): typeof BetterSqlite3 | null {
+  if (!nodeSupportsSqliteBackend()) return null;
   try {
     // Loaded via require (not `import`) so a missing/broken native binding
     // — e.g. no prebuilt binary for this Node version, and no Python/MSVC
@@ -487,6 +502,13 @@ interface WriteServerDbInput {
 let hasWarnedFallback = false;
 function usingSqlite(): boolean {
   const available = SqliteCtor !== null;
+  if (!available && !hasWarnedFallback && !nodeSupportsSqliteBackend()) {
+    hasWarnedFallback = true;
+    console.warn(
+      `[serverDb] Node ${process.versions.node} is older than ${SQLITE_MIN_NODE_MAJOR}, which the SQLite backend (better-sqlite3 13) requires ` +
+        "— using data/db.json instead. Everything works; upgrade to Node 22+ for SQLite."
+    );
+  }
   if (!available && !hasWarnedFallback) {
     hasWarnedFallback = true;
     console.warn(
@@ -498,6 +520,11 @@ function usingSqlite(): boolean {
     );
   }
   return available;
+}
+
+/** Which storage backend is active ("sqlite" needs Node >= 22 and the native module). */
+export function getStorageBackend(): "sqlite" | "json" {
+  return SqliteCtor !== null ? "sqlite" : "json";
 }
 
 export async function readServerDb(): Promise<ServerDatabase> {
@@ -518,6 +545,102 @@ export async function readServerDb(): Promise<ServerDatabase> {
 export async function readServerDbVersion(): Promise<number> {
   if (usingSqlite()) return sqliteGetKv<number>("version", 1);
   return (await readServerDbJson()).version;
+}
+
+// ---------------------------------------------------------------------------
+// Full-text search over chat history
+// ---------------------------------------------------------------------------
+
+/**
+ * Brings the FTS5 index up to date. It is a DERIVED index built lazily at search time instead of being
+ * maintained in the write path: the client pushes its whole conversation list on every save, so
+ * hooking writes would re-index everything constantly — and any bug there would risk the sync itself.
+ * Change detection is cheap: one query over (id, updatedAt, length(data)); only new or changed
+ * conversations are parsed and re-indexed, removed ones are dropped.
+ */
+function ensureHistoryIndex(db: BetterSqlite3.Database): void {
+  db.exec(`
+    CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
+      conv_id UNINDEXED, msg_id UNINDEXED, role UNINDEXED, title, content,
+      tokenize = 'unicode61 remove_diacritics 2'
+    );
+    CREATE TABLE IF NOT EXISTS fts_state (id TEXT PRIMARY KEY, sig TEXT NOT NULL);
+  `);
+  const current = db.prepare(`SELECT id, updatedAt || ':' || length(data) AS sig FROM conversations`).all() as { id: string; sig: string }[];
+  const indexed = new Map((db.prepare(`SELECT id, sig FROM fts_state`).all() as { id: string; sig: string }[]).map((r) => [r.id, r.sig]));
+
+  const stale = current.filter((c) => indexed.get(c.id) !== c.sig);
+  const live = new Set(current.map((c) => c.id));
+  const removed = [...indexed.keys()].filter((id) => !live.has(id));
+  if (stale.length === 0 && removed.length === 0) return;
+
+  const readConv = db.prepare(`SELECT data FROM conversations WHERE id = ?`);
+  const del = db.prepare(`DELETE FROM messages_fts WHERE conv_id = ?`);
+  const delState = db.prepare(`DELETE FROM fts_state WHERE id = ?`);
+  const ins = db.prepare(`INSERT INTO messages_fts (conv_id, msg_id, role, title, content) VALUES (?, ?, ?, ?, ?)`);
+  const setState = db.prepare(`INSERT OR REPLACE INTO fts_state (id, sig) VALUES (?, ?)`);
+
+  db.transaction(() => {
+    for (const id of removed) {
+      del.run(id);
+      delState.run(id);
+    }
+    for (const { id, sig } of stale) {
+      del.run(id);
+      const row = readConv.get(id) as { data: string } | undefined;
+      if (row) {
+        try {
+          const conv = JSON.parse(row.data) as Conversation;
+          for (const m of conv.messages || []) {
+            if (m.content) ins.run(id, m.id, m.role, conv.title || "", m.content.slice(0, MAX_INDEXED_CHARS));
+          }
+        } catch {
+          /* a corrupt row is simply not searchable */
+        }
+      }
+      setState.run(id, sig);
+    }
+  })();
+}
+
+export interface HistorySearchResult {
+  hits: HistoryHit[];
+  engine: "fts5" | "scan";
+}
+
+export async function searchHistory(q: string, limit = 30): Promise<HistorySearchResult> {
+  const ftsQuery = buildFtsQuery(q);
+  if (!ftsQuery) return { hits: [], engine: usingSqlite() ? "fts5" : "scan" };
+
+  if (usingSqlite()) {
+    try {
+      const db = getSqliteDb();
+      ensureHistoryIndex(db);
+      const terms = tokenizeQuery(q);
+      const rows = db
+        .prepare(
+          `SELECT conv_id, msg_id, role, title, content, bm25(messages_fts, 0, 0, 0, 5.0, 1.0) AS rank
+             FROM messages_fts WHERE messages_fts MATCH ? ORDER BY rank LIMIT ?`
+        )
+        .all(ftsQuery, limit * 6) as { conv_id: string; msg_id: string; role: string; title: string; content: string }[];
+      const seen = new Set<string>();
+      const hits: HistoryHit[] = [];
+      const updated = db.prepare(`SELECT updatedAt FROM conversations WHERE id = ?`);
+      for (const r of rows) {
+        if (seen.has(r.conv_id)) continue; // best-ranked message per conversation
+        seen.add(r.conv_id);
+        const u = updated.get(r.conv_id) as { updatedAt: number } | undefined;
+        hits.push({ conversationId: r.conv_id, title: r.title, messageId: r.msg_id, role: r.role, snippet: makeSnippet(r.content, terms), updatedAt: u?.updatedAt ?? 0 });
+        if (hits.length >= limit) break;
+      }
+      return { hits, engine: "fts5" };
+    } catch (err) {
+      // FTS5 missing from this SQLite build, or a transient error: the scan below still answers.
+      console.warn("[serverDb] FTS5 history search unavailable, scanning instead:", (err as Error).message);
+    }
+  }
+  const db = await readServerDb();
+  return { hits: searchConversationsJs(db.conversations, q, limit), engine: "scan" };
 }
 
 export async function writeServerDb(data: WriteServerDbInput): Promise<ServerDatabase> {

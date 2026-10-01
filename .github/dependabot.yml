@@ -16,6 +16,15 @@ updates:
         update-types: ["version-update:semver-major"]
       - dependency-name: "react-dom"
         update-types: ["version-update:semver-major"]
+      # Must stay in lock-step with the Next.js major (14); the bot proposed v16, which does not match.
+      - dependency-name: "@next/bundle-analyzer"
+        update-types: ["version-update:semver-major"]
+      # Typings should follow the OLDEST Node we support (20), not the newest release.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+      # jsdom 27+ requires Node >= 22; the test suite also runs on Node 20.
+      - dependency-name: "jsdom"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: github-actions
     directory: "/"
     schedule:

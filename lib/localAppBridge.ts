@@ -1,3 +1,4 @@
+import { dataDir } from "./dataDir";
 import fs from "fs";
 import path from "path";
 import crypto from "crypto";
@@ -75,7 +76,7 @@ function tokenFilePath(bridgeId: string): string {
   if (!/^[A-Za-z0-9_-]{1,64}$/.test(bridgeId)) {
     throw new Error(`Invalid bridge id '${bridgeId}': use letters, digits, '-' or '_' (max 64).`);
   }
-  return path.join(process.cwd(), "data", `${bridgeId}-bridge-token.json`);
+  return path.join(dataDir(), `${bridgeId}-bridge-token.json`);
 }
 
 /**
@@ -87,8 +88,8 @@ function tokenFilePath(bridgeId: string): string {
  */
 export function generateAndStoreBridgeToken(bridge: BridgeDefinition): string {
   const token = crypto.randomBytes(24).toString("hex");
-  const dataDir = path.join(process.cwd(), "data");
-  if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true, mode: 0o700 });
+  const dir = dataDir();
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   // 0600: the token authorises code execution in the target app, so other local
   // users must not be able to read it (default mode is world-readable 0644).
   const file = tokenFilePath(bridge.id);

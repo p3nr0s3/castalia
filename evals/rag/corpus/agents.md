@@ -1,0 +1,2 @@
+# Scheduled agents
+An agent runs a saved prompt automatically. Choose an interval in minutes or a daily time such as 08:00. Each run creates a conversation containing the report and a log entry with duration and tokens. Agents can use disk tools. Reading is automatic, but write_file and delete_file always pause the run and ask for approval first; the approval is bound to the exact path and content. Only the latest twenty log entries are kept per agent.

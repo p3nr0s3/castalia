@@ -27,13 +27,19 @@ const testBridge: BridgeDefinition = {
   executePath: "/execute",
 };
 
+const prevDataDir = process.env.LYRA_DATA_DIR;
+
 beforeEach(() => {
   tmpCwd = fs.mkdtempSync(path.join(os.tmpdir(), "bridge-test-"));
   vi.spyOn(process, "cwd").mockReturnValue(tmpCwd);
+  // A fresh token store per test (the global setup gives one directory per FILE, so reset it here).
+  process.env.LYRA_DATA_DIR = path.join(tmpCwd, "data");
 });
 
 afterEach(() => {
   vi.restoreAllMocks();
+  if (prevDataDir === undefined) delete process.env.LYRA_DATA_DIR;
+  else process.env.LYRA_DATA_DIR = prevDataDir;
   fs.rmSync(tmpCwd, { recursive: true, force: true });
 });
 

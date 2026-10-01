@@ -6,6 +6,8 @@ import { Conversation, Project, AgentTask } from "@/lib/types";
 import { storage } from "@/lib/storage";
 
 interface SidebarProps {
+  /** Opens the full-text message search (Ctrl/Cmd+K), optionally pre-filled. */
+  onOpenHistorySearch?: (query: string) => void;
   conversations: Conversation[];
   activeId: string | null;
   onSelectConversation: (id: string) => void;
@@ -48,6 +50,7 @@ interface SidebarProps {
 type SortOption = "recent" | "created" | "title";
 
 export const Sidebar: React.FC<SidebarProps> = ({
+  onOpenHistorySearch,
   conversations,
   activeId,
   onSelectConversation,
@@ -293,6 +296,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 </button>
               )}
             </div>
+            {onOpenHistorySearch && searchQuery.trim().length >= 2 && (
+              <button
+                type="button"
+                onClick={() => onOpenHistorySearch(searchQuery.trim())}
+                className="mt-1 w-full text-left px-2.5 py-1 text-[11px] rounded-lg text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--sidebar-hover)] transition-colors"
+              >
+                Cari “{searchQuery.trim()}” di isi semua pesan (Ctrl+K)
+              </button>
+            )}
           </div>
         )}
 

@@ -1,0 +1,2 @@
+# Searching conversations and the web
+Press Ctrl+K (Cmd+K on macOS) to search the text of every message in every conversation. Results show the matching excerpt with highlighted words and open the chat at that message. Matching is by word prefix, ignores case and accents, and every word must appear in the same message. Web search combines Bing and DuckDuckGo results with Google News for current events, and can read the full page of each result.

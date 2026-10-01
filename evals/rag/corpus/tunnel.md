@@ -1,0 +1,2 @@
+# Akses dari luar rumah
+Jalankan `npm run tunnel` untuk membuka tunnel SSH ke Pinggy. Skrip menampilkan alamat HTTPS publik dan kode QR yang bisa dipindai dari ponsel. Token akses wajib diisi di `.env.local`, jika tidak tunnel menolak berjalan. Biarkan terminal tetap terbuka selama tunnel dipakai, dan tekan Ctrl+C untuk menutupnya. Siapa pun yang memegang alamat dan token dapat memakai aplikasi, jadi gunakan token yang kuat.

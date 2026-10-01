@@ -1,0 +1,28 @@
+{
+  "description": "Questions with the corpus files that should answer them. Add a case whenever retrieval fails on something real.",
+  "cases": [
+    { "id": "install-start", "query": "how do I install and start the app", "relevant": ["setup.md"] },
+    { "id": "dev-port", "query": "what port does the development server use", "relevant": ["setup.md"] },
+    { "id": "lan-token", "query": "open the app from my phone on wifi", "relevant": ["setup.md"] },
+    { "id": "dns-rebinding", "query": "which header check defeats DNS rebinding", "relevant": ["security.md"] },
+    { "id": "ssrf", "query": "block requests to internal private IP addresses", "relevant": ["security.md"] },
+    { "id": "agent-approval", "query": "agent asks for approval before writing a file", "relevant": ["agents.md"] },
+    { "id": "agent-schedule", "query": "run an agent every day at a fixed time", "relevant": ["agents.md"] },
+    { "id": "restore", "query": "restore a snapshot of my conversations", "relevant": ["backup.md"] },
+    { "id": "keys-in-backup", "query": "are API keys included in backups", "relevant": ["backup.md"] },
+    { "id": "history-search", "query": "search old conversations by keyword", "relevant": ["search.md"] },
+    { "id": "search-shortcut", "query": "keyboard shortcut to open message search", "relevant": ["search.md"] },
+    { "id": "code-temperature", "query": "which temperature is used for code generation", "relevant": ["sampling.md"] },
+    { "id": "creative-penalty", "query": "repeat penalty for creative writing", "relevant": ["sampling.md"] },
+    { "id": "memory-secrets", "query": "how are passwords removed before storing memory", "relevant": ["memory.md"] },
+    { "id": "tunnel-id", "query": "cara akses dari luar rumah dengan tunnel", "relevant": ["tunnel.md"] },
+    { "id": "tunnel-qr", "query": "kode QR pinggy ponsel", "relevant": ["tunnel.md"] },
+    { "id": "rrf", "query": "reciprocal rank fusion combining bm25 and vectors", "relevant": ["rag.md"] },
+    { "id": "cost", "query": "estimate cloud model cost per million tokens", "relevant": ["usage.md"] },
+    { "id": "two-files", "query": "tokens and cost per model", "relevant": ["usage.md"] },
+    { "id": "sem-disk-dies", "query": "keep my data safe if the hard disk dies", "relevant": ["backup.md"], "tag": "semantic" },
+    { "id": "sem-creative", "query": "make the model more imaginative", "relevant": ["sampling.md"], "tag": "semantic" },
+    { "id": "sem-hackers", "query": "protect against malicious websites attacking localhost", "relevant": ["security.md"], "tag": "semantic" }
+  ],
+  "thresholds": { "k": 5, "recallAtK": 0.9, "mrr": 0.75 }
+}

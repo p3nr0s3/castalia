@@ -9,7 +9,7 @@ import path from "path";
 // slate. vi.resetModules() + a fresh dynamic import per test gives each
 // test its own instance, matching the pattern tests/graphifyOps.test.ts
 // uses for the same kind of module-level-state problem.
-const DATA_DIR = path.join(process.cwd(), "data");
+const DATA_DIR = process.env.LYRA_DATA_DIR!; // a private temp dir per test file (tests/setup/isolateDataDir.ts)
 const CACHE_FILE = path.join(DATA_DIR, "response-cache.json");
 
 async function freshServerDb() {

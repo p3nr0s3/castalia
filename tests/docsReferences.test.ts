@@ -73,7 +73,7 @@ describe("documentation facts that have drifted before", () => {
 
   it("the documented test count matches reality within the README badge", () => {
     const readme = fs.readFileSync(path.join(ROOT, "README.md"), "utf-8");
-    const suites = fs.readdirSync(path.join(ROOT, "tests")).filter((f) => f.endsWith(".test.ts")).length;
+    const suites = fs.readdirSync(path.join(ROOT, "tests")).filter((f) => /\.test\.tsx?$/.test(f)).length; // .ts AND .tsx
     const m = readme.match(/(\d+) suites, \d+ tests/);
     expect(m, "README test-count sentence").toBeTruthy();
     // suites are cheap to count exactly; the README must not claim fewer than exist

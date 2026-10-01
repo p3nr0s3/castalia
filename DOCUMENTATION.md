@@ -42,6 +42,10 @@ Aplikasi web untuk satu pengguna yang menjalankan model lokal via **Ollama** (at
 | Pencarian web | Google News RSS, Bing, DuckDuckGo, Wikipedia, pembaca halaman | FEATURES §8 |
 | Suara | Web Speech API + `speechSynthesis` | FEATURES §9 |
 | Cache & sinkronisasi | Cache respons dua tingkat; sinkronisasi antar-tab/perangkat via SSE | FEATURES §10 |
+| Riwayat & backup | Pencarian teks penuh (`Ctrl/Cmd+K`), snapshot server harian + pemulihan | FEATURES §13–14 |
+| Penggunaan | Token dan perkiraan biaya dari riwayat chat | FEATURES §15 |
+| Agen | Dijalankan server bila tanpa disk tools (tetap jalan walau tab tertutup), notifikasi webhook | FEATURES §6.3 |
+| PWA | Dapat dipasang, halaman offline | FEATURES §16 |
 | Workspace | Projects, Journal, Knowledge Graph, 13 tema + palet kustom | FEATURES §11 |
 | Keamanan | Allowlist `Host`, wajib same-origin, token opsional, SSRF, sandbox path | FEATURES §12, README, [SECURITY.md](SECURITY.md) |
 
@@ -63,9 +67,10 @@ graph TD
         OllamaProxy["/api/ollama/*"]
         LayaProxy["/api/laya/*"]
         Cloud["/api/cloud/chat"]
-        Search["/api/search, /api/projects/ingest-url, /api/scan"]
+        Search["/api/search, /api/projects/ingest-url"]
         Tools["/api/tools/*, /api/fs, /api/codespace/run"]
-        DB["/api/db, /api/db/stream, /api/cache"]
+        DB["/api/db, /api/db/stream, /api/cache, /api/history, /api/backup"]
+        Sched["Scheduler agen + snapshot harian (instrumentation.ts)"]
     end
 
     subgraph Backend ["Di mesin / jaringan Anda"]
@@ -86,10 +91,12 @@ graph TD
     MW --> Search --> Web
     MW --> Tools
     MW --> DB --> Disk
+    Sched --> DB
+    Sched --> OllamaProxy
     UI <--> Local
 ```
 
-Semua permintaan ke `/api/*` melewati `middleware.ts`. Permintaan keluar yang dipengaruhi input tidak tepercaya (webhook, scraping, pemindai OWASP) memakai `lib/safeFetch.ts`.
+Semua permintaan ke `/api/*` melewati `middleware.ts`. Permintaan keluar yang dipengaruhi input tidak tepercaya (webhook, scraping, ingesti URL) memakai `lib/safeFetch.ts`.
 
 ---
 
@@ -119,6 +126,10 @@ Repositori menyertakan `.npmrc` dengan `ignore-scripts=true` agar binary prebuil
 | `OLLAMA_HOST` | Alamat Ollama bawaan. |
 | `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `OPENAI_API_KEY`, `GROQ_API_KEY`, `DEEPSEEK_API_KEY`, `OPENROUTER_API_KEY` | Menyimpan key provider di sisi server (lebih diutamakan daripada key yang diketik di Settings). |
 | `ALLOW_EXTERNAL_ORIGIN` | Mengizinkan satu origin eksternal memanggil API lintas-origin. |
+| `LYRA_DATA_DIR` | Lokasi folder data pribadi (database, cache, snapshot, token). Bawaan `./data`. Test selalu memakai folder sementara. |
+| `LYRA_AUTO_BACKUP=0` | Mematikan snapshot otomatis harian di `data/backups/`. |
+| `LYRA_SERVER_SCHEDULER=0` | Agen terjadwal hanya dijalankan browser (bawaan: server menjalankan agen tanpa disk tools). |
+| `LYRA_INTERNAL_URL` | Alamat yang dipakai server untuk memanggil dirinya sendiri (scheduler); bawaan `http://127.0.0.1:$PORT`. |
 
 ### Skrip
 | Perintah | Fungsi |
@@ -127,6 +138,7 @@ Repositori menyertakan `.npmrc` dengan `ignore-scripts=true` agar binary prebuil
 | `npm run dev:lan` / `npm run start:lan` | Bind ke `0.0.0.0` (jaringan lokal). **Menolak berjalan tanpa `APP_ACCESS_TOKEN`** (override sadar: `ALLOW_OPEN_LAN=1`). |
 | `npm run dev:all`, `start:all`, `prod:all` (+ `:lan`) | Menyalakan Lyra dan Laya System-1 sekaligus (`scripts/launch.mjs`). |
 | `npm run tunnel` | Tunnel publik (lihat bawah). |
+| `npm run eval:rag` | Laporan kualitas retrieval RAG (FEATURES §17). |
 | `npm test`, `npm run typecheck`, `npm run verify` | Vitest, `tsc --noEmit`, dan ketiganya + build produksi (yang dijalankan CI di `.github/workflows/ci.yml`). |
 
 ---
@@ -222,11 +234,15 @@ lyra/
 │   ├── ipPolicy.ts, ssrfGuard.ts, safeFetch.ts, proxyPaths.ts  # SSRF & proxy
 │   ├── pathSandbox.ts, toolApproval.ts, diskToolOps.ts         # alat disk & approval
 │   ├── redaction.ts, memoryExtractor.ts                        # penyaringan secret
+│   ├── agentScheduler.ts, backupService.ts, historySearch.ts   # scheduler server, snapshot, pencarian riwayat
+│   ├── usageTracker.ts, ragEval.ts                             # penggunaan/biaya, evaluasi RAG
 │   ├── cloudVision.ts                                          # gambar → format provider cloud
 │   ├── serverDb.ts, responseCache.ts                           # persistensi & cache
 │   └── webSearchEngine.ts, fileWatcher.ts, agentEngine.ts, ... # pencarian, watcher, agen
 ├── middleware.ts                # gerbang permintaan
 ├── scripts/                     # launch.mjs, tunnel.mjs, warnOpenAccess.mjs, loadEnv.mjs
+├── evals/rag/                   # korpus + set pertanyaan emas untuk eval:rag
+├── public/                      # manifest.json, sw.js, offline.html
 ├── tests/                       # suite Vitest
 ├── .github/                     # CI (ci.yml) dan Dependabot
 ├── .env.example, .npmrc, next.config.mjs, package.json

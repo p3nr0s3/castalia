@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useRef, useEffect, useState } from "react";
-import { ArrowUp, Square, Sparkle as Sparkles, Paperclip, Plus, CaretDown as ChevronDown, X, FileText, Globe, Microphone as Mic, MicrophoneSlash as MicOff, CodeSimple as Code2, Brain, Lightning as Zap, Folder, Trash as Trash2, Terminal, Translate as Languages, TextAlignLeft as AlignLeft, Lightbulb, Wrench, GitBranch, Headphones, PhoneCall, Warning as AlertTriangle, ShieldCheck, Clock, BookmarkSimple as BookMarked } from "@phosphor-icons/react";
+import { ArrowUp, Square, Sparkle as Sparkles, Paperclip, Plus, CaretDown as ChevronDown, X, FileText, Globe, Microphone as Mic, MicrophoneSlash as MicOff, CodeSimple as Code2, Brain, Lightning as Zap, Folder, Trash as Trash2, Terminal, Translate as Languages, TextAlignLeft as AlignLeft, Lightbulb, Wrench, GitBranch, Headphones, PhoneCall, Warning as AlertTriangle, Clock, BookmarkSimple as BookMarked } from "@phosphor-icons/react";
 import { Attachment, ThinkingMode, OllamaModel, ApiKeysConfig, Skill } from "@/lib/types";
 import { formatBytes, detectModelProvider, getApiKeyForProvider } from "@/lib/ollama";
 import { processSelectedFiles } from "@/lib/fileUtils";
@@ -169,15 +169,6 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       action: () => {
         setWebSearchActive(true);
         setInput("");
-      },
-    },
-    {
-      command: "/scan",
-      label: "OWASP Top 10 Security Audit",
-      desc: "Run passive web security scan on any URL (e.g. /scan https://target.com)",
-      icon: ShieldCheck,
-      action: () => {
-        setInput("/scan ");
       },
     },
     {

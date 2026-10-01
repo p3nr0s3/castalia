@@ -35,7 +35,7 @@ const QUERY_TOKEN_ROUTES = ["/api/db/stream"];
 // Routes where even a cross-site READ/probe is unwanted: they expose the
 // filesystem, the database, or execute code. Same-origin is required for
 // every method, not just mutating ones.
-const SENSITIVE_ROUTES = ["/api/codespace", "/api/tools", "/api/fs", "/api/db", "/api/connectors"];
+const SENSITIVE_ROUTES = ["/api/codespace", "/api/tools", "/api/fs", "/api/db", "/api/connectors", "/api/history", "/api/backup", "/api/mcp"];
 
 function forbidden(pathname: string, message: string): NextResponse {
   if (pathname.startsWith("/api/")) {

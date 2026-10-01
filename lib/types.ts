@@ -142,56 +142,6 @@ export interface SearchStepInfo {
   scrapedDomains?: string[];
 }
 
-export type OwaspSeverity = "critical" | "high" | "medium" | "low" | "info";
-export type OwaspCategory =
-  | "A01:2021-Broken Access Control"
-  | "A02:2021-Cryptographic Failures"
-  | "A05:2021-Security Misconfiguration"
-  | "A06:2021-Vulnerable and Outdated Components"
-  | "A07:2021-Identification and Authentication Failures"
-  | "A08:2021-Software and Data Integrity Failures";
-
-export interface OwaspFinding {
-  id: string;
-  category: OwaspCategory;
-  title: string;
-  severity: OwaspSeverity;
-  status: "pass" | "warn" | "fail";
-  description: string;
-  evidence?: string;
-  recommendation: string;
-  cwe?: string;
-}
-
-export interface OwaspHeaderSummary {
-  csp: boolean;
-  hsts: boolean;
-  xFrameOptions: boolean;
-  xContentTypeOptions: boolean;
-  referrerPolicy: boolean;
-  permissionsPolicy: boolean;
-  corsWildcard: boolean;
-  serverBannerExposed?: string;
-}
-
-export interface OwaspScanResult {
-  targetUrl: string;
-  scannedAt: number;
-  score: number; // 0 - 100
-  grade: "A+" | "A" | "B" | "C" | "D" | "F";
-  headersSummary: OwaspHeaderSummary;
-  cookiesSummary: {
-    total: number;
-    missingHttpOnly: number;
-    missingSecure: number;
-    missingSameSite: number;
-  };
-  securityTxtPresent: boolean;
-  robotsTxtPresent: boolean;
-  techDetected: string[];
-  findings: OwaspFinding[];
-}
-
 export interface GroundingReport {
   score: number; // 0 - 100 percentage
   verifiedFiles: string[];
@@ -211,7 +161,6 @@ export interface Message {
   attachments?: Attachment[];
   sources?: SearchSource[];
   searchSteps?: SearchStepInfo;
-  owaspScan?: OwaspScanResult;
   metrics?: GenerationMetrics;
   reasoning?: string;
   isError?: boolean;
@@ -369,6 +318,11 @@ export interface AgentTask {
   webSearch?: boolean;
   /** Kalau true, agent boleh pakai disk tools (read otomatis, write/delete via approval). Default false. */
   diskToolsActive?: boolean;
+  /**
+   * Webhook that receives a short message when a scheduled run finishes or fails. Must be a public
+   * https URL: Slack/Discord incoming webhooks, or Telegram's .../sendMessage?chat_id=… endpoint.
+   */
+  notifyUrl?: string;
   scheduleType: AgentScheduleType;
   intervalMinutes?: number;
   dailyTime?: string;
@@ -608,7 +562,17 @@ export interface VoiceSettingsConfig {
   autoSilenceMs: number;
 }
 
+/** Price per million tokens, entered by the user (prices change; none are hard-coded). */
+export interface ModelPricing {
+  inputPerMTok: number;
+  outputPerMTok: number;
+}
+
 export interface AppSettings {
+  /** Usage tracker: user-entered prices keyed by model id. Models without an entry show tokens only. */
+  modelPricing?: Record<string, ModelPricing>;
+  /** Run scheduled agents from the server (so they fire with no browser tab open). Default on; agents that use disk tools stay in the browser because they need a human to approve writes. */
+  serverScheduler?: boolean;
   ollamaUrl: string;
   deepScrapeEnabled?: boolean;
   webSearchDefault: boolean;
@@ -750,3 +714,6 @@ export interface JournalEntry {
 // pemanggil yang cuma butuh nama tool tidak perlu import dari lib/tools.ts.
 
 export type { ToolName } from "./tools";
+
+/** Shared by VoiceCallModal and PixelEyesAvatar (lives here so the two components need not import each other). */
+export type VoiceCallStatus = "idle" | "listening" | "thinking" | "speaking";

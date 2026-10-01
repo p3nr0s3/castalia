@@ -1,5 +1,6 @@
 "use client";
 
+import type { VoiceCallStatus } from "@/lib/types";
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { Microphone as Mic, PhoneDisconnect as PhoneOff, SpeakerHigh as Volume2, CaretDown as ChevronDown, ArrowCounterClockwise as RotateCcw, Play, Check } from "@phosphor-icons/react";
 import {
@@ -16,7 +17,7 @@ import {
 } from "@/lib/voiceEngine";
 import { PixelEyesAvatar } from "./PixelEyesAvatar";
 
-export type VoiceCallStatus = "idle" | "listening" | "thinking" | "speaking";
+export type { VoiceCallStatus };
 
 interface VoiceCallModalProps {
   isOpen: boolean;

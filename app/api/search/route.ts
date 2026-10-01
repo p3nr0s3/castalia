@@ -56,8 +56,8 @@ export async function POST(req: NextRequest) {
     // 1. Direct URL Reader Mode: If query contains a direct URL, scrape it immediately
     if (isUrl && targetUrl) {
       // The URL here comes straight from what the user (or a prompt-injected
-      // agent reading untrusted content) typed as the search query — same
-      // risk shape as /api/scan's target URL, so it gets the same guard.
+      // agent reading untrusted content) typed as the search query, so it must be
+      // checked against internal/private targets before being fetched.
       try {
         await assertPublicUrl(targetUrl.trim());
       } catch (err) {

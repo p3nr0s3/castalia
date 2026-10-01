@@ -1,0 +1,2 @@
+# Backups and restore
+The server takes a snapshot of the database every 24 hours and keeps the seven most recent. You can also create a snapshot manually, download it, or restore it. Restoring first saves the current state as a pre-restore snapshot so the restore can be undone. Snapshots do not contain API keys unless you explicitly ask for them, and restoring a backup without keys never erases the keys already configured. Pending approvals are never part of a backup.

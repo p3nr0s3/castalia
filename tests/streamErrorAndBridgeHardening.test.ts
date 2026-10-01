@@ -74,13 +74,14 @@ describe("buildProjectSymbolGraph — symbol names are data, not regex", () => {
 
 describe("localAppBridge hardening", () => {
   let dir: string;
-  const cwd = process.cwd();
+  const prevDataDir = process.env.LYRA_DATA_DIR; // set per test file by tests/setup/isolateDataDir.ts
   beforeAll(() => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), "lyra-bridge-"));
-    process.chdir(dir);
+    process.env.LYRA_DATA_DIR = path.join(dir, "data");
   });
   afterAll(() => {
-    process.chdir(cwd);
+    if (prevDataDir === undefined) delete process.env.LYRA_DATA_DIR;
+    else process.env.LYRA_DATA_DIR = prevDataDir;
     fs.rmSync(dir, { recursive: true, force: true });
   });
 

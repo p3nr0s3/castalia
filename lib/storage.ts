@@ -15,7 +15,25 @@ const STORAGE_KEYS = {
   LAST_SYNC: "ollama_chat_last_sync",
 };
 
-let syncTimeout: NodeJS.Timeout | null = null;
+type SyncPayload = {
+  conversations?: Conversation[];
+  projects?: Project[];
+  agents?: AgentTask[];
+  journalEntries?: JournalEntry[];
+  settings?: AppSettings;
+  personas?: PersonaPreset[];
+  pendingApprovals?: PendingApproval[];
+};
+
+const SYNC_DEBOUNCE_MS = 400;
+const SYNC_RETRY_DELAYS_MS = [3000, 6000, 12000]; // bounded: give up after 3 retries
+
+let syncTimeout: ReturnType<typeof setTimeout> | null = null;
+// Everything saved since the last push. There used to be ONE shared timer and each call replaced
+// the previous payload, so `saveConversations(...)` followed by `saveProjects(...)` within 400 ms
+// pushed only the projects — the conversation change silently never reached the server.
+let pendingPayload: SyncPayload = {};
+let syncAttempt = 0;
 
 export const storage = {
   // --- Server Synchronization API ---
@@ -60,19 +78,35 @@ export const storage = {
     }
   },
 
-  debouncedSyncToServer(payload: {
-    conversations?: Conversation[];
-    projects?: Project[];
-    agents?: AgentTask[];
-    journalEntries?: JournalEntry[];
-    settings?: AppSettings;
-    personas?: PersonaPreset[];
-    pendingApprovals?: PendingApproval[];
-  }) {
+  debouncedSyncToServer(payload: SyncPayload) {
+    // Merge per collection: a later save of the same collection wins, other collections are kept.
+    pendingPayload = { ...pendingPayload, ...payload };
+    this.armSyncTimer(SYNC_DEBOUNCE_MS);
+  },
+
+  /** @internal schedules a flush of `pendingPayload`; re-arming replaces the pending timer, not the data. */
+  armSyncTimer(delayMs: number) {
     if (syncTimeout) clearTimeout(syncTimeout);
-    syncTimeout = setTimeout(() => {
-      this.pushToServer(payload);
-    }, 400);
+    syncTimeout = setTimeout(async () => {
+      syncTimeout = null;
+      const batch = pendingPayload;
+      pendingPayload = {};
+      if (Object.keys(batch).length === 0) return;
+
+      const ok = await this.pushToServer(batch);
+      if (ok) {
+        syncAttempt = 0;
+        return;
+      }
+      if (syncAttempt < SYNC_RETRY_DELAYS_MS.length) {
+        // Put the batch back UNDER anything saved meanwhile (newer data must win), then retry.
+        pendingPayload = { ...batch, ...pendingPayload };
+        this.armSyncTimer(SYNC_RETRY_DELAYS_MS[syncAttempt++]);
+      } else {
+        syncAttempt = 0;
+        console.warn("Giving up syncing to the server after repeated failures; data stays in localStorage.");
+      }
+    }, delayMs);
   },
 
   // --- Local Storage Cache & Helpers ---
@@ -316,16 +350,25 @@ export const storage = {
     }
   },
 
-  exportData(): string {
+  /**
+   * Snapshot of everything stored locally. API keys are left OUT unless `includeSecrets` is set:
+   * the file is meant to be saved, shared or uploaded somewhere, and used to contain every
+   * provider key in plain text.
+   */
+  exportData(opts: { includeSecrets?: boolean } = {}): string {
+    const includeSecrets = opts.includeSecrets === true;
+    const settings: AppSettings = { ...this.getSettings() };
+    if (!includeSecrets) delete (settings as any).apiKeys;
     const data = {
       conversations: this.getConversations(),
       projects: this.getProjects(),
       agents: this.getAgents(),
       journalEntries: this.getJournalEntries(),
-      settings: this.getSettings(),
+      settings,
       personas: this.getPersonas(),
       exportDate: new Date().toISOString(),
       version: "2.0",
+      includesSecrets: includeSecrets,
     };
     return JSON.stringify(data, null, 2);
   },
@@ -362,8 +405,17 @@ export const storage = {
         }));
         this.saveJournalEntries(migrated);
       }
+      // A backup exported without secrets has no `apiKeys`; replacing settings wholesale would
+      // erase the keys already configured on this machine. Keep them unless the file brings its own.
+      let importedSettings: AppSettings | undefined;
       if (data.settings) {
-        this.saveSettings(data.settings);
+        const incoming: AppSettings = { ...data.settings };
+        if (!incoming.apiKeys) {
+          const current = this.getSettings();
+          if (current.apiKeys) incoming.apiKeys = current.apiKeys;
+        }
+        this.saveSettings(incoming);
+        importedSettings = incoming;
       }
       if (data.personas && Array.isArray(data.personas)) {
         this.savePersonas(data.personas);
@@ -374,7 +426,7 @@ export const storage = {
         projects: data.projects,
         agents: data.agents,
         journalEntries: data.journalEntries,
-        settings: data.settings,
+        settings: importedSettings,
         personas: data.personas,
       });
       return true;

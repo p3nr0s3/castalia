@@ -42,6 +42,7 @@ export const AgentModal: React.FC<AgentModalProps> = ({
   const [intervalMinutes, setIntervalMinutes] = useState(agent?.intervalMinutes || 360);
   const [dailyTime, setDailyTime] = useState(agent?.dailyTime || "08:00");
   const [targetProjectId, setTargetProjectId] = useState(agent?.targetProjectId || "");
+  const [notifyUrl, setNotifyUrl] = useState(agent?.notifyUrl || "");
   const [enabled, setEnabled] = useState(agent?.enabled ?? true);
 
   if (!isOpen) return null;
@@ -57,7 +58,10 @@ export const AgentModal: React.FC<AgentModalProps> = ({
     if (tmpl.temperature) setTemperature(tmpl.temperature);
   };
 
+  const notifyUrlError = notifyUrl.trim() !== "" && !/^https:\/\/[^\s]+$/i.test(notifyUrl.trim());
+
   const handleSave = () => {
+    if (notifyUrlError) return;
     if (!name.trim()) {
       alert("Please enter a name for the AI Agent.");
       return;
@@ -76,6 +80,7 @@ export const AgentModal: React.FC<AgentModalProps> = ({
       temperature,
       webSearch,
       diskToolsActive,
+      notifyUrl: notifyUrl.trim() || undefined,
       scheduleType,
       intervalMinutes: scheduleType === "interval" ? intervalMinutes : undefined,
       dailyTime: scheduleType === "daily" ? dailyTime : undefined,
@@ -394,6 +399,28 @@ export const AgentModal: React.FC<AgentModalProps> = ({
                 }`}
               />
             </button>
+          </div>
+
+          {/* Webhook notification */}
+          <div className="space-y-1.5">
+            <label htmlFor="agent-notify-url" className="block text-xs font-bold text-[var(--foreground)]">
+              Notifikasi webhook (opsional)
+            </label>
+            <input
+              id="agent-notify-url"
+              type="url"
+              value={notifyUrl}
+              onChange={(e) => setNotifyUrl(e.target.value)}
+              placeholder="https://hooks.slack.com/services/… atau Discord webhook"
+              className={`w-full rounded-xl border bg-[var(--sidebar-bg)] px-3 py-2 text-xs text-[var(--foreground)] ${notifyUrlError ? "border-red-500/60" : "border-[var(--card-border)]"}`}
+            />
+            {notifyUrlError ? (
+              <p role="alert" className="text-[11px] text-red-400">Harus berupa URL https publik.</p>
+            ) : (
+              <p className="text-[11px] text-[var(--muted)]">
+                Dikirim saat jadwal selesai atau gagal. Slack dan Discord (incoming webhook) atau Telegram (<code>https://api.telegram.org/bot…/sendMessage?chat_id=…</code>). Hanya untuk agen yang dijalankan server, yaitu agen tanpa disk tools; alamat internal ditolak.
+              </p>
+            )}
           </div>
         </div>
 

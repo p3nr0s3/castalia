@@ -16,8 +16,8 @@ jobs:
       fail-fast: false
       matrix:
         # 20.x: the minimum supported version (SQLite backend falls back to JSON there).
-        # 22.x: recommended; exercises the better-sqlite3 backend and the TypeScript runner.
-        node: ["20", "22"]
+        # 22.x / 24.x: recommended; exercise the better-sqlite3 backend and the TypeScript runner.
+        node: ["20", "22", "24"]
     steps:
       - uses: actions/checkout@v4
 

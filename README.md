@@ -6,7 +6,7 @@
 [![Next.js](https://img.shields.io/badge/Next.js-14.2.35-black?logo=next.js)](https://nextjs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.6.3-blue?logo=typescript)](https://www.typescriptlang.org/)
 [![Ollama](https://img.shields.io/badge/Ollama-Native%20API-white?logo=ollama)](https://ollama.com/)
-[![Tests](https://img.shields.io/badge/Tests-63%20Suites%20%7C%20612%20Passed-brightgreen)](https://vitest.dev/)
+[![Tests](https://img.shields.io/badge/Tests-77%20Suites%20%7C%20749%20Passed-brightgreen)](https://vitest.dev/)
 
 A minimalist, local-first AI workspace built on Next.js 14, for chatting with locally-hosted Ollama models (or an OpenAI/Anthropic/Gemini-compatible cloud API) with retrieval-augmented context from your own project files.
 
@@ -30,6 +30,10 @@ This is a short orientation, not a feature list — see **[FEATURES.md](FEATURES
 - **Inference-side tuning**: context-window bucketing to avoid over-allocating KV cache, per-task sampling profiles, and KV prefix pinning for static system prompts.
 - **System-1 Decision Engine (optional Laya integration)**: Fast non-autoregressive encoder pass (~30ms on CPU) for intent routing, deep reasoning recommendation, and tool safety scoring, with transparent fallback to local heuristics.
 - **A post-generation grounding check** that flags claims/citations not backed by the retrieved context.
+- **Chat history search** (`Ctrl/Cmd+K`): full-text search across every message, opening the chat at the matching message.
+- **Server-side snapshots** of your data (daily, rotated, restorable with an automatic undo point), **usage & cost** tracking from your own chat history, and an installable **PWA**.
+- **Scheduled agents that run from the server**, so they fire with the browser closed, with optional webhook notifications.
+- **A retrieval-quality harness** (`npm run eval:rag`) to measure RAG changes instead of guessing.
 
 None of this has been benchmarked against other tools — the claims above describe what the code does, not how well it performs relative to alternatives.
 
@@ -115,7 +119,9 @@ Notes:
 - `npm run dev` / `npm start` bind to `127.0.0.1` only. To reach the app from a phone or another PC on your network use `npm run dev:lan` / `npm run start:lan` **and set `APP_ACCESS_TOKEN`** (see [Security](#security)). Other hostnames you serve it under (e.g. a reverse proxy) must be listed in `ALLOWED_HOSTS`.
 - The repo ships an `.npmrc` with `ignore-scripts=true`. This is deliberate: it lets the prebuilt `better-sqlite3` binary work instead of npm trying (and on machines without a C++ toolchain, silently failing) to compile it.
 - The UI loads its web fonts from Google Fonts and the in-browser Python runner (Pyodide) is downloaded from the jsDelivr CDN on first use. Everything else runs locally; the first-run Pyodide download is the only part of code execution that needs the internet.
-- `npm run typecheck` runs `tsc --noEmit`; `npm run verify` runs typecheck, tests and a production build (what CI runs).
+- `LYRA_DATA_DIR` moves the private `data/` folder (database, caches, snapshots, tokens). `npm test` always uses a throwaway folder instead, so running the tests never touches your real data.
+- Optional environment variables: `LYRA_AUTO_BACKUP=0` (no daily snapshots), `LYRA_SERVER_SCHEDULER=0` (agents run only in the browser), `LYRA_INTERNAL_URL` (how the server reaches itself, default `http://127.0.0.1:$PORT`).
+- `npm run eval:rag` prints the RAG retrieval report; `npm run typecheck` runs `tsc --noEmit`; `npm run verify` runs typecheck, tests and a production build (what CI runs).
 - `dev:lan` / `start:lan` refuse to start without `APP_ACCESS_TOKEN` (override: `ALLOW_OPEN_LAN=1`). See [SECURITY.md](SECURITY.md) for the threat model.
 
 ---
@@ -128,7 +134,7 @@ Notes:
   3. the optional **bearer token** `APP_ACCESS_TOKEN` (constant-time compared, Edge-runtime safe). The token is also exposed to the browser as `NEXT_PUBLIC_APP_ACCESS_TOKEN` because there is no server-side session — treat it as a lock on the door, not a secret.
 
   Layers 1–2 are always on; layer 3 is off until you set a token. **Set it before using `*:lan` scripts or `npm run tunnel`** (the tunnel refuses to start without it).
-- **SSRF protection** (`lib/ssrfGuard.ts`, `lib/ipPolicy.ts`, `lib/safeFetch.ts`): for webhooks, URL ingestion, web scraping and the OWASP scanner, `safeFetch` resolves the hostname once, checks every address against an allow-list of globally-routable IPs (so CGNAT, multicast, `::`, NAT64/6to4 and the like are blocked too), **pins the connection to the validated address** (closing DNS-rebinding) and re-validates **every redirect hop**. The Ollama and Laya proxies relay only their upstream's own API paths (`lib/proxyPaths.ts`); custom cloud endpoints may be local/LAN but never link-local/metadata addresses.
+- **SSRF protection** (`lib/ssrfGuard.ts`, `lib/ipPolicy.ts`, `lib/safeFetch.ts`): for webhooks, URL ingestion, web scraping and search-result reading, `safeFetch` resolves the hostname once, checks every address against an allow-list of globally-routable IPs (so CGNAT, multicast, `::`, NAT64/6to4 and the like are blocked too), **pins the connection to the validated address** (closing DNS-rebinding) and re-validates **every redirect hop**. The Ollama and Laya proxies relay only their upstream's own API paths (`lib/proxyPaths.ts`); custom cloud endpoints may be local/LAN but never link-local/metadata addresses.
 - **File access** (`lib/pathSandbox.ts`): the file explorer, agent tools and folder watcher are confined to your home directory (symlinks are resolved, so a link pointing out of it doesn't escape). Manual-chat disk tools can reach the whole disk by design (an OS-directory denylist still applies). **Everywhere**, credential stores (`~/.ssh`, `~/.aws`, browser profiles, keychains, private key files) and this app's own `.env*` files and `data/` directory are off limits — read-only tools run without an approval prompt, so a prompt-injected document must not be able to read them.
 - **Approval gate** (`lib/toolApproval.ts`): `write_file` / `delete_file` need a server-side approval record that is approved, for exactly that tool **and exactly those arguments (path and content)**, at most 5 minutes old, and is consumed once (also under concurrent requests; stale syncs cannot resurrect a used approval). Every write can be reverted with one click if the file is unchanged since. This is a confirmation-and-replay-protection gate, **not** an authentication boundary — keeping other callers out is the request gate's job.
 - **Secret redaction** (`lib/redaction.ts`): before anything is sent to a cloud provider it masks PEM private keys, AWS/GitHub/Slack/Google/Stripe keys, the key formats of the supported providers (Anthropic, OpenAI, Groq, OpenRouter, DeepSeek-style `sk-…`, Hugging Face), JWTs, bearer tokens, quoted `password:`/`api_key=` assignments, `.env`-style secret lines and private-range IPs. It is pattern-based, so treat it as a safety net, not a guarantee.
@@ -140,7 +146,7 @@ This is meant to protect a single user's machine from accidents, from other webs
 ## Testing
 
 ```bash
-npm test              # Vitest — 63 suites, 612 tests as of this writing
+npm test              # Vitest — 77 suites, 749 tests as of this writing
 npm run typecheck     # tsc --noEmit
 npm run build          # production build
 npm run analyze        # production build with a bundle-size breakdown (opens .next/analyze/*.html)

@@ -9,7 +9,6 @@ import { Robot as Bot, User, Copy, Download, Check, ArrowCounterClockwise as Rot
 import dynamic from "next/dynamic";
 import { Message } from "@/lib/types";
 import { DiffPreview } from "./DiffPreview";
-import { OwaspSecurityCard } from "./OwaspSecurityCard";
 import { formatBytes } from "@/lib/ollama";
 import { speakIndonesianFemale, stopSpeaking } from "@/lib/voiceEngine";
 
@@ -365,7 +364,7 @@ const ChatMessageComponent: React.FC<ChatMessageProps> = ({
   }
 
   return (
-    <div className={`w-full mx-auto px-2.5 sm:px-4 py-2 transition-all duration-150 flex justify-start min-w-0 ${chatFullWidth ? "max-w-none sm:px-6 xl:px-10" : "max-w-4xl"}`}>
+    <div data-message-id={message.id} className={`w-full mx-auto px-2.5 sm:px-4 py-2 transition-all duration-150 flex justify-start min-w-0 ${chatFullWidth ? "max-w-none sm:px-6 xl:px-10" : "max-w-4xl"}`}>
       <div className="w-full min-w-0 px-1 py-1 sm:px-2 sm:py-2 bg-transparent text-[var(--foreground)] border-none shadow-none group relative">
         {/* Message Content */}
         <div className="w-full min-w-0 space-y-2">
@@ -641,11 +640,6 @@ const ChatMessageComponent: React.FC<ChatMessageProps> = ({
                     </div>
                   )}
                 </div>
-              )}
-
-              {/* Visual OWASP Top 10 Security Audit Card */}
-              {message.owaspScan && (
-                <OwaspSecurityCard scan={message.owaspScan} />
               )}
 
               {message.isError ? (

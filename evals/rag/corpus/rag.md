@@ -1,0 +1,2 @@
+# Retrieval pipeline
+Project files are split into chunks of about 1800 characters with overlap. Chunks are ranked with BM25 for lexical matches and with embedding vectors for semantic matches, and the two rankings are combined using reciprocal rank fusion, which adds 1 divided by (k plus rank) for each list. A reranker then reorders the top candidates, adjacent chunks from the same file are stitched back together, and the final passages are placed so the strongest sit at the start and end of the prompt.

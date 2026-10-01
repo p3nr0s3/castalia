@@ -1,0 +1,2 @@
+# Adaptive sampling
+The app picks generation parameters from the kind of request. Code generation uses a low temperature of 0.2 with top_p 0.85 and repeat penalty 1.15 for precise output. Retrieval answers use temperature 0.3 to stay faithful to the documents. Creative writing raises the temperature to 0.85 and lowers the repeat penalty to 1.05 for varied wording. General chat uses the values from your settings.

@@ -17,6 +17,12 @@ Dokumen ini merupakan referensi teknis mengenai seluruh fitur dan subsistem yang
 10. [Caching Respon & Persistensi Data](#10-caching-respon--persistensi-data)
 11. [Manajemen Ruang Kerja & Personalisasi UI](#11-manajemen-ruang-kerja--personalisasi-ui)
 12. [Keamanan Permintaan & Jaringan](#12-keamanan-permintaan--jaringan)
+13. [Pencarian Riwayat Chat](#13-pencarian-riwayat-chat)
+14. [Snapshot Backup Server](#14-snapshot-backup-server)
+15. [Pelacak Penggunaan & Biaya](#15-pelacak-penggunaan--biaya)
+16. [PWA & Mode Offline](#16-pwa--mode-offline)
+17. [Evaluasi Kualitas RAG](#17-evaluasi-kualitas-rag)
+18. [Ketahanan UI](#18-ketahanan-ui)
 
 ---
 
@@ -187,7 +193,7 @@ Dokumen ini merupakan referensi teknis mengenai seluruh fitur dan subsistem yang
 
 ### 5.4 Matriks Pertahanan SSRF & Path Sandboxing
 * **Kebijakan IP (`lib/ipPolicy.ts`)**: daftar *allow* alamat unicast global. Semua blok khusus (loopback, RFC1918, CGNAT `100.64/10`, link-local, multicast, `::`, NAT64, 6to4, Teredo, rentang dokumentasi) diblokir, termasuk IPv4 yang tertanam di IPv6.
-* **SSRF Defense (`lib/ssrfGuard.ts`, `lib/safeFetch.ts`)**: `safeFetch` me-resolve DNS sekali per hop, memeriksa semua alamat, **mem-pin koneksi TCP ke alamat yang sudah divalidasi** (menutup DNS-rebinding), mengikuti redirect secara manual dengan validasi ulang tiap hop (maks. 5), dan membatasi ukuran body. Dipakai oleh webhook connectors, ingesti URL, scraper pencarian, dan pemindai OWASP.
+* **SSRF Defense (`lib/ssrfGuard.ts`, `lib/safeFetch.ts`)**: `safeFetch` me-resolve DNS sekali per hop, memeriksa semua alamat, **mem-pin koneksi TCP ke alamat yang sudah divalidasi** (menutup DNS-rebinding), mengikuti redirect secara manual dengan validasi ulang tiap hop (maks. 5), dan membatasi ukuran body. Dipakai oleh webhook connectors, ingesti URL dan scraper pencarian.
 * **Proxy (`lib/proxyPaths.ts`)**: proxy Ollama dan Laya hanya me-relay path API upstream masing-masing. Host `?host=` sengaja fleksibel (LAN atau cloud) dan hanya memblokir link-local/metadata; tanpa daftar path, proxy ini bisa dipakai memanggil rute aplikasi sendiri (*confused deputy*).
 * **Path Sandbox (`lib/pathSandbox.ts`)**: `resolveWithinBase` menolak `../` dan juga *symlink* yang keluar dari root (dibandingkan lewat `realpath`). `resolveWithinHomeSafe` (file explorer, agen, watcher) menambah denylist kredensial. `resolveOnLocalDisk` (chat manual) membuka seluruh disk dengan denylist direktori OS + denylist kredensial.
 
@@ -202,7 +208,14 @@ Dokumen ini merupakan referensi teknis mengenai seluruh fitur dan subsistem yang
 ### 6.2 Pola Penjadwalan (Scheduling)
 * **Jadwal Harian**: Menjalankan tugas pada jam dan menit spesifik setiap hari.
 * **Interval**: Menjalankan tugas berulang setiap $N$ menit/jam (15 menit hingga 24 jam).
-* **Batasan Arsitektur**: Penjadwal berjalan pada thread tab browser (*client-side timer*), bukan sebagai daemon cron level OS. Jika tab browser tertutup pada jadwal eksekusi, agen akan mengeksekusi tugas tersebut satu kali (*catch-up*) saat tab browser dibuka kembali.
+* **Siapa yang menjalankan**: agen **tanpa disk tools** dijalankan oleh *server* (6.3), sehingga tetap berjalan walau tab ditutup. Agen **dengan disk tools** tetap dijadwalkan di tab browser (*client-side timer*), karena penulisan file butuh persetujuan manusia; bila tab tertutup pada jadwalnya, agen dijalankan satu kali (*catch-up*) saat tab dibuka lagi.
+* **Batas**: ini bukan daemon cron level OS; scheduler server hidup selama proses Lyra berjalan.
+
+### 6.3 Scheduler Server & Notifikasi Webhook
+* **Implementasi**: `lib/agentScheduler.ts`, `instrumentation.ts`, `lib/apiClient.ts` (`configureServerApi`), pengaturan `serverScheduler`, kolom webhook di `components/AgentModal.tsx`.
+* **Mekanisme**: tiap 30 detik server memeriksa agen yang jatuh tempo dan menjalankannya **satu per satu** (GPU lokal dipakai bersama). Agen "diklaim" dengan menyimpan status `running` sebelum mulai (klaim lebih dari 30 menit dianggap proses yang mati dan dicoba lagi), laporan disimpan sebagai percakapan, lalu `nextRun` dijadwalkan ulang. Scheduler browser menyerahkan agen non-disk ke server, sehingga tidak ada eksekusi ganda (dulu: satu kali per tab yang terbuka).
+* **Notifikasi**: bila agen punya `notifyUrl`, hasil (selesai/gagal) dikirim ke webhook (Slack, Discord, Telegram `sendMessage`, atau penerima generik) lewat `safeFetch`. Alamat internal ditolak, dan kegagalan webhook tidak pernah menggagalkan proses.
+* **Batas**: notifikasi baru untuk agen yang dijalankan server. Matikan dengan pengaturan "Jalankan agen terjadwal dari server" atau `LYRA_SERVER_SCHEDULER=0`. Bukti uji: server produksi sungguhan menjalankan agen yang jatuh tempo lewat Ollama tiruan tanpa browser.
 
 ---
 
@@ -293,6 +306,42 @@ Dokumen ini merupakan referensi teknis mengenai seluruh fitur dan subsistem yang
 * **Implementasi**: `scripts/tunnel.mjs`, `scripts/loadEnv.mjs`, `scripts/warnOpenAccess.mjs`.
 * **Mode LAN**: `npm run dev:lan`, `start:lan` (dan `dev:all:lan`, `prod:all:lan` lewat `scripts/launch.mjs`) **menolak berjalan tanpa `APP_ACCESS_TOKEN`** (override sadar: `ALLOW_OPEN_LAN=1`). Pemeriksaan dirantai langsung di script (`node scripts/warnOpenAccess.mjs --lan && next …`), bukan lewat hook `pre*`, karena `.npmrc` memakai `ignore-scripts=true` yang membuat npm melewati hook tersebut. Launcher juga tidak meneruskan API key/token ke proses Python Laya dan mendeteksi Python tanpa shell (aman untuk path berspasi).
 * **Mekanisme tunnel**: `npm run tunnel` membuka tunnel SSH ke Pinggy dan menampilkan URL + QR. Menolak berjalan tanpa `APP_ACCESS_TOKEN` (dibaca dari lingkungan **dan** `.env.local`), memperingatkan bila `NEXT_PUBLIC_APP_ACCESS_TOKEN` tidak cocok, dan memakai `StrictHostKeyChecking=accept-new` (kunci host dipercaya saat pertama kali, ditolak bila berubah).
+
+### 12.3 Penjaga Repositori
+* **Implementasi**: `tests/repoHygiene.test.ts`, `.gitignore`.
+* **Mekanisme**: berjalan di CI pada setiap PR dan gagal bila berkas data pribadi (`data/`, `data-backup/`, `*.sqlite3*`, `db.json`), `.env`, token bridge, kunci privat, atau API key berformat jelas ter-track. Dibuat setelah folder cadangan data (berisi riwayat chat nyata) pernah ter-commit ke repo publik.
+
+---
+
+## 13. Pencarian Riwayat Chat
+* **Implementasi**: `lib/historySearch.ts`, `lib/serverDb.ts` (`searchHistory`), `app/api/history/search/route.ts`, `components/HistorySearchModal.tsx`, pintasan di `app/page.tsx`, tombol di `components/Sidebar.tsx`.
+* **Mekanisme**: `Ctrl/Cmd+K` membuka pencarian teks di **semua pesan** semua percakapan. Aturan: setiap kata harus muncul (sebagai awalan kata) dalam satu pesan, judul percakapan ikut dihitung, tanpa membedakan huruf besar/kecil dan aksen. Hasil menampilkan kutipan dengan kata yang disorot (`<mark>`, tidak pernah HTML mentah) dan membuka chat langsung di pesan itu.
+* **Mesin**: SQLite FTS5 (Node 22+) dengan indeks yang dibangun **malas** saat pencarian dan hanya untuk percakapan baru/berubah (tidak menyentuh jalur tulis sinkronisasi); pada backend JSON dipakai pemindaian dengan aturan yang sama. Kueri pengguna diubah menjadi token berkutip, sehingga tidak bisa ditafsirkan sebagai sintaks FTS.
+
+## 14. Snapshot Backup Server
+* **Implementasi**: `lib/backupService.ts`, `app/api/backup/route.ts`, `components/settings/ServerSnapshots.tsx`, `instrumentation.ts`.
+* **Mekanisme**: snapshot otomatis tiap 24 jam di `data/backups/` (7 terakhir disimpan), plus snapshot manual (tidak pernah dihapus otomatis). Tulis atomik dengan izin 0600. **Tanpa API key** kecuali diminta; **approval tidak pernah** ikut dan tidak pernah disentuh saat pemulihan (agar approval "approved" tidak bisa dihidupkan kembali). Pemulihan selalu membuat snapshot *pra-pemulihan* lebih dulu, jadi bisa dibatalkan.
+* **Mode**: *replace* mengganti seluruh data; *merge* hanya menimpa item yang **benar-benar lebih baru** (aturan sinkronisasi biasa menerima salinan lama dengan jumlah pesan sama, yang salah untuk memulihkan backup). Backup tanpa key tidak menghapus key yang sudah ada.
+* **Batas**: tab yang terbuka mengadopsi data hasil pemulihan lewat SSE tanpa reload. Perangkat lain dengan localStorage lama dapat menghidupkan kembali item yang sudah dihapus saat ia mendorong data saat startup (sifat desain sinkronisasi).
+* Ekspor/impor manual di Settings → Data (dari localStorage browser) tetap ada; sekarang **tanpa API key** secara default dan impor tidak menghapus key yang ada.
+
+## 15. Pelacak Penggunaan & Biaya
+* **Implementasi**: `lib/usageTracker.ts`, `components/settings/UsageSection.tsx`.
+* **Mekanisme**: menjumlahkan `promptEvalCount` dan `evalCount` dari balasan yang sudah tersimpan (juga terisi untuk model cloud lewat chunk akhir proxy), per model dan per hari, dengan rentang 7/30 hari atau semua. Model lokal gratis. Biaya hanya dihitung untuk model yang **harganya diisi pengguna** (harga berubah dan berbeda per paket, jadi tidak ada yang ditanam); token tanpa harga dilaporkan terpisah agar total tidak terkesan lebih kecil.
+
+## 16. PWA & Mode Offline
+* **Implementasi**: `public/sw.js`, `public/offline.html`, `components/ServiceWorkerRegister.tsx`, `public/manifest.json`.
+* **Mekanisme**: aplikasi bisa dipasang (*installable*). Service worker hanya aktif di build produksi dan konteks aman. **Tidak pernah menyentuh `/api/*`** (chat, SSE, file, eksekusi kode), hanya GET same-origin; berkas build berhash disimpan *cache-first*; halaman HTML tidak disimpan (bundelnya memuat token), dan saat server tidak terjangkau tampil `/offline.html`.
+* **Batas**: ini bukan mode offline penuh: Lyra butuh server lokalnya berjalan.
+
+## 17. Evaluasi Kualitas RAG
+* **Implementasi**: `lib/ragEval.ts`, `evals/rag/golden.json`, `evals/rag/corpus/`, `tests/ragEval.test.ts`, `scripts/ragEval.mjs`.
+* **Mekanisme**: `npm run eval:rag` mengukur recall@k, MRR, dan hit rate (tingkat berkas) dari chunking + BM25 terhadap set pertanyaan beserta berkas jawabannya, dan menampilkan hasil per pertanyaan. Gerbang regresi di CI ada pada pertanyaan leksikal; pertanyaan bertanda `semantic` (tanpa kata yang sama dengan dokumen) dilaporkan terpisah. Retriever dapat diganti untuk mengevaluasi pencarian hybrid dengan embedding sungguhan.
+* **Batas**: korpus kecil dan pertanyaannya ditulis sendiri, jadi ini uji asap regresi, **bukan benchmark** terhadap alat lain. Pada pengukuran awal BM25 murni 100% pada kasus leksikal dan 0% pada kasus semantik, yang mengukur nilai lapisan vektor.
+
+## 18. Ketahanan UI
+* **Implementasi**: `components/ErrorBoundary.tsx`, `app/error.tsx`, `app/global-error.tsx`, `components/settings/` (12 komponen tab + `shared.tsx`).
+* **Mekanisme**: error render di area kerja atau di dialog tidak lagi mengosongkan seluruh halaman: masing-masing dibungkus boundary dengan tombol "Coba lagi". `SettingsModal` dipecah menjadi hook state dan 12 tab yang dimuat malas (hanya tab yang dibuka yang diunduh); DOM tiap tab terbukti identik dengan komponen aslinya.
 
 ---
 

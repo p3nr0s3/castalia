@@ -28,6 +28,22 @@ Not protected against:
 3. Keep provider API keys in `.env.local` (server-side) rather than in the browser settings.
 4. Rotate the token if you suspect it leaked (it is embedded in the client bundle by design).
 
+## Additional protections
+
+- **Private data stays out of git.** `tests/repoHygiene.test.ts` runs in CI and fails if a database, `data/`
+  folder or copy of it, `.env` file, token or private key is tracked. (A copy of `data/` named `data-backup/`
+  was once committed to the public repository; if you ever do that, treat the contents as exposed and rewrite
+  the history, deleting the file in a later commit is not enough.)
+- **Tests never touch your data.** Every test file gets a throwaway `LYRA_DATA_DIR`. Previously `npm test`
+  ran against the real `data/` folder: one test deleted `data/response-cache.json` on every run.
+- **Backups.** Snapshots in `data/backups/` contain your chat history (readable by anything that can read that
+  folder) and are written owner-only. API keys are excluded unless you explicitly ask for them, and pending
+  approvals are never included.
+- **Webhooks** (agent notifications, connectors) only reach public https hosts: the name is resolved once,
+  every address is checked, and the connection is pinned to the validated address.
+- **Chat history, backup and MCP routes** require same-origin like the file and code-execution routes, even for GET.
+- **The service worker never touches `/api/*`** and does not cache HTML pages.
+
 ## Known limitations
 
 - Dependency advisories for `next@14` have no fix in the 14.x line; upgrading means moving to 15.5.x
@@ -38,6 +54,10 @@ Not protected against:
   instead of disappearing into a permanently red `npm audit`.
 - The in-browser Python runner downloads Pyodide from a CDN without Subresource Integrity.
 - The secret-redaction patterns are a safety net, not a guarantee.
+- The SQLite backend needs Node 22+. On older Node the app uses `data/db.json` (everything works, without
+  SQLite's crash-safety); loading the SQLite binary on Node 20 would crash the process, so it is not attempted.
+- Restoring a backup on one device does not stop another device with older local data from re-adding deleted
+  items when it next syncs.
 
 ## Reporting a vulnerability
 

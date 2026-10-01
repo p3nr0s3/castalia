@@ -60,3 +60,24 @@ Thumbs.db
 # by lib/graphifyOps.ts (once per server-process lifetime), not source.
 /graphify-out/
 .next/analyze/
+
+# ---------------------------------------------------------------------------
+# Private runtime data — NEVER commit. A copy of data/ named data-backup/ (with its
+# SQLite WAL, i.e. real conversations and project files) was once committed to the
+# public repo by `Copy-Item data data-backup`; these patterns, plus
+# tests/repoHygiene.test.ts (which runs in CI), make that impossible to repeat.
+# ---------------------------------------------------------------------------
+/data/
+/data-*/
+/*-backup/
+/*.git/
+/lyra-clean*/
+/*.bak/
+*.sqlite3
+*.sqlite3-*
+*.sqlite-*
+*.db-wal
+*.db-shm
+*-bridge-token.json
+.env.local
+.env.*.local
