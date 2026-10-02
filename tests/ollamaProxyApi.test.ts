@@ -37,12 +37,12 @@ describe("Ollama Proxy API (/api/ollama/[...path])", () => {
   }
 
   describe("path allow-list (confused-deputy regression)", () => {
-    it("refuses to relay a non-Ollama path such as this app's own code-execution route", async () => {
+    it("refuses to relay a non-Ollama path such as this app's own internal API route", async () => {
       const fetchSpy = vi.fn();
       global.fetch = fetchSpy as any;
-      const { req, params } = makeRequest("POST", ["api", "codespace", "run"], {
+      const { req, params } = makeRequest("POST", ["api", "tools", "execute"], {
         host: "http://127.0.0.1:3000",
-        body: { language: "bash", code: "echo pwned" },
+        body: { tool: "write_file", args: {} },
       });
       const res = await POST(req, params);
       expect(res.status).toBe(403);

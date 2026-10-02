@@ -116,14 +116,14 @@ describe("middleware", () => {
 
   it("blocks a spoofed Host on API routes AND on pages (DNS rebinding)", () => {
     delete process.env.APP_ACCESS_TOKEN;
-    expect(middleware(req("/api/codespace/run", { method: "POST", headers: { host: "evil.example:3000", "sec-fetch-site": "same-origin" } })).status).toBe(403);
+    expect(middleware(req("/api/tools/execute", { method: "POST", headers: { host: "evil.example:3000", "sec-fetch-site": "same-origin" } })).status).toBe(403);
     expect(middleware(req("/", { headers: { host: "evil.example:3000" } })).status).toBe(403);
     expect(status(middleware(req("/", { headers: { host: "127.0.0.1:3000" } })))).toBe(200);
   });
 
   it("blocks cross-site AND same-site state-changing calls on ANY api route (incl. /api/db, /api/cache, the Ollama proxy)", () => {
     delete process.env.APP_ACCESS_TOKEN;
-    for (const p of ["/api/db", "/api/cache", "/api/ollama/api/chat", "/api/cloud/chat", "/api/projects/watcher", "/api/codespace/run"]) {
+    for (const p of ["/api/db", "/api/cache", "/api/ollama/api/chat", "/api/cloud/chat", "/api/projects/watcher", "/api/tools/execute"]) {
       for (const site of ["cross-site", "same-site"]) {
         expect(middleware(req(p, { method: "POST", headers: { "sec-fetch-site": site } })).status, `${p} ${site}`).toBe(403);
       }

@@ -8,6 +8,7 @@ import { processSelectedFiles } from "@/lib/fileUtils";
 import { CLOUD_MODEL_PRESETS } from "@/lib/constants";
 import { estimateTokens, chunkDocument, getCachedFileChunks } from "@/lib/rag";
 import { apiFetch } from "@/lib/apiClient";
+import { toast } from "@/lib/toast";
 
 interface ProjectModalProps {
   isOpen: boolean;
@@ -249,7 +250,7 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
 
   const toggleWatcher = async () => {
     if (!project?.id) {
-      alert("Save the project first — a project must exist before its folder can be watched.");
+      toast.warning("Save the project first — a project must exist before its folder can be watched.");
       return;
     }
 
@@ -300,7 +301,7 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
 
   const handleSave = () => {
     if (!name.trim()) {
-      alert("Please enter a project name.");
+      toast.warning("Please enter a project name.");
       return;
     }
 

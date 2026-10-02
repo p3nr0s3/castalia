@@ -21,6 +21,7 @@ import {
   OwaspScanResult,
 } from "@/lib/types";
 import { storage } from "@/lib/storage";
+import { toast } from "@/lib/toast";
 import { DEFAULT_SETTINGS, PRESET_PERSONAS, DEFAULT_CUSTOM_THEME } from "@/lib/constants";
 import { checkOllamaHealth, fetchOllamaModels, streamChatCompletion, detectModelProvider, checkVramPressure, prewarmModel, resolveEffectiveNumCtxSync, calculateContextBucket, formatBytes } from "@/lib/ollama";
 import { getBatterySignal, isBatteryConstrained } from "@/lib/hardwareSignals";
@@ -38,6 +39,8 @@ import { ChatArea } from "@/components/ChatArea";
 import { ProjectsGallery } from "@/components/ProjectsGallery";
 import { ProjectDetailView } from "@/components/ProjectDetailView";
 import type { SettingsSection } from "@/components/SettingsModal";
+import { useThemeManager } from "@/hooks/useThemeManager";
+import { useScheduledAgents } from "@/hooks/useScheduledAgents";
 
 // Modals below are always mounted (each returns null while closed) but only
 // actually opened occasionally — code-splitting them keeps their JS out of
@@ -64,6 +67,7 @@ import {
 } from "@/lib/directoryData";
 import {
   buildOptimizedKnowledgeContextAsync,
+  retrieveKnowledgeContextAsync,
   buildRetrievalQuery,
   trimChatHistoryForBudget,
   formatUserEphemeralContext,
@@ -201,13 +205,6 @@ export default function HomePage() {
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
-  // Request browser notification permission for scheduled agents
-  useEffect(() => {
-    if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "default") {
-      Notification.requestPermission().catch(() => {});
-    }
-  }, []);
-
   // Active helpers
   const activeConversation = conversations.find((c) => c.id === activeId) || null;
   // Prioritize activeProjectId if set (e.g. when viewing/selecting a project), then fallback to conversation's projectId
@@ -227,63 +224,12 @@ export default function HomePage() {
     });
   }, [activeConversation, currentProject, settings, input, diskToolsActive]);
 
-  // Initialize theme & typography font
-  useEffect(() => {
-    const root = document.documentElement;
-    const customProps = [
-      "--background",
-      "--foreground",
-      "--sidebar-bg",
-      "--sidebar-hover",
-      "--sidebar-border",
-      "--card-bg",
-      "--card-border",
-      "--accent",
-      "--accent-hover",
-      "--user-bubble",
-      "--input-bg",
-      "--input-border",
-      "--muted",
-      "--header-bg",
-    ];
-
-    if (settings.theme === "system") {
-      const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-      root.removeAttribute("data-theme");
-      if (prefersDark) root.classList.add("dark");
-      else root.classList.remove("dark");
-      customProps.forEach((p) => root.style.removeProperty(p));
-    } else if (settings.theme === "light") {
-      root.setAttribute("data-theme", "light");
-      root.classList.remove("dark");
-      customProps.forEach((p) => root.style.removeProperty(p));
-    } else if (settings.theme === "custom") {
-      root.setAttribute("data-theme", "custom");
-      root.classList.add("dark");
-      const ct = settings.customTheme || DEFAULT_CUSTOM_THEME;
-      root.style.setProperty("--background", ct.background);
-      root.style.setProperty("--foreground", ct.foreground);
-      root.style.setProperty("--sidebar-bg", ct.sidebarBg);
-      root.style.setProperty("--sidebar-hover", `${ct.sidebarBg}ee`);
-      root.style.setProperty("--sidebar-border", `${ct.cardBg}`);
-      root.style.setProperty("--card-bg", ct.cardBg);
-      root.style.setProperty("--card-border", `${ct.sidebarBg}`);
-      root.style.setProperty("--accent", ct.accent);
-      root.style.setProperty("--accent-hover", ct.accent);
-      root.style.setProperty("--user-bubble", ct.cardBg);
-      root.style.setProperty("--input-bg", ct.cardBg);
-      root.style.setProperty("--input-border", `${ct.sidebarBg}`);
-      root.style.setProperty("--muted", ct.muted || "#9ca3af");
-      root.style.setProperty("--header-bg", `${ct.background}d9`);
-    } else {
-      root.setAttribute("data-theme", settings.theme);
-      root.classList.add("dark");
-      customProps.forEach((p) => root.style.removeProperty(p));
-    }
-
-    // Apply custom typography font
-    root.setAttribute("data-font", settings.fontFamily || "inter");
-  }, [settings.theme, settings.fontFamily, settings.customTheme]);
+  // Theme & typography font manager
+  useThemeManager({
+    theme: settings.theme,
+    fontFamily: settings.fontFamily,
+    customTheme: settings.customTheme,
+  });
 
   // Load models and health check
   const refreshOllama = useCallback(async () => {
@@ -432,6 +378,19 @@ export default function HomePage() {
     setProjects(storage.getProjects());
     setAgents(storage.getAgents());
     setActiveId(storage.getActiveConversationId());
+
+    // 1b. Asynchronously hydrate from IndexedDB if localStorage was truncated by quota
+    storage.loadClientDbAsync().then((idbData) => {
+      if (idbData.conversations && idbData.conversations.length > 0) {
+        setConversations((prev) => (idbData.conversations!.length >= prev.length ? idbData.conversations! : prev));
+      }
+      if (idbData.projects && idbData.projects.length > 0) {
+        setProjects((prev) => (idbData.projects!.length >= prev.length ? idbData.projects! : prev));
+      }
+      if (idbData.agents && idbData.agents.length > 0) {
+        setAgents((prev) => (idbData.agents!.length >= prev.length ? idbData.agents! : prev));
+      }
+    }).catch(() => {});
 
     // Pending approvals survive a reload as records (so the badge stays visible),
     // but their pausedContext (message history) lives only in memory and is lost
@@ -679,42 +638,18 @@ export default function HomePage() {
         return next;
       });
     } catch (err: any) {
-      // No toast system in this app yet — a blocking alert is the simplest
-      // way to make sure a refused revert (e.g. "file changed since") isn't
-      // silently missed, since it means the file is NOT in the state the
-      // user just asked for.
-      window.alert(err?.message || "Gagal melakukan revert.");
+      toast.error(err?.message || "Gagal melakukan revert.");
     } finally {
       setRevertingApprovalIds((prev) => prev.filter((id) => id !== approvalId));
     }
   };
 
-  // Scheduled Agent Checker — runs on a client-side timer (checks every 25
-  // seconds) while this tab is open. This is NOT a persistent server-side
-  // scheduler: if the tab is closed when a run was due, nothing fires until
-  // it's reopened, at which point overdue agents run once immediately
-  // (see the `now >= agent.nextRun` check below) rather than at their
-  // originally scheduled time. See the caveat shown in AgentModal's
-  // schedule picker for the user-facing version of this.
-  useEffect(() => {
-    const schedulerInterval = setInterval(() => {
-      const now = Date.now();
-      agents.forEach((agent) => {
-        if (
-          agent.enabled &&
-          agent.scheduleType !== "manual" &&
-          agent.nextRun &&
-          now >= agent.nextRun &&
-          !runningAgentIds.includes(agent.id)
-        ) {
-          console.log(`Triggering scheduled Agent: ${agent.name}`);
-          handleRunAgentNow(agent.id);
-        }
-      });
-    }, 25000);
-
-    return () => clearInterval(schedulerInterval);
-  }, [agents, runningAgentIds, projects, settings]);
+  // Scheduled Agent Checker & Notification Handler
+  useScheduledAgents({
+    agents,
+    runningAgentIds,
+    onTriggerAgent: handleRunAgentNow,
+  });
 
   // Agent Management
   const handleSaveAgent = (savedAgent: AgentTask) => {
@@ -1059,7 +994,7 @@ export default function HomePage() {
       const retrievalQuery = buildRetrievalQuery(userQuery, conv.messages);
       const targetCtx = conv.numCtx ?? proj.numCtx ?? settings.numCtx ?? 16384;
       const dynamicBudgets = calculateDynamicTokenBudgets(targetCtx);
-      const knowledgeResult = await buildOptimizedKnowledgeContextAsync(
+      const knowledgeResult = await retrieveKnowledgeContextAsync(
         proj.files,
         retrievalQuery,
         dynamicBudgets.knowledgeBudget,

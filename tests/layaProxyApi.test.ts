@@ -12,10 +12,10 @@ describe("proxy path allow-lists", () => {
   });
 
   it("rejects this app's own routes, traversal, and prefix tricks", () => {
-    for (const p of ["api/codespace/run", "api/db", "api/tools/execute", "api/fs", "api/chat/../db", "api/chatx", "API/chat", "api/chat/", "", "latest/meta-data"]) {
+    for (const p of ["api/tools/execute", "api/db", "api/fs", "api/chat/../db", "api/chatx", "API/chat", "api/chat/", "", "latest/meta-data"]) {
       expect(isAllowedOllamaPath(p), p).toBe(false);
     }
-    for (const p of ["api/codespace/run", "predict/../x", "healthz", ""]) expect(isAllowedLayaPath(p), p).toBe(false);
+    for (const p of ["api/tools/execute", "predict/../x", "healthz", ""]) expect(isAllowedLayaPath(p), p).toBe(false);
   });
 });
 
@@ -35,7 +35,7 @@ describe("/api/laya/[...path]", () => {
   it("refuses to relay to this app's own routes via ?host=", async () => {
     const spy = vi.fn();
     global.fetch = spy as any;
-    const { req, params } = mk("POST", ["api", "codespace", "run"]);
+    const { req, params } = mk("POST", ["api", "tools", "execute"]);
     expect((await POST(req, params)).status).toBe(403);
     expect((await GET(...Object.values(mk("GET", ["api", "db"])) as [any, any])).status).toBe(403);
     expect(spy).not.toHaveBeenCalled();

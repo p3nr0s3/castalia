@@ -13,8 +13,8 @@ if (lan && !token) {
   console.log("REFUSING TO START ON THE NETWORK: APP_ACCESS_TOKEN is not set.");
   console.log(bar);
   console.log("This script binds to 0.0.0.0, so anyone on your Wi-Fi/LAN could reach");
-  console.log("/api/fs (reads your home directory), /api/tools/execute (writes files) and");
-  console.log("/api/codespace/run (executes code) with no credentials at all.");
+  console.log("/api/fs (reads your home directory) and /api/tools/execute (writes files)");
+  console.log("with no credentials at all.");
   console.log("");
   console.log("Set APP_ACCESS_TOKEN and NEXT_PUBLIC_APP_ACCESS_TOKEN (same value) in");
   console.log(".env.local (generate one with: openssl rand -hex 32), or use `npm run dev`");
@@ -31,8 +31,8 @@ if (!token) {
   console.log("Fine for solo use on 127.0.0.1 (the default bind). Cross-site requests and");
   console.log("foreign Host headers are still rejected, but it stops being fine the moment");
   console.log("this machine is reachable by anyone else (npm run *:lan, a tunnel, shared");
-  console.log("Wi-Fi, a bridged VM): /api/fs reads your home directory, /api/tools/execute");
-  console.log("writes files and /api/codespace/run executes code.");
+  console.log("Wi-Fi, a bridged VM): /api/fs reads your home directory and /api/tools/execute");
+  console.log("writes files.");
   console.log("");
   console.log("Set APP_ACCESS_TOKEN and NEXT_PUBLIC_APP_ACCESS_TOKEN (same value) in");
   console.log("a .env.local file. See .env.example.");

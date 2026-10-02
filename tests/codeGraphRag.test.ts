@@ -108,11 +108,17 @@ describe("extractDefinedSymbols (Multi-Language AST Symbol Extraction)", () => {
     expect(symbols).toContain("establish_connection");
   });
 
-  it("ignores symbols inside comments", () => {
+  it("ignores symbols inside comments and multiline docstrings", () => {
     const commentedCode = `
       // function fakeFunction() {}
       # def fake_python():
       /* export class FakeClass {} */
+      /*
+        function multilineFake() {}
+      */
+      """
+        def docstring_fake(): pass
+      """
       export function realFunction() {}
     `;
 
@@ -121,6 +127,31 @@ describe("extractDefinedSymbols (Multi-Language AST Symbol Extraction)", () => {
     expect(symbols).not.toContain("fakeFunction");
     expect(symbols).not.toContain("fake_python");
     expect(symbols).not.toContain("FakeClass");
+    expect(symbols).not.toContain("multilineFake");
+    expect(symbols).not.toContain("docstring_fake");
+  });
+
+  it("extracts TypeScript typed arrow functions, abstract classes, and Go structs", () => {
+    const code = `
+      export const MyWidget: React.FC<WidgetProps> = ({ id }) => {
+        return null;
+      };
+      export abstract class BaseRepository {
+        abstract getById(id: string): any;
+      }
+      type AppConfig struct {
+        Port int
+      }
+      type DataReader interface {
+        Read() []byte
+      }
+    `;
+
+    const symbols = extractDefinedSymbols(code);
+    expect(symbols).toContain("MyWidget");
+    expect(symbols).toContain("BaseRepository");
+    expect(symbols).toContain("AppConfig");
+    expect(symbols).toContain("DataReader");
   });
 });
 

@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import { X, Robot as Bot, Clock, Globe, Faders as Sliders, Folder, Sparkle as Sparkles, Check, Play, CalendarBlank as Calendar, Lightning as Zap, HardDrive } from "@phosphor-icons/react";
 import { AgentTask, AgentScheduleType, OllamaModel, Project } from "@/lib/types";
 import { AGENT_PRESET_TEMPLATES, calculateNextRun } from "@/lib/agentEngine";
+import { toast } from "@/lib/toast";
 
 interface AgentModalProps {
   isOpen: boolean;
@@ -59,11 +60,11 @@ export const AgentModal: React.FC<AgentModalProps> = ({
 
   const handleSave = () => {
     if (!name.trim()) {
-      alert("Please enter a name for the AI Agent.");
+      toast.warning("Please enter a name for the AI Agent.");
       return;
     }
     if (!prompt.trim()) {
-      alert("Please enter a prompt or instruction for the AI Agent.");
+      toast.warning("Please enter a prompt or instruction for the AI Agent.");
       return;
     }
 

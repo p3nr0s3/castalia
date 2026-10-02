@@ -67,8 +67,8 @@ describe("documentation facts that have drifted before", () => {
     const types = fs.readFileSync(path.join(ROOT, "lib/types.ts"), "utf-8");
     const block = types.slice(types.indexOf("export type ThemeType"), types.indexOf("export interface CustomThemePalette"));
     const themes = [...block.matchAll(/"([a-z-]+)"/g)].map((m) => m[1]).filter((t) => t !== "custom");
-    const section = features.slice(features.indexOf("### 11.4"));
-    for (const t of themes) expect(section, `theme '${t}' missing from FEATURES.md 11.4`).toContain(`\`${t}\``);
+    const section = features.slice(features.indexOf("### 10.4"));
+    for (const t of themes) expect(section, `theme '${t}' missing from FEATURES.md 10.4`).toContain(`\`${t}\``);
   });
 
   it("the documented test count matches reality within the README badge", () => {

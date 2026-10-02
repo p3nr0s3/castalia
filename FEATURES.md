@@ -8,15 +8,14 @@ Dokumen ini merupakan referensi teknis mengenai seluruh fitur dan subsistem yang
 1. [Arsitektur Chat & Multi-Model](#1-arsitektur-chat--multi-model)
 2. [Efisiensi Inferensi & Optimasi VRAM Hardware](#2-efisiensi-inferensi--optimasi-vram-hardware)
 3. [Retrieval-Augmented Generation (RAG) 2-Tahap](#3-retrieval-augmented-generation-rag-2-tahap)
-4. [Codespace IDE & Sandbox Eksekusi Kode](#4-codespace-ide--sandbox-eksekusi-kode)
-5. [Tool-Calling & Sistem Keamanan Agentic](#5-tool-calling--sistem-keamanan-agentic)
-6. [Autonomous Scheduled Agents](#6-autonomous-scheduled-agents)
-7. [Memori Jangka Panjang & Ekstraksi Fakta](#7-memori-jangka-panjang--ekstraksi-fakta)
-8. [Pencarian Web Terpadu (Dual-Engine Scraper)](#8-pencarian-web-terpadu-dual-engine-scraper)
-9. [Voice Studio & Speech Synthesis](#9-voice-studio--speech-synthesis)
-10. [Caching Respon & Persistensi Data](#10-caching-respon--persistensi-data)
-11. [Manajemen Ruang Kerja & Personalisasi UI](#11-manajemen-ruang-kerja--personalisasi-ui)
-12. [Keamanan Permintaan & Jaringan](#12-keamanan-permintaan--jaringan)
+4. [Tool-Calling & Sistem Keamanan Agentic](#4-tool-calling--sistem-keamanan-agentic)
+5. [Autonomous Scheduled Agents](#5-autonomous-scheduled-agents)
+6. [Memori Jangka Panjang & Ekstraksi Fakta](#6-memori-jangka-panjang--ekstraksi-fakta)
+7. [Pencarian Web Terpadu (Dual-Engine Scraper)](#7-pencarian-web-terpadu-dual-engine-scraper)
+8. [Voice Studio & Speech Synthesis](#8-voice-studio--speech-synthesis)
+9. [Caching Respon & Persistensi Data](#9-caching-respon--persistensi-data)
+10. [Manajemen Ruang Kerja & Personalisasi UI](#10-manajemen-ruang-kerja--personalisasi-ui)
+11. [Keamanan Permintaan & Jaringan](#11-keamanan-permintaan--jaringan)
 
 ---
 
@@ -142,50 +141,26 @@ Dokumen ini merupakan referensi teknis mengenai seluruh fitur dan subsistem yang
 
 ---
 
-## 4. Codespace IDE & Sandbox Eksekusi Kode
+## 4. Tool-Calling & Sistem Keamanan Agentic
 
-### 4.1 Tata Letak Workspace Tiga Panel
-* **Implementasi**: `app/codespace/page.tsx`, `components/CodespaceView.tsx`.
-* **Mekanisme**: Antarmuka layar penuh (*fullscreen*) dengan susunan:
-  1. Panel kiri: Penjelajah file virtual (*file tree explorer*) dengan operasi buat, ubah nama, dan hapus berkas.
-  2. Panel kanan atas: Editor kode berbasis web dengan syntax highlighting dan line numbering.
-  3. Panel kanan bawah: Terminal eksekusi horizontal yang dapat diatur ukurannya (*resizable split pane*).
-
-### 4.2 Runtime Eksekusi Ganda
-* **Pyodide (Python 3.12 WebAssembly)**: Berjalan di browser dalam iframe `sandbox="allow-scripts"`, tanpa memerlukan Python di mesin host. Runtime (Pyodide v0.26.2) **diunduh dari CDN jsDelivr saat pertama dipakai**, jadi butuh koneksi internet dan tidak memakai SRI.
-* **Subproses server lokal (`/api/codespace/run`)**: Mengeksekusi Python (native), JavaScript, TypeScript (Node 22.6+ dengan `--experimental-strip-types`), dan shell (bash/PowerShell) sebagai proses anak dengan:
-  * variabel lingkungan yang dipersempit (*environment scrubbing*, tanpa `APP_ACCESS_TOKEN` atau API key),
-  * timeout 1–30 detik (nilai non-numerik jatuh ke 15 detik) dan pemutusan **seluruh process tree** saat timeout atau output melebihi 500 KB,
-  * maksimal 4 eksekusi bersamaan (sisanya HTTP 429),
-  * pembersihan file sementara otomatis.
-* **Peringatan**: rute ini menjalankan kode sembarang dengan hak akses pengguna (bukan sandbox OS). Perlindungannya adalah gerbang permintaan di bagian 12.
-
-### 4.3 Telemetri & Tindakan Cepat AI Copilot
-* **Telemetri**: Menampilkan status exit code, durasi eksekusi (ms), stream stdout, dan stderr.
-* **AI Copilot Quick-Actions**: Tombol integrasi satu klik untuk *Review Code*, *Fix Bugs*, *Optimize*, *Generate Tests*, serta pratinjau langsung untuk file HTML/CSS.
-
----
-
-## 5. Tool-Calling & Sistem Keamanan Agentic
-
-### 5.1 Protokol Inline Tool Calling
+### 4.1 Protokol Inline Tool Calling
 * **Implementasi**: `lib/tools.ts`.
 * **Mekanisme**: Menggunakan protokol directive eksplisit `[TOOL_CALL:tool_name:{"arg":"val"}]` pada output teks model. Pilihan arsitektur ini memastikan kompatibilitas yang seragam di seluruh model lokal dan open-weights tanpa bergantung pada schema function-calling proprietary.
 
-### 5.2 Pembagian Kategori & Gerbang Persetujuan (Approval Gate)
+### 4.2 Pembagian Kategori & Gerbang Persetujuan (Approval Gate)
 * **Read-Only Tools (Otomatis, tanpa persetujuan)**:
   * `list_directory`, `read_file`, `search_files`: Membaca struktur dan isi direktori. Cakupan: chat manual = seluruh disk kecuali denylist direktori OS; agen = direktori home. Di semua mode, penyimpanan kredensial (`~/.ssh`, `~/.aws`, profil browser, keychain, file kunci privat) serta file `.env*` dan folder `data/` milik aplikasi ditolak.
   * `graphify_explain`, `graphify_query`, `graphify_path`: Analisis struktur dependensi kode via CLI `graphify`.
 * **Mutating Tools (Approval-Gated)**:
   * `write_file`, `delete_file`: Menulis atau menghapus file di disk.
   * **Verifikasi Server-Side** (`lib/toolApproval.ts`): eksekusi hanya berjalan jika record approval di database server berstatus `approved`, untuk tool yang sama dan **argumen yang identik (path dan content)**, berusia maksimal 5 menit, dan belum terpakai. Approval dikonsumsi sekali (aman terhadap permintaan paralel), dan penggabungan sinkronisasi bersifat monoton sehingga salinan basi dari tab lain tidak bisa menghidupkan kembali approval yang sudah terpakai.
-  * **Batas jaminan**: record approval berada di database yang sama yang bisa ditulis pemanggil same-origin lewat `/api/db`. Gerbang ini adalah konfirmasi + perlindungan replay, **bukan** batas autentikasi; yang menjaga pemanggil luar adalah gerbang permintaan (bagian 12).
+  * **Batas jaminan**: record approval berada di database yang sama yang bisa ditulis pemanggil same-origin lewat `/api/db`. Gerbang ini adalah konfirmasi + perlindungan replay, **bukan** batas autentikasi; yang menjaga pemanggil luar adalah gerbang permintaan (bagian 11).
 
-### 5.3 One-Click Revert & Rollback
+### 4.3 One-Click Revert & Rollback
 * **Implementasi**: `app/api/tools/revert/route.ts` (snapshot `previousContent` disimpan pada record approval, lihat `lib/types.ts`).
 * **Mekanisme**: Saat operasi `write_file` disetujui, sistem menyimpan snapshot konten berkas sebelumnya. Pengguna dapat membatalkan perubahan (*rollback*) kapan saja dengan satu klik. Sistem otomatis menolak rollback jika berkas telah dimodifikasi oleh proses lain di luar aplikasi untuk mencegah konflik data.
 
-### 5.4 Matriks Pertahanan SSRF & Path Sandboxing
+### 4.4 Matriks Pertahanan SSRF & Path Sandboxing
 * **Kebijakan IP (`lib/ipPolicy.ts`)**: daftar *allow* alamat unicast global. Semua blok khusus (loopback, RFC1918, CGNAT `100.64/10`, link-local, multicast, `::`, NAT64, 6to4, Teredo, rentang dokumentasi) diblokir, termasuk IPv4 yang tertanam di IPv6.
 * **SSRF Defense (`lib/ssrfGuard.ts`, `lib/safeFetch.ts`)**: `safeFetch` me-resolve DNS sekali per hop, memeriksa semua alamat, **mem-pin koneksi TCP ke alamat yang sudah divalidasi** (menutup DNS-rebinding), mengikuti redirect secara manual dengan validasi ulang tiap hop (maks. 5), dan membatasi ukuran body. Dipakai oleh webhook connectors, ingesti URL, scraper pencarian, dan pemindai OWASP.
 * **Proxy (`lib/proxyPaths.ts`)**: proxy Ollama dan Laya hanya me-relay path API upstream masing-masing. Host `?host=` sengaja fleksibel (LAN atau cloud) dan hanya memblokir link-local/metadata; tanpa daftar path, proxy ini bisa dipakai memanggil rute aplikasi sendiri (*confused deputy*).
@@ -193,49 +168,49 @@ Dokumen ini merupakan referensi teknis mengenai seluruh fitur dan subsistem yang
 
 ---
 
-## 6. Autonomous Scheduled Agents
+## 5. Autonomous Scheduled Agents
 
-### 6.1 Manajemen & Eksekusi Agent
+### 5.1 Manajemen & Eksekusi Agent
 * **Implementasi**: `components/AgentModal.tsx`, `components/AgentLogsModal.tsx`, `lib/agentEngine.ts`.
 * **Mekanisme**: Pengguna dapat mendefinisikan agen otonom dengan system prompt khusus, setelan model, dan akses ke tool. Agen dapat dijalankan secara langsung (*Run Now*) atau dijadwalkan secara periodik.
 
-### 6.2 Pola Penjadwalan (Scheduling)
+### 5.2 Pola Penjadwalan (Scheduling)
 * **Jadwal Harian**: Menjalankan tugas pada jam dan menit spesifik setiap hari.
 * **Interval**: Menjalankan tugas berulang setiap $N$ menit/jam (15 menit hingga 24 jam).
 * **Batasan Arsitektur**: Penjadwal berjalan pada thread tab browser (*client-side timer*), bukan sebagai daemon cron level OS. Jika tab browser tertutup pada jadwal eksekusi, agen akan mengeksekusi tugas tersebut satu kali (*catch-up*) saat tab browser dibuka kembali.
 
 ---
 
-## 7. Memori Jangka Panjang & Ekstraksi Fakta
+## 6. Memori Jangka Panjang & Ekstraksi Fakta
 
-### 7.1 Ekstraksi Fakta Otomatis
+### 6.1 Ekstraksi Fakta Otomatis
 * **Implementasi**: `lib/memoryExtractor.ts`.
 * **Mekanisme**: Saat opsi diaktifkan, sistem menganalisis dialog percakapan di latar belakang menggunakan model lokal untuk mengekstraksi fakta penting dan preferensi pengguna yang bersifat tahan lama (*durable facts*).
 
-### 7.2 Pembersihan Kredensial Sensitif
+### 6.2 Pembersihan Kredensial Sensitif
 * **Mekanisme**: Seluruh teks yang diproses oleh modul memori disaring terlebih dahulu melalui ekspresi reguler pencegah kebocoran rahasia. Kunci API, token JWT, password, dan nomor kartu otomatis dibuang sebelum fakta disimpan ke database lokal.
 
 ---
 
-## 8. Pencarian Web Terpadu (Dual-Engine Scraper)
+## 7. Pencarian Web Terpadu (Dual-Engine Scraper)
 
-### 8.1 Scraping Paralel Tanpa API Key Eksternal
+### 7.1 Scraping Paralel Tanpa API Key Eksternal
 * **Implementasi**: `lib/webSearchEngine.ts`, `app/api/search/route.ts`.
 * **Mekanisme**: Menggabungkan hasil pencarian secara paralel dari mesin pencari publik (Bing & DuckDuckGo HTML scraping), ditambah Google News RSS untuk kueri berita dan Wikipedia untuk kueri konsep, tanpa mewajibkan langganan API berbayar. Hasil dari kedua sumber digabungkan, disaring dari duplikasi (*deduplicated*), dan diurutkan kembali.
 
-### 8.2 Resolusi Kueri Multi-Turn & Bobot Domain Teknis
+### 7.2 Resolusi Kueri Multi-Turn & Bobot Domain Teknis
 * **Mekanisme**: Memperluas kueri pengguna dengan konteks turn sebelumnya untuk menangani pertanyaan rujukan (misal: "bagaimana cara instalasinya?"). Memberikan bobot relevansi lebih tinggi (*trust boost*) pada dokumentasi teknis terverifikasi (MDN, GitHub, StackOverflow, dokumentasi resmi).
 
 ---
 
-## 9. Voice Studio & Speech Synthesis
+## 8. Voice Studio & Speech Synthesis
 
-### 9.1 Speech-to-Text (STT)
+### 8.1 Speech-to-Text (STT)
 * **Implementasi**: `components/VoiceModeModal.tsx`.
 * **Mekanisme**: Memanfaatkan antarmuka Web Speech API bawaan browser (`webkitSpeechRecognition`) untuk transkripsi audio pengguna secara real-time ke dalam prompt chat.
 * **Catatan Privasi**: Pengenalan suara Web Speech API bergantung pada layanan pemrosesan suara native dari vendor browser.
 
-### 9.2 Text-to-Speech (TTS) & Preset Intonasi
+### 8.2 Text-to-Speech (TTS) & Preset Intonasi
 * **Implementasi**: `lib/voiceEngine.ts`.
 * **Mekanisme**: Mengintegrasikan browser `speechSynthesis` dengan prioritas suara neural alami (Microsoft Natural / Google Neural). Mendukung 3 mode intonasi percakapan:
   * **Casual & Natural**: Nada santai dan interaktif.
@@ -245,51 +220,51 @@ Dokumen ini merupakan referensi teknis mengenai seluruh fitur dan subsistem yang
 
 ---
 
-## 10. Caching Respon & Persistensi Data
+## 9. Caching Respon & Persistensi Data
 
-### 10.1 Dual-Tier Response Cache
+### 9.1 Dual-Tier Response Cache
 * **Implementasi**: `lib/responseCache.ts`, `lib/serverDb.ts`, `app/api/cache/route.ts`.
 * **Tier 1 (Exact Hash)**: Pencocokan kunci dari model + prompt + system prompt memakai hash FNV-1a **64-bit** (`fnv1a64Hex` di `lib/responseCache.ts`, diuji terhadap vektor uji FNV resmi) — selalu aktif. Kunci berbentuk `pc_` + 16 heksadesimal. Hash ini non-kriptografis; cukup untuk membedakan prompt milik satu pengguna, bukan untuk input adversarial.
 * **Tier 2 (Semantic Vector)**: Menguji kedekatan kosinus vektor embedding ($\ge 0.96$). **Hanya aktif jika `Settings > Retrieval > Semantic RAG` dinyalakan** dan model embedding tersedia. Cache hit melewati proses generate sepenuhnya (tanpa token GPU), tapi lookup semantic tetap memakan waktu untuk membuat embedding kueri (timeout 1200 ms) — bukan "0 latensi". Cache dilewati saat ada konteks web search.
 * **Penyimpanan**: Map in-memory (60 entri, cepat, sinkron) di depan penyimpanan server persisten (maks. 500 entri, TTL 2 jam) di tabel SQLite `response_cache` atau file `data/response-cache.json` — terpisah dari `db.json` agar tidak membengkakkan database utama. Entri di server dibaca hanya saat Map in-memory miss. Sinkronisasi memeriksa versi lewat `readServerDbVersion()` (satu baris pada SQLite) — bukan membaca seluruh database — baik di `/api/db/stream` (tiap 2 detik per tab) maupun `GET /api/db?v=`. Lookup semantic dikirim sebagai **POST** (`{"action":"semantic-lookup"}`) karena vektor 768-dim ≈ 17 KB melebihi batas header HTTP 16 KB bila ditaruh di query string (sebelumnya selalu HTTP 431).
 * **Pengelolaan**: Tombol **Clear Response Cache** di `Settings > Data` menghapus cache in-memory sekaligus yang tersimpan di server.
 
-### 10.2 Persistensi Server-Side & Sinkronisasi Antar-Tab
+### 9.2 Persistensi Server-Side & Sinkronisasi Antar-Tab
 * **Implementasi**: `lib/serverDb.ts`, `app/api/db/stream/route.ts`.
-* **Mekanisme**: Data percakapan, project, dan pengaturan disimpan pada database lokal (SQLite dengan binding native atau fallback file JSON `data/db.json`). Cache respon sengaja **tidak** ikut di sini — lihat 10.1. Perubahan data disiarkan (*broadcast*) ke tab browser lain secara real-time menggunakan Server-Sent Events (SSE), menghindari overhead polling berkala.
+* **Mekanisme**: Data percakapan, project, dan pengaturan disimpan pada database lokal (SQLite dengan binding native atau fallback file JSON `data/db.json`). Cache respon sengaja **tidak** ikut di sini — lihat 9.1. Perubahan data disiarkan (*broadcast*) ke tab browser lain secara real-time menggunakan Server-Sent Events (SSE), menghindari overhead polling berkala.
 
 ---
 
-## 11. Manajemen Ruang Kerja & Personalisasi UI
+## 10. Manajemen Ruang Kerja & Personalisasi UI
 
-### 11.1 Projects Gallery & Knowledge Base
+### 10.1 Projects Gallery & Knowledge Base
 * **Implementasi**: `components/ProjectsGallery.tsx`, `components/ProjectModal.tsx`.
 * **Mekanisme**: Ruang kerja berbasis proyek dengan konfigurasi RAG per-proyek (ukuran chunk, overlap, top-K, perbandingan bobot leksikal vs semantik).
 
-### 11.2 Catatan Pribadi (Journal)
+### 10.2 Catatan Pribadi (Journal)
 * **Implementasi**: `components/JournalView.tsx`.
 * **Mekanisme**: Modul pencatatan terstruktur yang terpisah dari sesi chat dengan kategori (`daily`, `task`, `idea`, `project`, `quick`), status (`draft`, `in_progress`, `done`, `archived`) dan prioritas, checklist interaktif, serta integrasi satu klik untuk mengirim catatan ke sesi chat sebagai bahan diskusi AI.
 
-### 11.3 Visualisasi Knowledge Graph
+### 10.3 Visualisasi Knowledge Graph
 * **Implementasi**: `components/KnowledgeGraphModal.tsx`.
 * **Mekanisme**: Visualisasi graf interaktif berbasis canvas (*force-directed layout*) yang memetakan hubungan antar-entitas internal aplikasi: Proyek, Berkas Dokumen, Catatan Jurnal, dan Tag. Memungkinkan navigasi cepat ke entitas terkait saat sebuah node diklik.
 
-### 11.4 Palet Tema & Tipografi
+### 10.4 Palet Tema & Tipografi
 * **Implementasi**: `components/SettingsModal.tsx`, `app/globals.css`, `lib/types.ts` (`ThemeType`).
 * **Mekanisme**: tema `light`, `dark`, `system`, `claude`, `oled`, `dracula`, `catppuccin`, `tokyo-night`, `rose-pine`, `cyberpunk`, `forest`, `sunset`, `nord`, ditambah palet kustom (`custom`). Didukung pemilih tipografi font dan kontrol lebar antarmuka (*fluid / centered*). Font web dimuat dari Google Fonts (lihat `app/layout.tsx`), sehingga tampilan font bergantung pada koneksi internet.
 
 ---
 
-## 12. Keamanan Permintaan & Jaringan
+## 11. Keamanan Permintaan & Jaringan
 
-### 12.1 Gerbang Permintaan (Tiga Lapis)
+### 11.1 Gerbang Permintaan (Tiga Lapis)
 * **Implementasi**: `middleware.ts`, `lib/requestGuard.ts`, `tests/requestGuard.test.ts`.
 * **Lapis 1 — Allowlist `Host`** (semua path): hanya `localhost`, literal IP, nama satu-label (LAN), `*.local`, `*.localhost`, domain tunnel Pinggy, dan isi `ALLOWED_HOSTS`. Mencegah *DNS-rebinding*: halaman di situs lain bisa membuat browser menganggap aplikasi ini *same-origin* dan membaca `NEXT_PUBLIC_APP_ACCESS_TOKEN` dari bundle JS, tetapi tidak bisa memalsukan header `Host`.
-* **Lapis 2 — Wajib same-origin**: untuk semua method mutasi di `/api/*`, dan untuk semua method pada `/api/codespace`, `/api/tools`, `/api/fs`, `/api/db`, `/api/connectors`. Memakai `Sec-Fetch-Site` (hanya `same-origin`/`none` lolos; `same-site` ditolak karena server dev lain di port berbeda juga *same-site*), dengan cadangan pemeriksaan `Origin` vs `Host`. Origin eksternal hanya lolos jika sama persis dengan `ALLOW_EXTERNAL_ORIGIN`.
+* **Lapis 2 — Wajib same-origin**: untuk semua method mutasi di `/api/*`, dan untuk semua method pada `/api/tools`, `/api/fs`, `/api/db`, `/api/connectors`. Memakai `Sec-Fetch-Site` (hanya `same-origin`/`none` lolos; `same-site` ditolak karena server dev lain di port berbeda juga *same-site*), dengan cadangan pemeriksaan `Origin` vs `Host`. Origin eksternal hanya lolos jika sama persis dengan `ALLOW_EXTERNAL_ORIGIN`.
 * **Lapis 3 — Bearer token** `APP_ACCESS_TOKEN` (opsional): dibandingkan dalam waktu konstan dengan kode murni JS. Middleware berjalan di Edge Runtime, sehingga tidak boleh mengimpor modul Node seperti `crypto`; test statis menjaga hal ini (sebelumnya token yang benar pun menghasilkan HTTP 500). Rute SSE `/api/db/stream` menerima `?token=` karena `EventSource` tidak bisa mengirim header.
 * **Batasan**: lapis 3 nonaktif jika token tidak diset. Token juga terekspos ke browser (`NEXT_PUBLIC_*`), jadi ia pengunci pintu, bukan rahasia.
 
-### 12.2 Mode LAN & Tunnel Publik
+### 11.2 Mode LAN & Tunnel Publik
 * **Implementasi**: `scripts/tunnel.mjs`, `scripts/loadEnv.mjs`, `scripts/warnOpenAccess.mjs`.
 * **Mode LAN**: `npm run dev:lan`, `start:lan` (dan `dev:all:lan`, `prod:all:lan` lewat `scripts/launch.mjs`) **menolak berjalan tanpa `APP_ACCESS_TOKEN`** (override sadar: `ALLOW_OPEN_LAN=1`). Pemeriksaan dirantai langsung di script (`node scripts/warnOpenAccess.mjs --lan && next …`), bukan lewat hook `pre*`, karena `.npmrc` memakai `ignore-scripts=true` yang membuat npm melewati hook tersebut. Launcher juga tidak meneruskan API key/token ke proses Python Laya dan mendeteksi Python tanpa shell (aman untuk path berspasi).
 * **Mekanisme tunnel**: `npm run tunnel` membuka tunnel SSH ke Pinggy dan menampilkan URL + QR. Menolak berjalan tanpa `APP_ACCESS_TOKEN` (dibaca dari lingkungan **dan** `.env.local`), memperingatkan bila `NEXT_PUBLIC_APP_ACCESS_TOKEN` tidak cocok, dan memakai `StrictHostKeyChecking=accept-new` (kunci host dipercaya saat pertama kali, ditolak bila berubah).
