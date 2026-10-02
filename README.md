@@ -77,7 +77,7 @@ None of this has been benchmarked against other tools — the claims above descr
 ## Quick Start
 
 ### 1. Prerequisites
-- **Node.js** 20.19+ (22 LTS recommended — the SQLite backend needs Node 22, and running TypeScript in the Codespace runner needs 22.6+; on Node 20 the app works but stores data in `data/db.json`)
+- **Node.js** 20.19+ (22 LTS recommended — the SQLite backend needs Node 22; on Node 20 the app works but stores data in `data/db.json`)
 - **[Ollama](https://ollama.com/)** running locally:
   ```bash
   ollama serve

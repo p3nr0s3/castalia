@@ -30,6 +30,8 @@ export const viewport: Viewport = {
   interactiveWidget: "resizes-content",
 };
 
+import { ToastContainer } from "@/components/Toast";
+
 export default function RootLayout({
   children,
 }: {
@@ -50,6 +52,7 @@ export default function RootLayout({
       </head>
       <body suppressHydrationWarning className="antialiased h-[100dvh] w-full max-w-full overflow-hidden bg-[var(--background)] text-[var(--foreground)] selection:bg-blue-500 selection:text-white touch-manipulation">
         {children}
+        <ToastContainer />
       </body>
     </html>
   );

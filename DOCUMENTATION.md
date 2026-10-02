@@ -36,14 +36,13 @@ Aplikasi web untuk satu pengguna yang menjalankan model lokal via **Ollama** (at
 | Model | Ollama lokal + OpenAI, Anthropic, Gemini, Groq, DeepSeek, OpenRouter, endpoint OpenAI-kompatibel kustom | FEATURES §1.1 |
 | Inferensi | Bucket konteks, sampling adaptif, *prefix pinning*, pembongkaran model embedding, (opsional) Laya System-1 | FEATURES §2 |
 | RAG | BM25 + vektor dengan RRF, re-ranking, *stitching* chunk, verifikator sitasi, *folder watcher* | FEATURES §3 |
-| Codespace | Pyodide di browser atau subproses server | FEATURES §4 |
-| Tools & agen | `read_file`/`write_file`/dll. dengan *approval gate* dan revert; agen terjadwal | FEATURES §5–6 |
-| Memori | Ekstraksi fakta durable dengan penyaringan kredensial | FEATURES §7 |
-| Pencarian web | Google News RSS, Bing, DuckDuckGo, Wikipedia, pembaca halaman | FEATURES §8 |
-| Suara | Web Speech API + `speechSynthesis` | FEATURES §9 |
-| Cache & sinkronisasi | Cache respons dua tingkat; sinkronisasi antar-tab/perangkat via SSE | FEATURES §10 |
-| Workspace | Projects, Journal, Knowledge Graph, 13 tema + palet kustom | FEATURES §11 |
-| Keamanan | Allowlist `Host`, wajib same-origin, token opsional, SSRF, sandbox path | FEATURES §12, README, [SECURITY.md](SECURITY.md) |
+| Tools & agen | `read_file`/`write_file`/dll. dengan *approval gate* dan revert; agen terjadwal | FEATURES §4–5 |
+| Memori | Ekstraksi fakta durable dengan penyaringan kredensial | FEATURES §6 |
+| Pencarian web | Google News RSS, Bing, DuckDuckGo, Wikipedia, pembaca halaman | FEATURES §7 |
+| Suara | Web Speech API + `speechSynthesis` | FEATURES §8 |
+| Cache & sinkronisasi | Cache respons dua tingkat; sinkronisasi antar-tab/perangkat via SSE | FEATURES §9 |
+| Workspace | Projects, Journal, Knowledge Graph, 13 tema + palet kustom | FEATURES §10 |
+| Keamanan | Allowlist `Host`, wajib same-origin, token opsional, SSRF, sandbox path | FEATURES §11, README, [SECURITY.md](SECURITY.md) |
 
 Sinkronisasi multi-perangkat: data percakapan, project, agen, dan pengaturan disimpan di server; perubahan disiarkan lewat Server-Sent Events (`/api/db/stream`, server memeriksa nomor versi tiap 2 detik lewat `readServerDbVersion()` tanpa memuat seluruh database) sehingga tab/perangkat lain memuat ulang saat ada perubahan. Riwayat lama di browser diunggah otomatis pada pembukaan pertama.
 
@@ -64,7 +63,7 @@ graph TD
         LayaProxy["/api/laya/*"]
         Cloud["/api/cloud/chat"]
         Search["/api/search, /api/projects/ingest-url, /api/scan"]
-        Tools["/api/tools/*, /api/fs, /api/codespace/run"]
+        Tools["/api/tools/*, /api/fs"]
         DB["/api/db, /api/db/stream, /api/cache"]
     end
 
@@ -96,7 +95,7 @@ Semua permintaan ke `/api/*` melewati `middleware.ts`. Permintaan keluar yang di
 ## Instalasi & Menjalankan
 
 ### Prasyarat
-- [Node.js](https://nodejs.org/) **20.19+** (22 LTS disarankan: backend SQLite membutuhkan Node 22, dan TypeScript di Codespace membutuhkan 22.6+; di Node 20 data disimpan di `data/db.json`).
+- [Node.js](https://nodejs.org/) **20.19+** (22 LTS disarankan: backend SQLite membutuhkan Node 22; di Node 20 data disimpan di `data/db.json`).
 - [Ollama](https://ollama.com/) berjalan (`http://127.0.0.1:11434`).
 
 ### Menjalankan
@@ -209,9 +208,8 @@ Test suite: `tests/localAppBridge.test.ts` (18 test — siklus token, endpoint c
 ```text
 lyra/
 ├── app/
-│   ├── api/                     # Route Handlers: cache, cloud, codespace, connectors, db, fs,
+│   ├── api/                     # Route Handlers: cache, cloud, connectors, db, fs,
 │   │                            #   laya, memory, ollama, projects, scan, search, tools
-│   ├── codespace/page.tsx       # Halaman Codespace
 │   ├── globals.css              # Variabel CSS tema
 │   ├── layout.tsx               # Metadata, viewport, font
 │   └── page.tsx                 # State utama, siklus chat, RAG

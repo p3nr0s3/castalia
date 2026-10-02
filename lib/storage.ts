@@ -2,6 +2,7 @@ import { AppSettings, Conversation, PersonaPreset, Project, AgentTask, PendingAp
 import { apiFetch } from "./apiClient";
 import { DEFAULT_SETTINGS, PRESET_PERSONAS } from "./constants";
 import { DEFAULT_CONNECTORS } from "./directoryData";
+import { idbGet, idbSet, idbDelete } from "./idbStorage";
 
 const STORAGE_KEYS = {
   CONVERSATIONS: "ollama_chat_conversations",
@@ -75,6 +76,51 @@ export const storage = {
     }, 400);
   },
 
+  // --- IndexedDB Async Hydration Helper ---
+  async loadClientDbAsync(): Promise<{
+    conversations?: Conversation[];
+    projects?: Project[];
+    agents?: AgentTask[];
+    journalEntries?: JournalEntry[];
+    settings?: AppSettings;
+    personas?: PersonaPreset[];
+    pendingApprovals?: PendingApproval[];
+  }> {
+    if (typeof window === "undefined") return {};
+    try {
+      const [
+        conversations,
+        projects,
+        agents,
+        journalEntries,
+        settings,
+        personas,
+        pendingApprovals,
+      ] = await Promise.all([
+        idbGet<Conversation[]>(STORAGE_KEYS.CONVERSATIONS),
+        idbGet<Project[]>(STORAGE_KEYS.PROJECTS),
+        idbGet<AgentTask[]>(STORAGE_KEYS.AGENTS),
+        idbGet<JournalEntry[]>(STORAGE_KEYS.JOURNAL),
+        idbGet<AppSettings>(STORAGE_KEYS.SETTINGS),
+        idbGet<PersonaPreset[]>(STORAGE_KEYS.PERSONAS),
+        idbGet<PendingApproval[]>(STORAGE_KEYS.PENDING_APPROVALS),
+      ]);
+
+      return {
+        conversations: conversations || undefined,
+        projects: projects || undefined,
+        agents: agents || undefined,
+        journalEntries: journalEntries || undefined,
+        settings: settings || undefined,
+        personas: personas || undefined,
+        pendingApprovals: pendingApprovals || undefined,
+      };
+    } catch (e) {
+      console.warn("[storage] IndexedDB loadClientDbAsync failed:", e);
+      return {};
+    }
+  },
+
   // --- Local Storage Cache & Helpers ---
   getConversations(): Conversation[] {
     if (typeof window === "undefined") return [];
@@ -89,13 +135,26 @@ export const storage = {
 
   saveConversations(conversations: Conversation[], syncServer = true): void {
     if (typeof window === "undefined") return;
+
+    // 1. Asynchronously persist full data to IndexedDB (virtually unlimited quota)
+    idbSet(STORAGE_KEYS.CONVERSATIONS, conversations).catch((err) => {
+      console.warn("[storage] IndexedDB saveConversations error:", err);
+    });
+
+    // 2. Cache in localStorage for fast synchronous reads, with quota protection
     try {
       localStorage.setItem(STORAGE_KEYS.CONVERSATIONS, JSON.stringify(conversations));
-      if (syncServer) {
-        this.debouncedSyncToServer({ conversations });
+    } catch (e: any) {
+      if (e?.name === "QuotaExceededError" || e?.code === 22) {
+        console.warn("[storage] localStorage quota exceeded; preserving full conversation history in IndexedDB and server database.");
+      } else {
+        console.error("Failed to save conversations to localStorage:", e);
       }
-    } catch (e) {
-      console.error("Failed to save conversations to localStorage:", e);
+    }
+
+    // 3. Synchronize to server database
+    if (syncServer) {
+      this.debouncedSyncToServer({ conversations });
     }
   },
 
@@ -126,13 +185,16 @@ export const storage = {
 
   saveProjects(projects: Project[], syncServer = true): void {
     if (typeof window === "undefined") return;
+    idbSet(STORAGE_KEYS.PROJECTS, projects).catch(() => {});
     try {
       localStorage.setItem(STORAGE_KEYS.PROJECTS, JSON.stringify(projects));
-      if (syncServer) {
-        this.debouncedSyncToServer({ projects });
+    } catch (e: any) {
+      if (e?.name !== "QuotaExceededError" && e?.code !== 22) {
+        console.error("Failed to save projects to localStorage:", e);
       }
-    } catch (e) {
-      console.error("Failed to save projects:", e);
+    }
+    if (syncServer) {
+      this.debouncedSyncToServer({ projects });
     }
   },
 
@@ -149,13 +211,16 @@ export const storage = {
 
   saveAgents(agents: AgentTask[], syncServer = true): void {
     if (typeof window === "undefined") return;
+    idbSet(STORAGE_KEYS.AGENTS, agents).catch(() => {});
     try {
       localStorage.setItem(STORAGE_KEYS.AGENTS, JSON.stringify(agents));
-      if (syncServer) {
-        this.debouncedSyncToServer({ agents });
+    } catch (e: any) {
+      if (e?.name !== "QuotaExceededError" && e?.code !== 22) {
+        console.error("Failed to save agents to localStorage:", e);
       }
-    } catch (e) {
-      console.error("Failed to save agents:", e);
+    }
+    if (syncServer) {
+      this.debouncedSyncToServer({ agents });
     }
   },
 
@@ -197,13 +262,16 @@ export const storage = {
 
   saveJournalEntries(entries: JournalEntry[], syncServer = true): void {
     if (typeof window === "undefined") return;
+    idbSet(STORAGE_KEYS.JOURNAL, entries).catch(() => {});
     try {
       localStorage.setItem(STORAGE_KEYS.JOURNAL, JSON.stringify(entries));
-      if (syncServer) {
-        this.debouncedSyncToServer({ journalEntries: entries });
+    } catch (e: any) {
+      if (e?.name !== "QuotaExceededError" && e?.code !== 22) {
+        console.error("Failed to save journal entries to localStorage:", e);
       }
-    } catch (e) {
-      console.error("Failed to save journal entries:", e);
+    }
+    if (syncServer) {
+      this.debouncedSyncToServer({ journalEntries: entries });
     }
   },
 
@@ -220,13 +288,16 @@ export const storage = {
 
   savePendingApprovals(approvals: PendingApproval[], syncServer = true): void {
     if (typeof window === "undefined") return;
+    idbSet(STORAGE_KEYS.PENDING_APPROVALS, approvals).catch(() => {});
     try {
       localStorage.setItem(STORAGE_KEYS.PENDING_APPROVALS, JSON.stringify(approvals));
-      if (syncServer) {
-        this.debouncedSyncToServer({ pendingApprovals: approvals });
+    } catch (e: any) {
+      if (e?.name !== "QuotaExceededError" && e?.code !== 22) {
+        console.error("Failed to save pending approvals to localStorage:", e);
       }
-    } catch (e) {
-      console.error("Failed to save pending approvals:", e);
+    }
+    if (syncServer) {
+      this.debouncedSyncToServer({ pendingApprovals: approvals });
     }
   },
 
@@ -240,6 +311,7 @@ export const storage = {
    */
   async savePendingApprovalsSync(approvals: PendingApproval[]): Promise<void> {
     if (typeof window === "undefined") return;
+    idbSet(STORAGE_KEYS.PENDING_APPROVALS, approvals).catch(() => {});
     try {
       localStorage.setItem(STORAGE_KEYS.PENDING_APPROVALS, JSON.stringify(approvals));
     } catch (e) {

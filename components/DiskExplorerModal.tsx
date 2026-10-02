@@ -5,6 +5,7 @@ import { apiFetch } from "../lib/apiClient";
 import { X, Folder, FolderOpen, FileText, HardDrive, ArrowUp, MagnifyingGlass as Search, Check, Plus, ArrowsClockwise as RefreshCw, Sparkle as Sparkles, Download, WarningCircle as AlertCircle, FileCode, FileXls as FileSpreadsheet, ArrowBendDownRight as CornerDownRight } from "@phosphor-icons/react";
 import { formatBytes } from "@/lib/ollama";
 import { Attachment, Project, ProjectFile } from "@/lib/types";
+import { toast } from "@/lib/toast";
 
 interface DiskItem {
   name: string;
@@ -93,7 +94,7 @@ export const DiskExplorerModal: React.FC<DiskExplorerModalProps> = ({
       const data = await res.json();
 
       if (!res.ok) {
-        alert(`Failed to read file: ${data.error}`);
+        toast.error(`Failed to read file: ${data.error}`);
         return;
       }
 
@@ -109,7 +110,7 @@ export const DiskExplorerModal: React.FC<DiskExplorerModalProps> = ({
       onAttachFileToChat(attachment);
       setAddedFilePaths((prev) => new Set(prev).add(item.path));
     } catch (err: any) {
-      alert(`Error reading file: ${err.message}`);
+      toast.error(`Error reading file: ${err.message}`);
     } finally {
       setReadingFile(false);
     }
@@ -127,7 +128,7 @@ export const DiskExplorerModal: React.FC<DiskExplorerModalProps> = ({
       const data = await res.json();
 
       if (!res.ok) {
-        alert(`Failed to read file: ${data.error}`);
+        toast.error(`Failed to read file: ${data.error}`);
         return;
       }
 
@@ -143,7 +144,7 @@ export const DiskExplorerModal: React.FC<DiskExplorerModalProps> = ({
       onAddFileToProject(projFile);
       setAddedFilePaths((prev) => new Set(prev).add(item.path));
     } catch (err: any) {
-      alert(`Error: ${err.message}`);
+      toast.error(`Error: ${err.message}`);
     } finally {
       setReadingFile(false);
     }
@@ -161,14 +162,14 @@ export const DiskExplorerModal: React.FC<DiskExplorerModalProps> = ({
       const data = await res.json();
 
       if (!res.ok) {
-        alert(`Failed to read file: ${data.error}`);
+        toast.error(`Failed to read file: ${data.error}`);
         return;
       }
 
       onAskAboutFile(data.name, data.content);
       onClose();
     } catch (err: any) {
-      alert(`Error: ${err.message}`);
+      toast.error(`Error: ${err.message}`);
     } finally {
       setReadingFile(false);
     }

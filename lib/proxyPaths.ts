@@ -4,8 +4,8 @@
  *
  * `?host=` on those routes is user-configurable (LAN or even cloud-hosted
  * Ollama), so the HOST check cannot be strict. Without a path check the
- * proxy is a confused deputy: `/api/ollama/api/codespace/run?host=http://
- * 127.0.0.1:3000` makes the SERVER call its own code-execution route, and
+ * proxy is a confused deputy: `/api/ollama/api/tools/execute?host=http://
+ * 127.0.0.1:3000` makes the SERVER call its own mutating tools route, and
  * that server-to-server request carries no Sec-Fetch-Site/Origin headers,
  * so it sailed past the cross-site protection (verified end to end).
  * Restricting the relayed path to the upstream's real API closes that.

@@ -15,6 +15,7 @@ import {
   ToneMode,
 } from "@/lib/voiceEngine";
 import { PixelEyesAvatar } from "./PixelEyesAvatar";
+import { toast } from "@/lib/toast";
 
 export type VoiceCallStatus = "idle" | "listening" | "thinking" | "speaking";
 
@@ -205,7 +206,7 @@ export const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
     if (!SpeechRecognition) {
-      alert("Browser Anda belum mendukung Speech Recognition. Gunakan Google Chrome, Microsoft Edge, atau Safari.");
+      toast.warning("Browser Anda belum mendukung Speech Recognition. Gunakan Google Chrome, Microsoft Edge, atau Safari.");
       return;
     }
 

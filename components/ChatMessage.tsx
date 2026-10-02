@@ -12,6 +12,7 @@ import { DiffPreview } from "./DiffPreview";
 import { OwaspSecurityCard } from "./OwaspSecurityCard";
 import { formatBytes } from "@/lib/ollama";
 import { speakIndonesianFemale, stopSpeaking } from "@/lib/voiceEngine";
+import { toast } from "@/lib/toast";
 
 const CodeBlock = dynamic(() => import("./CodeBlock").then((mod) => mod.CodeBlock), {
   ssr: false,
@@ -126,7 +127,7 @@ const ChatMessageComponent: React.FC<ChatMessageProps> = ({
   // Web Speech Synthesis Text-to-Speech (TTS) using Indonesian female voice
   const handleToggleSpeech = () => {
     if (typeof window === "undefined" || !("speechSynthesis" in window)) {
-      alert("Text-to-Speech is not supported in this browser.");
+      toast.warning("Text-to-Speech is not supported in this browser.");
       return;
     }
 

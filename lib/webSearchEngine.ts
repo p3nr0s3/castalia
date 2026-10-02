@@ -792,7 +792,22 @@ export function filterAndScoreResults(
 }
 
 /**
- * Built-in search engine powered by high-speed organic result parsing with locale awareness.
+ * Modern browser User-Agent pool for realistic scraping request headers.
+ */
+const BROWSER_USER_AGENTS = [
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:132.0) Gecko/20100101 Firefox/132.0",
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0",
+];
+
+export function getRandomBrowserUserAgent(): string {
+  const idx = Math.floor(Math.random() * BROWSER_USER_AGENTS.length);
+  return BROWSER_USER_AGENTS[idx];
+}
+
+/**
+ * Searches Bing web using localized query parameters and scrapes organic results.
  */
 export async function searchBingEngine(
   cleanQuery: string,
@@ -809,10 +824,17 @@ export async function searchBingEngine(
 
     const res = await fetch(bingUrl, {
       headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "User-Agent": getRandomBrowserUserAgent(),
         "Accept-Language": acceptLang,
-        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Sec-Ch-Ua": '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+        "Sec-Ch-Ua-Mobile": "?0",
+        "Sec-Ch-Ua-Platform": '"Windows"',
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Sec-Fetch-User": "?1",
+        "Upgrade-Insecure-Requests": "1",
       },
       signal: AbortSignal.timeout(4500),
     });
@@ -845,8 +867,17 @@ export async function searchBingEngine(
         }
       }
 
+      // Robust snippet extraction: check paragraph first, then fallback to caption or snippet container
+      let snippet = "";
       const pMatch = block.match(/<p[^>]*>([\s\S]*?)<\/p>/i);
-      const snippet = pMatch ? cleanHtml(pMatch[1]) : "";
+      if (pMatch) {
+        snippet = cleanHtml(pMatch[1]);
+      } else {
+        const capMatch = block.match(/<div\b[^>]*class="[^"]*(?:b_caption|b_snippet|b_lineclamp\d*)[^"]*"[^>]*>([\s\S]*?)<\/div>/i);
+        if (capMatch) {
+          snippet = cleanHtml(capMatch[1]);
+        }
+      }
 
       if (decodedUrl && title && !results.some((r) => r.url === decodedUrl)) {
         results.push({
@@ -904,11 +935,18 @@ export async function searchDuckDuckGoEngine(
     const res = await fetch(ddgUrl, {
       method: "POST",
       headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "User-Agent": getRandomBrowserUserAgent(),
         "Accept-Language": acceptLang,
         Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Content-Type": "application/x-www-form-urlencoded",
+        "Sec-Ch-Ua": '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+        "Sec-Ch-Ua-Mobile": "?0",
+        "Sec-Ch-Ua-Platform": '"Windows"',
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "same-origin",
+        "Sec-Fetch-User": "?1",
+        "Upgrade-Insecure-Requests": "1",
       },
       body: `q=${encodeURIComponent(cleanQuery)}&kl=${region}`,
       signal: AbortSignal.timeout(4500),
@@ -920,20 +958,7 @@ export async function searchDuckDuckGoEngine(
 
     // Cross-checked against several independently-maintained DDG HTML-endpoint
     // scrapers (Rust crates, HF spaces, as of 2026) to confirm result__a /
-    // result__snippet / results_links are still the right class names. What
-    // was NOT safe to assume: exact div nesting depth. The previous version
-    // of this regex required precisely 3 consecutive closing </div> tags to
-    // close the result container — if DuckDuckGo's real markup nests one
-    // level shallower or deeper (a wrapper div added for an A/B test, an ad
-    // slot, accessibility markup, etc.), that assumption breaks silently and
-    // this whole engine returns zero results with no visible error.
-    //
-    // Instead of counting closing tags, split on each result's OPENING tag
-    // (a single class-name match, not a depth count) and take everything up
-    // to the next result's opening tag as that result's chunk. This can't be
-    // broken by a nesting-depth change — only by the class name itself
-    // disappearing, which the anomaly-detection check below already guards
-    // against reporting silently.
+    // result__snippet / results_links are still the right class names.
     const containerOpenRegex = /<div class="result[^"]*results_links[^"]*"[^>]*>/gi;
     const openMatches = [...html.matchAll(containerOpenRegex)];
     const MAX_CHUNK_LENGTH = 20000; // defensive cap in case a match is sparse/malformed
@@ -949,7 +974,7 @@ export async function searchDuckDuckGoEngine(
       const decodedUrl = decodeDuckDuckGoUrl(linkMatch[1]);
       const title = cleanHtml(linkMatch[2]);
 
-      const snippetMatch = block.match(/<a[^>]*class="result__snippet"[^>]*>([\s\S]*?)<\/a>/i);
+      const snippetMatch = block.match(/<(?:a|div|span|td)[^>]*class="[^"]*result__snippet[^"]*"[^>]*>([\s\S]*?)<\/(?:a|div|span|td)>/i);
       const snippet = snippetMatch ? cleanHtml(snippetMatch[1]) : "";
 
       if (decodedUrl.startsWith("http") && title && !results.some((r) => r.url === decodedUrl)) {
@@ -963,11 +988,6 @@ export async function searchDuckDuckGoEngine(
     }
 
     if (results.length === 0) {
-      // "Unfortunately, bots use DuckDuckGo too" is DuckDuckGo's actual
-      // bot-challenge copy (confirmed against other scrapers' literal checks
-      // for it) — checked alongside the previous generic anomaly/unusual
-      // activity wording rather than replacing it, in case either phrasing
-      // is currently live.
       if (/anomaly|unusual activity|Unfortunately, bots use DuckDuckGo too/i.test(html)) {
         console.warn("[search] DuckDuckGo appears to have blocked/challenged this request (0 results parsed).");
       } else if (openMatches.length === 0) {
@@ -992,10 +1012,70 @@ export async function searchDuckDuckGoEngine(
 }
 
 /**
+ * Lightweight DuckDuckGo Lite endpoint scraper (https://lite.duckduckgo.com/lite/).
+ * Designed for text/low-bandwidth browsers; has no JS and minimal anti-bot triggers.
+ * Serves as an ultra-reliable embedded fallback when the standard DDG HTML endpoint is challenged.
+ */
+export async function searchDuckDuckGoLiteEngine(
+  cleanQuery: string,
+  locale?: { lang: string; cc: string; acceptLang: string }
+): Promise<SearchSource[]> {
+  try {
+    const acceptLang = locale?.acceptLang || "en-US,en;q=0.9";
+    const region = locale?.lang === "id" ? "id-id" : "us-en";
+    const liteUrl = "https://lite.duckduckgo.com/lite/";
+
+    const res = await fetch(liteUrl, {
+      method: "POST",
+      headers: {
+        "User-Agent": getRandomBrowserUserAgent(),
+        "Accept-Language": acceptLang,
+        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: `q=${encodeURIComponent(cleanQuery)}&kl=${region}`,
+      signal: AbortSignal.timeout(4000),
+    });
+
+    if (!res.ok) return [];
+    const html = await res.text();
+    const results: SearchSource[] = [];
+    const linkRegex = /<a\b([^>]*)class="[^"]*result-link[^"]*"([^>]*)>([\s\S]*?)<\/a>/gi;
+    let linkMatch: RegExpExecArray | null;
+
+    while ((linkMatch = linkRegex.exec(html)) !== null && results.length < 8) {
+      const fullOpenTag = `<a ${linkMatch[1]} ${linkMatch[2]}>`;
+      const hrefMatch = fullOpenTag.match(/href="([^"]+)"/i);
+      if (!hrefMatch) continue;
+      const rawHref = hrefMatch[1];
+      const decodedUrl = decodeDuckDuckGoUrl(rawHref);
+      const title = cleanHtml(linkMatch[3]);
+
+      const subHtml = html.slice(linkMatch.index + linkMatch[0].length, linkMatch.index + linkMatch[0].length + 1500);
+      const snippetMatch = subHtml.match(/<td\b[^>]*class="result-snippet"[^>]*>([\s\S]*?)<\/td>/i);
+      const snippet = snippetMatch ? cleanHtml(snippetMatch[1]) : "";
+
+      if (decodedUrl.startsWith("http") && title && !results.some((r) => r.url === decodedUrl)) {
+        results.push({
+          title,
+          url: decodedUrl,
+          snippet,
+          engine: "builtin-duckduckgo-lite",
+        });
+      }
+    }
+
+    return results;
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Runs Bing and DuckDuckGo in parallel and merges/dedupes the results, so a
- * block or markup change on one engine doesn't starve the whole query — the
- * two unofficial scrapers cover each other's blind spots instead of being
- * tried one after another with the same failure mode.
+ * block or markup change on one engine doesn't starve the whole query.
+ * If both primary scrapers return 0 results (e.g. temporary challenge or throttle),
+ * automatically cascades to DuckDuckGo Lite as an embedded fallback.
  */
 export async function searchDualEngine(
   cleanQuery: string,
@@ -1015,6 +1095,13 @@ export async function searchDualEngine(
       merged.push(item);
     }
   }
+
+  // Cascading fallback to DuckDuckGo Lite if both Bing and primary DDG return 0 results
+  if (merged.length === 0) {
+    const liteResults = await searchDuckDuckGoLiteEngine(cleanQuery, locale);
+    return liteResults;
+  }
+
   return merged;
 }
 

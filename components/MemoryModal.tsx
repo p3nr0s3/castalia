@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { X, ArrowCounterClockwise as RotateCcw, Sparkle as Sparkles, ArrowUp, Download, Trash as Trash2, PencilSimple as Edit2, Check, Plus, Info, ShieldWarning as ShieldAlert, Brain } from "@phosphor-icons/react";
 import { MemoryConfig, MemoryItem } from "@/lib/types";
+import { toast } from "@/lib/toast";
 
 interface MemoryModalProps {
   isOpen: boolean;
@@ -191,7 +192,7 @@ export const MemoryModal: React.FC<MemoryModalProps> = ({
         setImportText("");
       }
     } catch {
-      alert("Invalid JSON format. Please paste valid memory JSON.");
+      toast.error("Invalid JSON format. Please paste valid memory JSON.");
     }
   };
 

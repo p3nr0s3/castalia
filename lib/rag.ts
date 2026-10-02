@@ -5,6 +5,7 @@
 import { ProjectFile, Message, RetrievedChunkInfo } from "./types";
 import { embedTexts, cosineSimilarity, unloadEmbeddingModel } from "./embeddings";
 import { countTokens } from "./tokenizer";
+import { apiFetch } from "./apiClient";
 
 export interface DocumentChunk {
   id: string;
@@ -268,21 +269,31 @@ export function isCodeFile(fileName: string): boolean {
 export function extractDefinedSymbols(code: string): string[] {
   if (!code) return [];
   const symbols = new Set<string>();
-  const lines = code.split("\n");
+
+  // Strip multi-line block comments and docstrings upfront to prevent false-positive symbol matches
+  const cleanCode = code
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/"""[\s\S]*?"""/g, "")
+    .replace(/'''[\s\S]*?'''/g, "");
+
+  const lines = cleanCode.split("\n");
 
   const patterns: RegExp[] = [
-    // JS/TS functions: function foo(, export default function foo(
-    /(?:export\s+(?:default\s+)?)?(?:async\s+)?function\s+([a-zA-Z0-9_$]+)\s*[\(<]/,
-    // JS/TS arrow functions: const foo = ( or const foo = async (
-    /(?:export\s+)?(?:const|let|var)\s+([a-zA-Z0-9_$]+)\s*=\s*(?:async\s*)?(?:\([^)]*\)|[a-zA-Z0-9_$]+)\s*=>/,
-    // JS/TS class, interface, type, enum
-    /(?:export\s+)?(?:class|interface|type|enum)\s+([a-zA-Z0-9_$]+)/,
-    // Python def / class
+    // JS/TS functions: function foo(, export default function foo(, export async function foo<T>(
+    /(?:export\s+(?:default\s+|abstract\s+|declare\s+)?)?(?:async\s+)?function\s+([a-zA-Z0-9_$]+)\s*[\(<]/,
+    // JS/TS arrow functions (with or without TypeScript return / type annotations):
+    // const foo = (...) =>, export const MyComp: React.FC<Props> = (...) =>
+    /(?:export\s+)?(?:const|let|var)\s+([a-zA-Z0-9_$]+)(?:\s*:\s*[^=]+)?\s*=\s*(?:async\s*)?(?:\([^)]*\)|[a-zA-Z0-9_$]+)?\s*=>/,
+    // JS/TS class, interface, type, enum (including abstract / declare)
+    /(?:export\s+(?:default\s+|abstract\s+|declare\s+)?)?(?:class|interface|type|enum)\s+([a-zA-Z0-9_$]+)/,
+    // Python def / class (including async def)
     /(?:async\s+)?def\s+([a-zA-Z0-9_]+)\s*\(/,
     /class\s+([a-zA-Z0-9_]+)\s*[:\(]/,
     // Go func (receiver)? name(
     /func\s+(?:\([^)]+\)\s+)?([a-zA-Z0-9_]+)\s*\(/,
-    // Rust fn, struct, enum, trait
+    // Go type Struct / Interface definition: type User struct {, type Handler interface {
+    /type\s+([a-zA-Z0-9_]+)\s+(?:struct|interface)\b/,
+    // Rust fn, struct, enum, trait (including pub, pub(crate), async)
     /(?:pub(?:\([^)]+\))?\s+)?(?:async\s+)?(?:fn|struct|enum|trait)\s+([a-zA-Z0-9_]+)/,
   ];
 
@@ -1575,6 +1586,67 @@ export async function buildOptimizedKnowledgeContextAsync(
   return assembleContextFromRanked(files, ranked, effectiveBudget, symbolGraph, allChunks, {
     stitchAdjacent: ragOptions?.stitchAdjacent,
   });
+}
+
+/**
+ * Offloaded RAG retrieval function that first attempts to run retrieval on the
+ * server via `/api/rag/retrieve` to keep the client UI thread completely free of
+ * heavy BM25 tokenization, chunk caching, AST symbol parsing, and reranking.
+ *
+ * If the server endpoint is unreachable or fails (e.g., purely client-side/offline),
+ * it seamlessly falls back to local `buildOptimizedKnowledgeContextAsync`.
+ */
+export async function retrieveKnowledgeContextAsync(
+  files: ProjectFile[],
+  userQuery = "",
+  tokenBudget?: number,
+  embeddingOptions?: Parameters<typeof buildOptimizedKnowledgeContextAsync>[3],
+  ragOptions?: Parameters<typeof buildOptimizedKnowledgeContextAsync>[4]
+): Promise<OptimizedKnowledgeResult> {
+  if (!files || files.length === 0) {
+    return {
+      contextText: "",
+      matchedChunksCount: 0,
+      totalFilesCount: 0,
+      matchedFiles: [],
+      totalEstimatedTokens: 0,
+      isChunked: false,
+    };
+  }
+
+  // Attempt server-side offload if running in browser
+  if (typeof window !== "undefined") {
+    try {
+      const res = await apiFetch("/api/rag/retrieve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          files,
+          userQuery,
+          tokenBudget,
+          embeddingOptions,
+          ragOptions,
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && data.result) {
+          return data.result as OptimizedKnowledgeResult;
+        }
+      }
+    } catch {
+      // Fallback silently to client-side local computation
+    }
+  }
+
+  return buildOptimizedKnowledgeContextAsync(
+    files,
+    userQuery,
+    tokenBudget,
+    embeddingOptions,
+    ragOptions
+  );
 }
 
 /**

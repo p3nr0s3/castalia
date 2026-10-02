@@ -5,6 +5,7 @@ import { CaretDown as ChevronDown, ArrowsClockwise as RefreshCw, Sparkle as Spar
 import { OllamaModel, ApiKeysConfig, ModelPullProgress } from "@/lib/types";
 import { formatBytes, pullOllamaModel, deleteOllamaModel } from "@/lib/ollama";
 import { CLOUD_MODEL_PRESETS } from "@/lib/constants";
+import { toast } from "@/lib/toast";
 
 const CURATED_MODELS = [
   { id: "deepseek-r1:7b", name: "DeepSeek R1 (7B)", desc: "State-of-the-art chain-of-thought reasoning", size: "4.7 GB", tag: "Reasoning" },
@@ -86,10 +87,10 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
           if (remaining) onSelectModel(remaining.name);
         }
       } else {
-        alert("Failed to delete model from Ollama.");
+        toast.error("Failed to delete model from Ollama.");
       }
     } catch (err: any) {
-      alert(`Error deleting model: ${err.message}`);
+      toast.error(`Error deleting model: ${err.message}`);
     } finally {
       setDeletingModel(null);
     }

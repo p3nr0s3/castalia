@@ -6,6 +6,7 @@ import { Attachment, ThinkingMode, OllamaModel, ApiKeysConfig, Skill } from "@/l
 import { formatBytes, detectModelProvider, getApiKeyForProvider } from "@/lib/ollama";
 import { processSelectedFiles } from "@/lib/fileUtils";
 import { ModelSelector } from "./ModelSelector";
+import { toast } from "@/lib/toast";
 
 interface SlashCommand {
   command: string;
@@ -367,7 +368,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
   const toggleVoiceDictation = () => {
     if (!recognitionRef.current) {
-      alert("Speech recognition is not supported in this browser. Please use Chrome, Edge, or Safari.");
+      toast.warning("Speech recognition is not supported in this browser. Please use Chrome, Edge, or Safari.");
       return;
     }
 

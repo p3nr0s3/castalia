@@ -198,6 +198,23 @@ export async function POST(req: NextRequest) {
       results = filtered.slice(0, 5);
     }
 
+    // Universal Embedded Fallback: If intent-specific routing returned 0 results
+    // (e.g. anti-bot challenge on primary engines), check Google News RSS and Wikipedia
+    // to guarantee informative, zero-config results without external dependencies.
+    if (results.length === 0) {
+      const [fallbackNews, fallbackWiki] = await Promise.allSettled([
+        searchGoogleNews(cleanQuery, queryCtx.locale),
+        searchWikipedia(cleanQuery),
+      ]);
+      const newsItems = fallbackNews.status === "fulfilled" ? fallbackNews.value : [];
+      const wikiItems = fallbackWiki.status === "fulfilled" ? fallbackWiki.value : [];
+      const combinedFallback = [...newsItems, ...wikiItems];
+      results = combinedFallback.slice(0, 5);
+      if (results.length > 0) {
+        usedEngine = "builtin-fallback";
+      }
+    }
+
     // 4. Deep Page Scraping (Reader Mode): fetch and extract full text for top results
     if (deepScrape && results.length > 0) {
       let scrapedCount = 0;

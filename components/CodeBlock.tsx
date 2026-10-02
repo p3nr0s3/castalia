@@ -210,12 +210,10 @@ export const CodeBlock: React.FC<CodeBlockProps> = ({ language = "text", value }
   const [runLogs, setRunLogs] = useState<string[] | null>(null);
   const [isRunning, setIsRunning] = useState(false);
 
-  // Sandboxed iframe runner for the "Run" button below — same isolation
-  // pattern as CodespaceView.tsx's runner: code from chat (AI-generated,
+  // Sandboxed iframe runner for the "Run" button below: code from chat (AI-generated,
   // possibly influenced by web content/RAG) must never execute with this
   // page's own window/localStorage/cookies/fetch access. A distinct
-  // __codeBlockRunner message tag keeps this isolated from any
-  // CodespaceView runner that might be mounted elsewhere on the page.
+  // __codeBlockRunner message tag keeps this execution context isolated.
   const runnerIframeRef = useRef<HTMLIFrameElement>(null);
   const runIdRef = useRef(0);
   const [runnerDoc, setRunnerDoc] = useState<string | null>(null);
